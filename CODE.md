@@ -12,8 +12,9 @@ mesh as it is, to judge the method on its equations before TreeAMR grows
 what a refined forest needs.
 
 **Status.** Uniform periodic forests in any number of dimensions, any
-order `P ≥ 1`, one initial condition, on the CPU. The suite passes, also
-with `--check-bounds=yes` and with four threads.
+order `P ≥ 1`, two initial conditions (a standing sine mode and a 2D
+radial blast wave) and a viewer for the second, on the CPU. The suite
+passes, also with `--check-bounds=yes` and with four threads.
 
 **Contents**
 
@@ -31,6 +32,8 @@ with `--check-bounds=yes` and with four threads.
 - [The right-hand side](#the-right-hand-side)
 - [Truncation](#truncation)
 - [Time step](#time-step)
+- [The blast wave](#the-blast-wave)
+- [The viewer](#the-viewer)
 - [Precision](#precision)
 - [Threads and devices](#threads-and-devices)
 - [File layout](#file-layout)
@@ -38,6 +41,7 @@ with `--check-bounds=yes` and with four threads.
 - [Measured results](#measured-results)
   - [Convergence](#convergence)
   - [The RK4 limit](#the-rk4-limit)
+  - [The blast wave's error](#the-blast-waves-error)
 - [What carried over from TreeWave, and what did not](#what-carried-over-from-treewave-and-what-did-not)
 - [Possible extensions](#possible-extensions)
 - [Open questions](#open-questions)
@@ -63,8 +67,10 @@ with `--check-bounds=yes` and with four threads.
   and passes no boundary hook to `fill_ghosts!`. An outer face would need
   the paper's boundary treatment (its `Ω₀` and `Ω_{K+1}` singleton
   elements), which is not implemented.
-- **One initial condition**, the standing sine mode. TreeWave's pulse
-  and blast wave existed to exercise refinement, which is out of scope.
+- **Two initial conditions**, the standing sine mode and the 2D radial
+  blast wave, both on a uniform forest. TreeWave's travelling pulse
+  existed to exercise a moving refined region, which is out of scope, and
+  the blast wave here keeps only what does not need refinement.
 - **One `P` per run**, the same in every element. `P` adaptivity is out
   of scope in TreeAMR too (`N` is the forest's).
 - **No filter.** The paper's tunable modal filter (its eq. 76) is not
@@ -273,6 +279,61 @@ dominates the spatial error. A convergence study at higher order needs a
 smaller `cfl` or a higher-order `alg`. At `P = 5` and `cfl = 1/2` the
 rates over the measured resolutions are still 5.
 
+## The blast wave
+
+[`src/blast.jl`](src/blast.jl) is TreeWave's radial blast wave in 2D: a
+Gaussian peak `exp(-(r/σ)²)` at rest in the middle of the periodic unit
+box, `σ = 0.08`, evolved to `t = 0.4`. It splits, the ingoing half passes
+through the origin, and a single ring expands, losing amplitude to
+geometric spreading with a wake behind it. On a uniform forest it is the
+case whose feature is aligned with nothing, so it crosses element and
+block faces at every angle; that is what it adds to the sine mode.
+
+The exact solution is TreeWave's: the inverse Hankel transform of the
+Gaussian, `J₀(kr)` tabulated once on an `(r, k)` grid in `Float64`
+(`blast_reference`), contracted against `cos(kt)` and `sin(kt)` for each
+time (`blast_radial_table`), and summed over the periodic images of the
+source (`blast_exact`), since a ring that reaches the corners of the box
+is as close to an image as to the source. Its quadrature error, about
+`1e-6`, is below every error measured against it; `blast_tests.jl` checks
+it against the initial data at `t = 0`.
+
+`uniform_blast` runs it with the same truncating RK4 as `wave_errors`,
+and takes an `observer(p, t, u, ue)` called at `nsnapshots` times with
+the state and the exact state at the same nodes. What TreeWave's version
+has and this one does not: the refined annulus, the refinement criterion
+and its scales, the coverage measure, and the backend, centering and
+type options of its viewer.
+
+## The viewer
+
+`bin/visualize2d.jl` draws the blast wave, in an environment of its own
+(`bin/Project.toml`, with CairoMakie and SixelTerm) so that CairoMakie is
+not a dependency of the package, as in TreeWave:
+
+    julia --project=bin bin/visualize2d.jl [--P=4] [--E=2] [--roots=16] [--plain]
+
+It writes `bin/output/blast_2d.png` (`blast_2d_plain.png` with
+`--plain`) and shows it inline on a terminal. One figure, three parts:
+
+- a filmstrip of `u` at four times. Each block is one heatmap on cells
+  around its nodes: within an element a node's cell runs to the
+  midpoints with its neighbours, and a face node's cell ends at the face,
+  so the two nodes of a face each get the half-cell on their own side and
+  the cells tile the block. Element faces are drawn faintly and block
+  faces on top;
+- `u` against the minimum-image radius at every node of the final
+  frame, face nodes and interior nodes apart, against the exact
+  free-space profile out to `L/2`. A jump across a face shows as a face
+  node off the curve; past `L/2` the ring meets its own periodic images
+  and the exact solution stops being radial too;
+- the L∞ and L2 errors of `u` against the exact ring, and the energy
+  lost, over time.
+
+The run comes from `uniform_blast`'s observer, so the script has no
+time-stepping loop of its own. CI renders both schemes and keeps the
+figures.
+
 ## Precision
 
 The nodes are irrational from `P = 3` on, so TreeWave's rule of exact
@@ -309,8 +370,12 @@ to local memory.
 - `src/evolution.jl`: the kernels, `WaveProblem`, `wave_rhs!`,
   `initial_state`, `wave_energy`, `oldg_timestep`, `convergence_rate`.
 - `src/sinewave.jl`: the standing sine mode and its driver `wave_errors`.
-- `src/precision.jl`, `src/device.jl`: `ceilint` and `to_backend`, taken
-  from TreeWave.
+- `src/blast.jl`: the radial blast wave, its exact solution, and its
+  driver `uniform_blast`.
+- `src/precision.jl`, `src/device.jl`: `ceilint`, `floorint`, `wrap`,
+  `tofloat64` and `to_backend`, taken from TreeWave.
+- `bin/visualize2d.jl`, `bin/Project.toml`: the viewer and its
+  environment; `bin/output/` is gitignored.
 - `test/reference.jl`: dense global operators built from the element's
   tables, and the state rearranged into global arrays, which the kernels
   are checked against.
@@ -318,7 +383,9 @@ to local memory.
 `Project.toml` requires TreeAMR 0.2.6 (for `mesh_fold`) and Julia 1.13,
 as TreeWave does. `.github/workflows/CI.yml` is TreeWave's test job:
 Julia 1.13 on Linux and macOS with `--check-bounds=yes`, plus a
-four-thread cell on Linux, with coverage to Codecov.
+four-thread cell on Linux, with coverage to Codecov, and a viewer job
+that renders both blast-wave figures and uploads them, as TreeWave's
+does.
 
 ## Tests
 
@@ -344,6 +411,9 @@ four-thread cell on Linux, with coverage to Codecov.
 - `sinewave_tests.jl`: order `P` with truncation for `P = 2, 3, 4` in 1D
   and 2D; without it, `u` is more accurate; `P = 1` is first order;
   `Float32` agrees with `Float64`.
+- `blast_tests.jl`: the exact blast solution at `t = 0` is the initial
+  data to `1e-5`; from 8 to 16 blocks per dimension at `P = 3` the L2
+  error falls by more than `2³` and the energy lost stays below `1e-6`.
 
 ## Measured results
 
@@ -403,10 +473,32 @@ Laplacian, `|λ dt| ≤ 2√2`:
 The step therefore scales as `hₑ/(P+1)²` with a constant near 5, and in
 `D` dimensions as `5/√D`, which `evolution_tests.jl` checks.
 
+### The blast wave's error
+
+`uniform_blast` with `E = 2` and `roots = 4, 8, 16` blocks per
+dimension, RK4 at `cfl = 1/2`, to `t = 0.4`; L∞ and L2 errors of `u`
+and `∂ₜu` together, whose amplitude starts at about `1/σ`. Four threads,
+about a second per run at the finest.
+
+| P | truncate | L∞ errors | L2 errors | L2 rate |
+|---|---|---|---|---|
+| 2 | yes | 3.61 2.44 1.27 | 6.25e-1 5.65e-1 2.62e-1 | 0.63 |
+| 2 | no | 4.67 2.60 6.29e-1 | 8.24e-1 5.75e-1 6.12e-2 | 1.88 |
+| 3 | yes | 3.22 6.92e-1 2.06e-2 | 5.29e-1 9.02e-2 3.16e-3 | 3.69 |
+| 3 | no | 1.75 1.83e-1 2.24e-2 | 3.45e-1 2.12e-2 2.02e-3 | 3.71 |
+| 4 | yes | 5.12e-1 2.94e-2 8.83e-3 | 8.40e-2 2.79e-3 2.98e-4 | 4.07 |
+| 4 | no | 4.31e-1 7.81e-2 3.60e-3 | 7.32e-2 8.53e-3 2.17e-4 | 4.20 |
+
+The coarse meshes are not yet in the asymptotic range, with 2 to 6
+nodes across `σ`, so the rates are rough. In the viewer's default run
+(`P = 4`, 16 × 16 blocks) the error of `u` alone at `t = 0.4` is
+`1.8e-4` in L∞ and `1.5e-5` in L2, and the energy lost is `4.7e-10`.
+
 ## What carried over from TreeWave, and what did not
 
 Carried over: the equation and its variables, the periodic box, the sine
-mode and its exact solution, `WaveProblem` and the `scatter!` →
+mode and the blast wave with their exact solutions, the 2D viewer of the
+blast wave without its refinement panels, `WaveProblem` and the `scatter!` →
 `fill_ghosts!` → `map_blocks!` pattern, the pure right-hand side, the
 generic element type, the backend keyword, `ceilint` and `to_backend`,
 `convergence_rate`, and the conventions in `CLAUDE.md`.
@@ -417,9 +509,9 @@ one; positions, initial data and norms are this package's rather than
 TreeAMR's; the time step scales as `hₑ/(P+1)²` rather than `h`.
 
 Not carried over: everything about refinement (the Löhner indicator,
-`regrid!`, the tracking drivers), the pulse and blast-wave cases, the
-viewers, the benchmark, the vertex centering, and the device and
-threading test files. Löhner's indicator would also fire at every
+`regrid!`, the tracking drivers), the travelling pulse, the 1D viewer,
+the benchmark, the vertex centering, and the device and threading test
+files. Löhner's indicator would also fire at every
 element face, where the solution jumps; a refinement criterion for this
 layout would be modal (the decay of the top Legendre coefficients)
 **(proposed)**.
@@ -436,7 +528,7 @@ layout would be modal (the decay of the top Legendre coefficients)
   per dimension rather than `(P+1)^D`.
 - The paper's averaging post-processing (its eq. 98–100), which makes
   the interpolated solution continuous for plotting.
-- Viewers, a device run, and a subprocess thread-count test, as in
+- A 1D viewer, a device run, and a subprocess thread-count test, as in
   TreeWave.
 
 ## Open questions

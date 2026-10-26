@@ -46,6 +46,13 @@ julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--threads=4"])'
 Each takes about a minute. The kernels are `@inbounds`, so run the
 second one too after touching a kernel or the layout.
 
+The viewer, in its own environment (CairoMakie is not a package
+dependency), about 20 seconds; it writes `bin/output/blast_2d.png`:
+
+```bash
+julia --project=bin bin/visualize2d.jl
+```
+
 ## Sharp edges
 
 Each is the rule; the `CODE.md` section named after it has the reason.
@@ -90,5 +97,7 @@ guards.
 - CI (`.github/workflows/CI.yml`) runs the suite with
   `--check-bounds=yes` on Linux and macOS, and on four threads on Linux.
   Do not drop its `check_bounds: 'yes'` line ("The right-hand side").
-- `Manifest.toml` and `TODO.md` are gitignored. `TODO.md` is the owner's
+- `Manifest.toml` (root and `bin/`), `bin/output/` and `TODO.md` are
+  gitignored. `bin/` has its own Manifest, so after a dependency change
+  update both, or the viewer fails on an API the tests already use. `TODO.md` is the owner's
   own list: do not edit it, and move nothing into or out of it.

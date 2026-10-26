@@ -50,8 +50,15 @@ of blocks per dimension.
 ## Status
 
 A prototype. It runs on a uniform periodic forest only, in any number of
-dimensions, at any order `P ≥ 1`, and converges at order `P`. Mesh
-refinement, outer boundaries, viewers and a device run are not there yet.
+dimensions, at any order `P ≥ 1`, and converges at order `P`. Two initial
+conditions are provided, a standing sine mode and a 2D radial blast
+wave, and a viewer draws the second:
+
+```bash
+julia --project=bin bin/visualize2d.jl
+```
+
+Mesh refinement, outer boundaries and a device run are not there yet.
 
 ## Design
 

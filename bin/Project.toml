@@ -1,0 +1,14 @@
+# The viewer has its own environment so that CairoMakie, which nothing in
+# `src/` needs, never becomes a dependency of the package. The
+# `TreeWaveOLDG` source makes `julia --project=bin bin/visualize2d.jl`
+# work from a fresh checkout; TreeAMR's version is decided by the root
+# project's `[compat]`, reached through it. As in TreeWave.
+
+[deps]
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+SixelTerm = "65edfddc-f399-4499-8369-a1bd38eee2ea"
+TreeAMR = "91bc416d-811c-44c1-9bc4-b9c8bbdbbd08"
+TreeWaveOLDG = "fb68d020-27b7-494f-8744-122eb4321da9"
+
+[sources]
+TreeWaveOLDG = {path = ".."}

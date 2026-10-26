@@ -7,6 +7,7 @@ How the package got where it is, by topic in `CODE.md`'s order.
 - [Scope and non-goals](#scope-and-non-goals)
 - [The method](#the-method)
 - [Truncation](#truncation)
+- [The blast wave and the viewer](#the-blast-wave-and-the-viewer)
 - [Dependencies](#dependencies)
 
 ## Scope and non-goals
@@ -48,6 +49,17 @@ How the package got where it is, by topic in `CODE.md`'s order.
   against the plain one, truncation gives order `P` for `u` and `v`
   alike, while the plain scheme gives a smaller and faster-converging
   `u` and an irregular `v` (tables in `CODE.md`, "Convergence").
+
+## The blast wave and the viewer
+
+- 2026-10-26: Erik Schnetter asked for a 2D visualization like
+  TreeWave's radial blast wave, leaving out what this package does not
+  support (refinement, backend, centering, type). The blast wave, its
+  exact solution and TreeWave's 2D viewer were ported to the nodes; the
+  refinement panel (block count and indicator over time) became the
+  error and energy over time, and the refinement levels in the radial
+  panel became face nodes against interior nodes. SpecialFunctions
+  became a dependency, for `besselj0`.
 
 ## Dependencies
 

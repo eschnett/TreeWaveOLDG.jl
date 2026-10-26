@@ -57,3 +57,31 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           # A Codecov outage should not turn a green test run red.
           fail_ci_if_error: false
+
+  # The viewer has its own environment, so the test job above cannot
+  # exercise it. This job runs it for real and keeps the figures, so a
+  # plot that silently stops making sense is visible rather than merely
+  # unbroken. As in TreeWave.
+  viewer:
+    name: Viewer (bin/)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: julia-actions/setup-julia@v3
+        with:
+          version: "1.13"
+      - uses: julia-actions/cache@v3
+      - name: Instantiate the viewer environment
+        run: julia --project=bin -e 'using Pkg; Pkg.instantiate()'
+      - name: Render the 2D blast wave, truncated and plain
+        run: |
+          julia --project=bin bin/visualize2d.jl --no-display
+          julia --project=bin bin/visualize2d.jl --plain --no-display
+      - name: Check that every figure was written
+        run: |
+          test -s bin/output/blast_2d.png
+          test -s bin/output/blast_2d_plain.png
+      - uses: actions/upload-artifact@v7
+        with:
+          name: figures
+          path: bin/output/*.png

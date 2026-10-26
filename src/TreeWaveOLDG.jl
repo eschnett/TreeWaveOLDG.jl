@@ -20,8 +20,9 @@ to judge the method on its equations before TreeAMR grows a Gauss–Lobatto
 centering and element-local transfer operators.
 
 The reference element is in `element.jl`, the node layout and quadrature
-in `layout.jl`, the right-hand side in `evolution.jl`, and the one initial
-condition, a standing sine mode, in `sinewave.jl`. See `CODE.md` in the
+in `layout.jl`, the right-hand side in `evolution.jl`, and the two initial
+conditions, a standing sine mode and a radial blast wave, in `sinewave.jl`
+and `blast.jl`. See `CODE.md` in the
 package root for the design and the measurements.
 """
 module TreeWaveOLDG
@@ -32,6 +33,7 @@ using KernelAbstractions: @kernel, @index, @Const, Backend, CPU, get_backend,
                           allocate
 using OrdinaryDiffEqLowOrderRK: RK4
 using SciMLBase: ODEProblem, solve
+using SpecialFunctions: besselj0
 
 # The reference element
 export Element, gll_nodes_weights
@@ -46,11 +48,16 @@ export WaveProblem, wave_rhs!, truncate_state!, truncate_stage!, initial_state,
 # Initial condition: standing sine mode
 export wave_omega, wave_exact, wave_forest, wave_errors
 
+# Initial condition: radial blast wave
+export blast_initial, blast_reference, blast_radial_table, blast_exact,
+       uniform_blast
+
 include("precision.jl")
 include("device.jl")
 include("element.jl")
 include("layout.jl")
 include("evolution.jl")
 include("sinewave.jl")
+include("blast.jl")
 
 end
