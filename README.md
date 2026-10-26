@@ -1,5 +1,7 @@
 # TreeWaveOLDG.jl
 
+[![CI](https://github.com/eschnett/TreeWaveOLDG.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/eschnett/TreeWaveOLDG.jl/actions/workflows/CI.yml)
+
 `TreeWaveOLDG` solves the scalar wave equation in 2nd-order form with
 Miller and Schnetter's operator-based local discontinuous Galerkin method
 (OLDG, [arXiv:1604.00075](https://arxiv.org/abs/1604.00075)), on a

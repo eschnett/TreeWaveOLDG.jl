@@ -81,7 +81,13 @@ guards.
 
 ## Repository facts
 
-- Not yet a git repository, and not registered. TreeAMR comes from the
-  General registry, not from a local checkout.
+- `origin` is `https://github.com/eschnett/TreeWaveOLDG.jl.git`, and
+  `main` tracks it. Work on a branch; do not push, open a pull request,
+  or merge to `main` without being asked.
+- Not registered. TreeAMR comes from the General registry, not from a
+  local checkout.
+- CI (`.github/workflows/CI.yml`) runs the suite with
+  `--check-bounds=yes` on Linux and macOS, and on four threads on Linux.
+  Do not drop its `check_bounds: 'yes'` line ("The right-hand side").
 - `Manifest.toml` and `TODO.md` are gitignored. `TODO.md` is the owner's
   own list: do not edit it, and move nothing into or out of it.

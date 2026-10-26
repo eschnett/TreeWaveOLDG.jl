@@ -1,0 +1,18 @@
+# Only the actions are watched, because only the actions go stale in
+# silence: a pinned major keeps running long after a new one ships. Julia
+# is not covered because Dependabot has no Pkg ecosystem; the `[compat]`
+# bounds are floors, so new patch releases are picked up on the next
+# resolve. As in TreeWave.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    # One pull request a month for all of them, rather than one per
+    # action: these move together and are reviewed together.
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: CI

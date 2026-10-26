@@ -302,7 +302,9 @@ to local memory.
   are checked against.
 
 `Project.toml` requires TreeAMR 0.2.6 (for `mesh_fold`) and Julia 1.13,
-as TreeWave does.
+as TreeWave does. `.github/workflows/CI.yml` is TreeWave's test job:
+Julia 1.13 on Linux and macOS with `--check-bounds=yes`, plus a
+four-thread cell on Linux, with coverage to Codecov.
 
 ## Tests
 

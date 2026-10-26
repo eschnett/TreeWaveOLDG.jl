@@ -48,3 +48,5 @@ How the package got where it is, by topic in `CODE.md`'s order.
   ("Fold the diagnostics with TreeAMR 0.2.6's mesh_fold"), so TreeAMR
   0.2.6 is required for `mesh_fold`. Julia 1.13 is the floor, as for the
   other Tree* packages.
+- 2026-10-26: CI added, TreeWave's test job without its viewer job (there
+  is no `bin/`), with TreeWave's Dependabot and Codecov settings.
