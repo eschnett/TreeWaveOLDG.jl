@@ -60,7 +60,7 @@ end
 
 """
     wave_errors(T, Val(D); P, E, roots=4, L=1, m=1, cfl=1/2, periods=1/4,
-                alg=RK4(), truncate=true, backend=CPU())
+                alg=RK4, truncate=true, backend=CPU())
 
 Evolve the sine mode to `t_end` with fixed-step `alg` and return the
 quadrature-weighted L2 and nodal L∞ errors of `u` and `v` together, the
@@ -71,9 +71,14 @@ The time step is [`oldg_timestep`](@ref), `cfl · hₑ/(P+1)²`. At RK4's
 fourth order its error falls more slowly than the spatial error once
 `P > 4`, so a convergence study at higher order needs a smaller `cfl` or
 a higher-order `alg`; see "Measured results" in `CODE.md`.
+
+`alg` is an OrdinaryDiffEq algorithm *constructor*, not an instance: it
+is called with [`truncate_stage!`](@ref) as its stage and step limiter,
+so that truncation cannot be left out by passing an algorithm without
+it.
 """
 function wave_errors(::Type{T}, ::Val{D}; P::Integer, E::Integer, roots=4, L=one(T),
-                     m=1, cfl=T(1//2), periods=T(1//4), alg=RK4(),
+                     m=1, cfl=T(1//2), periods=T(1//4), alg=RK4,
                      truncate::Bool=true, backend::Backend=CPU()) where {T,D}
     forest = wave_forest(T, Val(D), P, E; roots=roots, L=L)
     el = Element(T, P)
@@ -85,7 +90,8 @@ function wave_errors(::Type{T}, ::Val{D}; P::Integer, E::Integer, roots=4, L=one
     dt = t_end / nsteps                          # land exactly on t_end
 
     prob = ODEProblem(wave_rhs!, u0, (zero(T), t_end), problem)
-    sol = solve(prob, alg; dt=dt, adaptive=false, save_everystep=false)
+    method = alg(; stage_limiter! = truncate_stage!, step_limiter! = truncate_stage!)
+    sol = solve(prob, method; dt=dt, adaptive=false, save_everystep=false)
     u = sol.u[end]
 
     exact = FieldSet{T}(forest, 2; G=1, centering=cellcentered(D), backend=backend)

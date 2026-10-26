@@ -33,10 +33,17 @@ How the package got where it is, by topic in `CODE.md`'s order.
 
 ## Truncation
 
-- 2026-10-26: truncation is applied to `∂ₜv` rather than to the state at
-  each substep, as the paper describes it, so that the right-hand side
-  stays a pure function of `u` and works with OrdinaryDiffEq's
-  integrators. The two are the same scheme to roundoff.
+- 2026-10-26: truncation was first applied to `∂ₜv` rather than to the
+  state at each substep, relying on the linearity of the Runge–Kutta
+  stages to keep `v` truncated. Erik Schnetter asked for the mode to be
+  set to zero instead, through the integrator's limiter API, as hydro
+  codes project back into the valid region of the state, and for the
+  initial conditions too. It now is (`truncate_stage!`), and the
+  right-hand side no longer projects. The convergence table did not
+  change in any printed digit.
+- 2026-10-26: in several dimensions the projector is the tensor product,
+  removing every mode of degree `P` in any dimension; confirmed by Erik
+  Schnetter, as the paper describes one dimension only.
 - 2026-10-26: the default is the paper's truncated scheme. Measured
   against the plain one, truncation gives order `P` for `u` and `v`
   alike, while the plain scheme gives a smaller and faster-converging

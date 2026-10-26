@@ -200,15 +200,15 @@ replacements, in [`src/layout.jl`](src/layout.jl), take the `Element`:
 
     scatter!(fs, u); fill_ghosts!(fs)      # u's face neighbours
     gradient pass; fill_ghosts!(grad)      # ∂_d u's face neighbours
-    Laplacian pass                         # du, or a scratch array
-    truncation pass                        # only with truncation
+    Laplacian pass                         # du
 
 `WaveProblem` holds the state field set (`u`, `v`), the gradient field
 set (`D` variables), the one schedule both share (a schedule belongs to
 a layout, and the two have one), the per-block spacings on the kernels'
-backend, the scratch array, and the element. As in TreeWave, `u` is
-never written and nothing is carried between calls; the tests check
-both.
+backend, the scratch copy truncation projects from, and the element.
+As in TreeWave, `u` is never written and nothing is carried between
+calls; the tests check both. The right-hand side does not truncate; see
+[Truncation](#truncation).
 
 The gradient pass writes into the gradient field set's working array,
 from which the exchange fills its ghosts. The window of a node in the
@@ -221,23 +221,37 @@ checking costs", has why the annotation is worth having).
 
 The paper holds each conjugate variable one degree below the primary
 ones (§II I): at every integrator substep the coefficient of the `P`-th
-Legendre mode of `v` is set to zero. Done literally, that writes into
-the state between stages, which an off-the-shelf integrator does not
-allow and which would break the right-hand side contract.
+Legendre mode of `v` is set to zero. That is done here literally, in
+the state, through the integrator's limiter hooks: the API an integrator
+offers for putting a state back into its valid region, which TreeHydro
+uses to reset its atmosphere. `truncate_stage!` is the limiter, and
+`truncate_state!` the projection it applies:
 
-Here truncation projects `∂ₜv` instead, and `initial_state` projects
-the initial `v`. The two are the same scheme: the projector is linear,
-every Runge–Kutta stage is the step's starting state plus a combination
-of right-hand sides, so if `v` starts truncated and every `∂ₜv` is
-truncated, every stage's `v` is truncated too, to roundoff.
+    RK4(stage_limiter! = truncate_stage!, step_limiter! = truncate_stage!)
+
+RK4 calls the stage limiter on its three intermediate stage values and
+on the step's result, before evaluating the right-hand side there, so
+every state the right-hand side sees and every step's result has `v`
+truncated. The step limiter repeats the last projection for RK4, which
+changes nothing beyond roundoff; it is installed so that a method that
+does not limit its result still truncates it. The limiters do not reach
+the state the integrator starts from, so `initial_state` truncates the
+initial `v` itself. `wave_errors` takes the algorithm as a constructor
+and installs the limiters, so a run cannot leave them out by passing an
+algorithm without them.
+
+The right-hand side computes `∂ₜv = ∇²u` without projecting it, and the
+scheme does not rely on the stages' linearity to keep `v` truncated: the
+mode is set to zero wherever it is evaluated.
+`evolution_tests.jl` checks every stage and every step, and checks that
+plain `RK4()` leaves the mode in, so it is the limiter that removes it.
 
 The one-dimensional projector is `Π = I - |L_P⟩⟨L_P|/γ` in the
 quadrature inner product, where Legendre modes of different degree are
 discretely orthogonal. In several dimensions the projector is the tensor
 product `Π ⊗ … ⊗ Π`, which removes every mode whose degree is `P` in
-*any* dimension, so `v` lives in `Q_{P-1}`. Whether the paper's 3D
-implementation removed the same set of modes is **(open)**; its text
-describes one dimension.
+*any* dimension, so `v` lives in `Q_{P-1}`. The paper's text describes
+one dimension only.
 
 `truncate=false` gives the plain scheme with both variables at degree
 `P`. What each costs is under [Convergence](#convergence). In short,
@@ -308,7 +322,7 @@ four-thread cell on Linux, with coverage to Codecov.
 
 ## Tests
 
-`julia --project=. -e 'using Pkg; Pkg.test()'`, about 50 seconds.
+`julia --project=. -e 'using Pkg; Pkg.test()'`, about a minute.
 
 - `element_tests.jl`: the nodes integrate to degree `2P-1`, and no
   further; the wide derivative is the paper's matrix for `P = 2, 3, 4`
@@ -320,7 +334,10 @@ four-thread cell on Linux, with coverage to Codecov.
   coincide bit for bit, the quadrature norm is exact on what the element
   represents, and a layout OLDG cannot run on is refused.
 - `evolution_tests.jl`: the right-hand side equals the dense global
-  operator in 1D, 2D and 3D, with and without truncation; it neither
+  operator in 1D, 2D and 3D, and `initial_state` truncates the initial
+  `v` exactly when asked; every stage and every step of a truncating
+  run has `v` truncated, and plain `RK4()` does not; the right-hand
+  side neither
   writes `u` nor remembers a call; the energy never grows and its loss
   falls at RK4's rate as the step shrinks; RK4's limit is `cfl ≈ 5/√D`
   for `P = 1, 2, 4`, found by power iteration through `wave_rhs!`.
@@ -411,8 +428,7 @@ layout would be modal (the decay of the top Legendre coefficients)
 
 - A refined forest, once TreeAMR has [what a refined forest
   needs](#what-a-refined-forest-needs).
-- The paper's modal filter (eq. 76), as a term in the right-hand side
-  like truncation.
+- The paper's modal filter (eq. 76), as a term in the right-hand side.
 - A comparison with TreeWave's finite differences at equal cost: same
   number of points and same wall clock.
 - A kernel per element rather than per node, which would apply the
@@ -425,8 +441,6 @@ layout would be modal (the decay of the top Legendre coefficients)
 
 ## Open questions
 
-- Which modes the paper's multi-dimensional truncation removes; see
-  [Truncation](#truncation).
 - Whether interpolated coarse-fine ghosts keep the energy estimate; see
   [What a refined forest needs](#what-a-refined-forest-needs).
 - Whether truncation should stay the default for a linear problem,

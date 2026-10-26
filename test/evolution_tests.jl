@@ -23,7 +23,8 @@ end
 @testset "The right-hand side is the global OLDG operator, in 1D, 2D and 3D" begin
     # Guards every index the kernels compute: the element a point is in,
     # its window, the ghost plane at block faces, the dimension a
-    # derivative runs along, and the tensor-product truncation.
+    # derivative runs along, and the tensor-product truncation of the
+    # initial `v`. The right-hand side itself never truncates.
     for (D, P, E, roots) in ((1, 3, 1, 3), (2, 2, 2, 3), (2, 3, 1, 2), (3, 1, 1, 3)),
         truncate in (true, false)
 
@@ -40,7 +41,7 @@ end
         U = vec(global_array(p.fs, u, 1))
         V = vec(global_array(p.fs, u, 2))
         @test vec(global_array(p.fs, du, 1)) == V
-        ref = Π * (lap * U)
+        ref = lap * U
         @test norm(vec(global_array(p.fs, du, 2)) - ref, Inf) < 1e-12 * norm(ref, Inf)
 
         # The initial `v` is projected when truncating, and only then.
@@ -74,6 +75,48 @@ end
     @test du1 == du2
 end
 
+# RK4 with truncation in its limiter hooks, as `wave_errors` builds it.
+truncating_rk4() = RK4(; stage_limiter! = truncate_stage!, step_limiter! = truncate_stage!)
+
+# The largest change truncation would make to the `v` of state `u`.
+function untruncated(u, p)
+    w = truncate_state!(copy(u), p)
+    return norm(w .- u, Inf)
+end
+
+@testset "Every stage and every step has v truncated" begin
+    # Guards the truncation itself: the top Legendre mode of `v` is zero
+    # in every state the right-hand side is evaluated at and in every
+    # step's result — set to zero there, not merely kept at zero by the
+    # linearity of the stages. The second half shows that it is the
+    # limiter doing it: without the hooks the stages carry the mode.
+    for (D, P) in ((1, 3), (2, 2))
+        forest = wave_forest(Float64, Val(D), P, 2; roots=2)
+        p = WaveProblem(forest, Element(Float64, P))
+        u0 = initial_state(p, testdata(D))
+        @test untruncated(u0, p) < 1e-13
+        for (method, truncated) in ((truncating_rk4(), true), (RK4(), false))
+            worst = Ref(0.0)
+            function rhs!(du, u, p, t)
+                worst[] = max(worst[], untruncated(u, p))
+                wave_rhs!(du, u, p, t)
+                return nothing
+            end
+            dt = oldg_timestep(p; cfl=1 // 2)
+            sol = solve(ODEProblem(rhs!, u0, (0.0, 10dt), p), method;
+                        dt=dt, adaptive=false, saveat=dt)
+            steps = maximum(u -> untruncated(u, p), sol.u)
+            if truncated
+                @test worst[] < 1e-13
+                @test steps < 1e-13
+            else
+                @test worst[] > 1e-6
+                @test steps > 1e-6
+            end
+        end
+    end
+end
+
 @testset "Energy is conserved up to the integrator's own loss" begin
     # Summation by parts makes the discrete energy an exact invariant of
     # the semi-discrete system, with or without truncation, so the change
@@ -88,7 +131,7 @@ end
             p = WaveProblem(forest, Element(Float64, P); truncate=truncate)
             u0 = initial_state(p, testdata(D))
             dt = oldg_timestep(p; cfl=cfl)
-            sol = solve(ODEProblem(wave_rhs!, u0, (0.0, 200dt), p), RK4();
+            sol = solve(ODEProblem(wave_rhs!, u0, (0.0, 200dt), p), truncating_rk4();
                         dt=dt, adaptive=false, save_everystep=false)
             E0, E1 = wave_energy(p, u0), wave_energy(p, sol.u[end])
             @test E1 <= E0
@@ -102,8 +145,9 @@ end
 
 @testset "RK4 is stable up to cfl ≈ 5/√D for every order" begin
     # Guards `oldg_timestep`'s scaling `hₑ/(P+1)²`: the largest
-    # eigenvalue of the semi-discrete Laplacian, found by power iteration
-    # through the package's own right-hand side, puts RK4's limit on the
+    # eigenvalue of the semi-discrete Laplacian, truncated as the limiter
+    # truncates it, found by power iteration through the package's own
+    # right-hand side and `truncate_state!`, puts RK4's limit on the
     # imaginary axis, `|λ dt| ≤ 2√2`, at the same `cfl` for every `P`. A
     # step that scaled as `hₑ/(P+1)` would let the limit fall as `1/P`.
     for D in (1, 2), P in (1, 2, 4)
@@ -117,6 +161,7 @@ end
         λ = 0.0
         for _ in 1:300
             wave_rhs!(y, x, p, 0.0)
+            truncate_state!(y, p)
             λ = norm(lap) / norm(u)
             u .= lap ./ norm(lap)
         end

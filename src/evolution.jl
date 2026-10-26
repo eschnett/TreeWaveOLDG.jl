@@ -13,8 +13,10 @@
 #
 # `v` is the paper's *conjugate* variable (its right-hand side has spatial
 # derivatives) and is held at one degree less than `u` by truncation
-# (§II I). Here truncation projects `∂ₜv` rather than `v`, which keeps the
-# right-hand side a pure function of `u`: see "Truncation" in `CODE.md`.
+# (§II I): its top Legendre mode is set to zero in the state itself, in the
+# initial data and at every stage of the time integrator, through the
+# integrator's limiter hooks. The right-hand side does not truncate. See
+# "Truncation" in `CODE.md`.
 
 # The wide derivative along dimension `d` of variable `v` of block `b` at
 # stored point `c`, whose owned index along `d` is `I`, in units of `1/h`.
@@ -49,11 +51,9 @@ end
     end
 end
 
-# Pass 2: `∂ₜu = v`, and `Σ_d ∂_d(∂_d u)` from the exchanged gradient —
-# straight into `du` without truncation, into the scratch `lap` with it.
-@kernel function laplacian_kernel!(du, lap, @Const(work), @Const(grad),
-                                   @Const(spacings), el, ::Val{D}, ::Val{G},
-                                   ::Val{TR}) where {D,G,TR}
+# Pass 2: `∂ₜu = v`, and `∂ₜv = Σ_d ∂_d(∂_d u)` from the exchanged gradient.
+@kernel function laplacian_kernel!(du, @Const(work), @Const(grad), @Const(spacings),
+                                   el, ::Val{D}, ::Val{G}) where {D,G}
     I = @index(Global, NTuple)
     b = I[D + 1]
     inner = ntuple(d -> I[d], Val(D))
@@ -64,17 +64,13 @@ end
     end
     @inbounds h = spacings[b]
     @inbounds du[inner..., 1, b] = work[c..., 2, b]
-    if TR
-        @inbounds lap[inner..., b] = acc / h
-    else
-        @inbounds du[inner..., 2, b] = acc / h
-    end
+    @inbounds du[inner..., 2, b] = acc / h
 end
 
-# Pass 3, with truncation: `dst[…, var, b] = (Π ⊗ … ⊗ Π) src`, the tensor
-# product of the one-dimensional projector over the node's element. Reads
-# the whole element, so it cannot share a pass with the one that writes
-# `src`. `src` and `dst` are in state layout, with no ghosts.
+# Truncation: `dst[…, var, b] = (Π ⊗ … ⊗ Π) src`, the tensor product of the
+# one-dimensional projector over the node's element. It reads the whole
+# element, so `src` is a copy and not `dst` itself. `src` and `dst` are in
+# state layout, with no ghosts.
 @kernel function truncate_kernel!(dst, @Const(src), el::Element{T,P1}, var,
                                   ::Val{D}) where {T,P1,D}
     I = @index(Global, NTuple)
@@ -95,11 +91,11 @@ end
 """
     WaveProblem(forest, el::Element; truncate=true, backend=CPU())
 
-Everything the right-hand side needs, built once: the state field set
-(`u`, `v`), the auxiliary gradient field set (`∂_d u`, one variable per
-dimension), the one ghost schedule both share, the per-block spacings on
-the kernels' backend, the scratch array truncation projects from, and the
-element.
+Everything the right-hand side and the truncation need, built once: the
+state field set (`u`, `v`), the auxiliary gradient field set (`∂_d u`, one
+variable per dimension), the one ghost schedule both share, the per-block
+spacings on the kernels' backend, the scratch array truncation projects
+from, and the element.
 
 Both field sets are cell-centered with `G = 1` whatever the order: the
 wide derivative reads one point past its element and no further. They
@@ -108,15 +104,17 @@ serves both. Its operators never run on a uniform forest, which is the
 only kind this accepts (see [`check_layout`](@ref TreeWaveOLDG.check_layout)).
 
 `truncate` selects the paper's scheme (`true`: `v` held at degree `P - 1`)
-or the plain one (`false`: both at degree `P`). The default is the paper;
-"Truncation" in `CODE.md` has what each costs.
+or the plain one (`false`: both at degree `P`). The default is the paper.
+It takes effect through [`initial_state`](@ref) and through
+[`truncate_stage!`](@ref), which the integrator has to be given as its
+limiter; "Truncation" in `CODE.md` has why, and what each scheme costs.
 """
 struct WaveProblem{T,D,F,S,V,A,EL}
     fs::F
     grad::F
     schedule::S
     spacings::V                  # per block, wherever the kernels run
-    lap::A                       # (N, …, N, nblocks) scratch for truncation
+    lap::A                       # (N, …, N, nblocks) copy of `v` to truncate from
     element::EL
     truncate::Bool
     valD::Val{D}
@@ -150,24 +148,57 @@ end
 """
     wave_rhs!(du, u, p::WaveProblem, t)
 
-The right-hand side, in the SciML in-place form. Two exchanges and two or
-three passes:
+The right-hand side, in the SciML in-place form. Two exchanges and two
+passes:
 
     scatter!(fs, u); fill_ghosts!(fs)      # u's face neighbours
     gradient pass; fill_ghosts!(grad)      # ∂_d u's face neighbours
-    Laplacian pass                         # du, or the scratch
-    truncation pass                        # only with truncation
+    Laplacian pass                         # du
 
-`u` is never written, and nothing is carried between calls.
+It does not truncate: truncation acts on the state, through
+[`truncate_stage!`](@ref). `u` is never written, and nothing is carried
+between calls.
 """
 function wave_rhs!(du, u, p::WaveProblem, t)
     fill_gradient!(p, u)
-    dua = statearray(du, p.fs)
-    map_blocks!(laplacian_kernel!, p.fs, dua, p.lap, p.fs.work, p.grad.work,
-                p.spacings, p.element, p.valD, Val(p.fs.G), Val(p.truncate))
-    if p.truncate
-        map_blocks!(truncate_kernel!, p.fs, dua, p.lap, p.element, 2, p.valD)
-    end
+    map_blocks!(laplacian_kernel!, p.fs, statearray(du, p.fs), p.fs.work,
+                p.grad.work, p.spacings, p.element, p.valD, Val(p.fs.G))
+    return nothing
+end
+
+"""
+    truncate_state!(u, p::WaveProblem)
+
+Set the top Legendre mode of `v` to zero in every element of the state
+vector `u`, in place: `v ← (Π ⊗ … ⊗ Π) v`. `u`'s own variable is left
+alone. Does nothing when `p` does not truncate.
+"""
+function truncate_state!(u, p::WaveProblem{T,D}) where {T,D}
+    p.truncate || return u
+    ua = statearray(u, p.fs)
+    p.lap .= selectdim(ua, D + 1, 2)
+    map_blocks!(truncate_kernel!, p.fs, ua, p.lap, p.element, 2, p.valD)
+    return u
+end
+
+"""
+    truncate_stage!(u, integrator, p::WaveProblem, t)
+
+[`truncate_state!`](@ref) in the form of an OrdinaryDiffEq limiter, the
+hook an integrator calls on each stage value and on each step's result
+so that a state can be put back where it is valid — TreeHydro resets its
+atmosphere through the same hooks. Pass it as both:
+
+    RK4(stage_limiter! = truncate_stage!, step_limiter! = truncate_stage!)
+
+RK4 calls the stage limiter on its three intermediate stage values and on
+the step's result, so for RK4 the step limiter repeats the last
+projection, which leaves the state unchanged to roundoff. It is passed
+anyway so that a method that does not limit its result still truncates
+it.
+"""
+function truncate_stage!(u, integrator, p::WaveProblem, t)
+    truncate_state!(u, p)
     return nothing
 end
 
@@ -175,20 +206,15 @@ end
     initial_state(p::WaveProblem, f)
 
 The state vector for initial data `f(x, v) -> value` at the nodes, with
-`v` truncated when `p` truncates — the paper truncates at every substep,
-including the first, and projecting `∂ₜv` keeps it truncated from there
-on only if it starts that way.
+`v` truncated when `p` truncates: the integrator's limiters truncate each
+stage and each step, but not the state it starts from, and the first
+right-hand side is evaluated there.
 """
-function initial_state(p::WaveProblem{T,D}, f) where {T,D}
+function initial_state(p::WaveProblem, f)
     fill_at_nodes!(f, p.fs, p.element)
     u0 = statevector(p.fs)
     gather!(u0, p.fs)
-    if p.truncate
-        ua = statearray(u0, p.fs)
-        p.lap .= selectdim(ua, D + 1, 2)
-        map_blocks!(truncate_kernel!, p.fs, ua, p.lap, p.element, 2, p.valD)
-    end
-    return u0
+    return truncate_state!(u0, p)
 end
 
 """
@@ -196,9 +222,9 @@ end
 
 The discrete energy `½ Σ w (v² + Σ_d (D_d u)²)`, a quadrature over the
 nodes with the element weights. Summation by parts makes it an exact
-invariant of the semi-discrete system on a periodic box, with or without
-truncation (the projector is self-adjoint in this inner product), so what
-a run loses is the time integrator's.
+invariant of the semi-discrete system on a periodic box, and truncating
+`v` does not change that (the projector is self-adjoint in this inner
+product), so what a run loses is the time integrator's.
 """
 function wave_energy(p::WaveProblem{T,D}, u) where {T,D}
     fill_gradient!(p, u)

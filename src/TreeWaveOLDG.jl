@@ -40,8 +40,8 @@ export Element, gll_nodes_weights
 export node_coordinates, fill_at_nodes!, quadrature_norm
 
 # Evolution system
-export WaveProblem, wave_rhs!, initial_state, wave_energy, oldg_timestep,
-       convergence_rate
+export WaveProblem, wave_rhs!, truncate_state!, truncate_stage!, initial_state,
+       wave_energy, oldg_timestep, convergence_rate
 
 # Initial condition: standing sine mode
 export wave_omega, wave_exact, wave_forest, wave_errors

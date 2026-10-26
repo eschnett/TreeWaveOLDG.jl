@@ -43,7 +43,7 @@ julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--check-bounds=yes"])
 julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--threads=4"])'
 ```
 
-Each takes about 50 seconds. The kernels are `@inbounds`, so run the
+Each takes about a minute. The kernels are `@inbounds`, so run the
 second one too after touching a kernel or the layout.
 
 ## Sharp edges
@@ -59,9 +59,10 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   `volume_weighted_norm` assume equally spaced cell centres ("Positions
   and quadrature").
 - **`N = E(P+1)`, and `N` even** ("The layout").
-- **Truncation projects `∂ₜv`, never the state.** Writing into `u` inside
-  the right-hand side would break RK4 silently; `initial_state` projects
-  the initial `v` ("Truncation").
+- **Truncation sets `v`'s top mode to zero in the state, through the
+  integrator's limiter hooks, never in the right-hand side.** An
+  integrator must be given `truncate_stage!` as its stage and step
+  limiter; `initial_state` truncates the initial `v` ("Truncation").
 - **The tables are built in `BigFloat` and rounded once.** Do not build
   them in `T` or convert from the `Float64` ones ("Precision").
 - **The time step is `cfl · hₑ/(P+1)²`**, not TreeWave's `cfl · h`
