@@ -76,6 +76,12 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   ("Time step").
 - **The `u` and `v` of a state vector interleave block by block**; use
   `statearray` and `selectdim`, not halves of the vector.
+- **A reflecting box is a TreeAMR reflection symmetry, not a boundary
+  hook.** Ask for it with `wave_forest(…; reflecting=true)`; the forest
+  then has reflecting faces, and `WaveProblem` derives the parities from
+  them into the field sets' ghosts (`u`, `v` even, `∂_d u` odd in
+  `d`). Do not build the faces by hand and forget the parity, and do not
+  try to add a boundary hook (see "Reflecting walls").
 - **The asserted rates are measurements.** If one moves, re-measure and
   update "Measured results" rather than widen a tolerance.
 

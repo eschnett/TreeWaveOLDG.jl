@@ -19,13 +19,13 @@ finite-difference stencil replaced by the OLDG one.
 
 ## What it solves
 
-That is `∂ₜu = v`, `∂ₜv = ∇²u` on a periodic box in any number of
-dimensions. Space is cut into elements of `P + 1` Gauss–Lobatto nodes,
-with both face nodes of every element stored. The derivative at a node
-reads its own element and, at the two face nodes only, the neighbour's
-face node across the face. The Laplacian is that derivative applied
-twice. The method is a DG finite element method written as a
-finite-difference stencil with non-constant coefficients.
+That is `∂ₜu = v`, `∂ₜv = ∇²u` on a periodic box — or a reflecting
+(solid-wall) box — in any number of dimensions. Space is cut into elements
+of `P + 1` Gauss–Lobatto nodes, with both face nodes of every element
+stored. The derivative at a node reads its own element and, at the two
+face nodes only, the neighbour's face node across the face. The Laplacian
+is that derivative applied twice. The method is a DG finite element method
+written as a finite-difference stencil with non-constant coefficients.
 
 ## Installation
 
@@ -47,18 +47,29 @@ r.l2, r.linf          # error of the standing sine mode after a quarter period
 dimension (so a block holds `N = E(P+1)` points), and `roots` the number
 of blocks per dimension.
 
+The same on a reflecting box (solid walls, Neumann `∂ₙu = 0`) uses the
+`reflecting` keyword and the standing `cos` mode:
+
+```julia
+r = reflect_errors(Val(1); P=3, E=2, roots=4)
+r.l2, r.linf, r.energy / r.energy0   # error, and energy is conserved
+```
+
 ## Status
 
-A prototype. It runs on a uniform periodic forest only, in any number of
-dimensions, at any order `P ≥ 1`, and converges at order `P`. Two initial
-conditions are provided, a standing sine mode and a 2D radial blast
+A prototype. It runs on a uniform periodic or reflecting forest, in any
+number of dimensions, at any order `P ≥ 1`, and converges at order `P`. Two
+initial conditions are provided, a standing sine mode and a 2D radial blast
 wave, and a viewer draws the second:
 
 ```bash
 julia --project=bin bin/visualize2d.jl
 ```
 
-Mesh refinement, outer boundaries and a device run are not there yet.
+On a reflecting box the wall is a Neumann (solid, `∂ₙu = 0`) boundary,
+an exact discrete symmetry whose energy is conserved to the integrator's own
+loss. Mesh refinement, partly reflecting or outflow boundaries, and a device
+run are not there yet.
 
 ## Design
 

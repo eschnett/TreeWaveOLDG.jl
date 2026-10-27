@@ -23,6 +23,15 @@ How the package got where it is, by topic in `CODE.md`'s order.
   blast-wave cases, viewers, benchmark and device tests were not carried
   over; all but the viewers and device tests exist to exercise
   refinement.
+- 2026-10-27: reflecting (solid-wall, Neumann `∂ₙu = 0`) boundaries
+  were added by way of TreeAMR's reflection symmetries: a `reflecting`
+  keyword on `wave_forest` marks every face reflecting, and `WaveProblem`
+  derives the per-variable parities the wall imposes (`u`, `v` even;
+  `∂_d u` odd in `d`) for the field sets' ghosts, so the wall needs no
+  boundary hook. A standing `cos` mode, `reflect_exact`, exercises it and
+  converges at order `P` with energy conserved to the integrator's own loss.
+  Global (rotating-seam, partly reflecting or outflow) boundaries remain a
+  non-goal.
 
 ## The method
 
