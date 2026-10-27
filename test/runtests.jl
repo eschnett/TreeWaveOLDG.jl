@@ -11,5 +11,6 @@ include("reference.jl")
     include("layout_tests.jl")
     include("evolution_tests.jl")
     include("sinewave_tests.jl")
+    include("reflect_tests.jl")
     include("blast_tests.jl")
 end

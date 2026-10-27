@@ -46,7 +46,8 @@ export WaveProblem, wave_rhs!, truncate_state!, truncate_stage!, initial_state,
        wave_energy, oldg_timestep, convergence_rate
 
 # Initial condition: standing sine mode
-export wave_omega, wave_exact, wave_forest, wave_errors
+export wave_omega, wave_exact, wave_forest, wave_errors, reflect_omega,
+       reflect_exact, reflect_errors
 
 # Initial condition: radial blast wave
 export blast_initial, blast_reference, blast_radial_table, blast_exact,

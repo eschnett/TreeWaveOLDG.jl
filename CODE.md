@@ -63,10 +63,14 @@ passes, also with `--check-bounds=yes` and with four threads.
   TreeAMR fills a coarse-fine ghost by interpolating equally spaced cell
   centres, and Gauss–Lobatto nodes are not that; see [What a refined
   forest needs](#what-a-refined-forest-needs).
-- **Periodic boxes only.** Every driver builds a fully periodic forest
-  and passes no boundary hook to `fill_ghosts!`. An outer face would need
-  the paper's boundary treatment (its `Ω₀` and `Ω_{K+1}` singleton
-  elements), which is not implemented.
+- **Periodic or reflecting boxes.** Every driver builds a fully periodic
+  forest by default, and passes no boundary hook to `fill_ghosts!`. A
+  box with `reflecting=true` puts a solid (Neumann) wall on every face
+  as a TreeAMR reflection symmetry, which the exchange implements by parity-
+  signed mirrored transfers rather than a boundary hook; see [Reflecting
+  walls](#reflecting-walls). An *outflow* or partly reflecting box would
+  need the paper's boundary treatment (its `Ω₀` and `Ω_{K+1}`
+  singleton elements), which is not implemented.
 - **Two initial conditions**, the standing sine mode and the 2D radial
   blast wave, both on a uniform forest. TreeWave's travelling pulse
   existed to exercise a moving refined region, which is out of scope, and
@@ -222,6 +226,44 @@ first or last element of a block reaches exactly one ghost plane, which
 is what the kernels' `@inbounds` asserts; a run with
 `--check-bounds=yes` re-checks it (TreeWave's `CODE.md`, "What bounds
 checking costs", has why the annotation is worth having).
+
+## Reflecting walls
+
+A solid (Neumann, `∂_n u = 0`) wall is not a boundary *hook*: the
+OLDG wide derivative and the face term at the wall come from the solution's
+own symmetry, so the wall is declared as a reflection symmetry on the mesh,
+and the exchange fills the wall's ghosts by a parity-signed mirrored
+transfer. `wave_forest(…; reflecting=true)` marks every face `reflecting`
+on a non-periodic forest, and `WaveProblem` reads it off the forest and
+gives each field set the parities the wall imposes:
+
+- the state `u`, `v` are scalars, **even** under every mirror;
+- the `d`-th component of the gradient `∂_d u` is **odd** under a
+  mirror in `d` and even in the others.
+
+The parity of a variable says whether it changes sign when mirrored across a
+wall, which is physics (a scalar stays, a normal vector flips) and so
+cannot be guessed by the mesh; that is why TreeAMR requires a `parity`
+per variable exactly where the forest reflects (storage.jl, `parities_of`).
+
+The scheme is then the same kernels run on the periodic box: the gradient
+pass writes `∂_d u` in the interior, the exchange mirrors it odd-wise
+into the wall ghosts, and the face term `(P/2)(w₁ - w₀)` at the
+wall — the wide derivative's boundary row `d - ½(b - F)` — reads the
+mirrored ghost, which carries the symmetries through. The even mirror of
+`u` at the wall is what makes `∂_n u` vanish: the boundary gradient
+error falls at the discretization's order. The reflected standing mode of
+[`reflect_exact`](@ref), `u = cos(ωt) ∏ cos(mπx_d/L)`, has
+`∂_n u = 0` on every wall and converges at order `P`; `v`'s ghosts
+need no special boundary term because `v` is even and is filled the same
+way `u`'s are.
+
+Summation by parts is preserved — the wall is an exact discrete symmetry, so
+the discrete energy stays an exact invariant of the semi-discrete system,
+conserved to the integrator's own loss exactly as on the periodic box. The
+reflected mode is the `sin` mode of a periodic box of side `2L` folded
+in half, so `reflect_omega` is the same `mπ√D/L` with `m` the mode
+count across the full box.
 
 ## Truncation
 
@@ -411,6 +453,11 @@ does.
 - `sinewave_tests.jl`: order `P` with truncation for `P = 2, 3, 4` in 1D
   and 2D; without it, `u` is more accurate; `P = 1` is first order;
   `Float32` agrees with `Float64`.
+- `reflect_tests.jl`: the reflecting box — the Neumann `cos` mode converges
+  at order `P` in 1D and 2D, the wall is an exact discrete symmetry
+  (energy conserved to the integrator's loss), the parities the wall imposes
+  are the ones the field sets carry, and `Float32` agrees at coarse
+  resolution.
 - `blast_tests.jl`: the exact blast solution at `t = 0` is the initial
   data to `1e-5`; from 8 to 16 blocks per dimension at `P = 3` the L2
   error falls by more than `2³` and the energy lost stays below `1e-6`.
@@ -458,6 +505,22 @@ amplitude is `ω = 2π√D` times `u`'s.
 The same 1D runs at `dt = h/10` agree with a separate implementation
 using dense global matrices to the three digits printed, for `P = 1 … 6`,
 with and without truncation.
+
+### Reflecting walls
+
+The same convergence study on a reflecting box (the Neumann `cos` mode of
+[`reflect_exact`](@ref), `m = 1`, unit box, to a quarter period), with
+the wall's parities on the field sets and the same quadrature:
+
+| D | P | `l2` errors | rate | `E₁/E₀` |
+|---|---|---|---|---|
+| 1 | 2 | 6.9e-2  1.98e-2  5.72e-3 | 1.8 | 1.0 |
+| 1 | 3 | 4.23e-3  4.81e-4  6.0e-5 | 3.07 | 1.0 |
+| 2 | 2 | 9.31e-2  2.64e-2  6.05e-3 | 1.97 | 1.0 |
+
+The order is `P` again, in 1D and 2D, and the wall is an exact
+discrete symmetry: the energy is conserved to the integrator's own loss
+(`E₁/E₀ = 1.0`), as on the periodic box.
 
 ### The RK4 limit
 

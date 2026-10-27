@@ -103,6 +103,16 @@ share a layout, and a schedule belongs to a layout, so one schedule
 serves both. Its operators never run on a uniform forest, which is the
 only kind this accepts (see [`check_layout`](@ref TreeWaveOLDG.check_layout)).
 
+A forest with reflecting faces (a solid wall, decentered `reflecting` on
+every face) makes the problem a reflecting box, and the field sets then
+carry the reflection symmetries the wall imposes on the state and its
+gradient. `u` and `v` are scalars, so they are `EvenParity` in every
+dimension; the `d`-component of the gradient `∂_d u` is odd under a
+reflection in `d` and even in the others. TreeAMR's exchange fills the
+wall ghosts with these parities, which is what makes `∂_n u = 0` (a
+Neumann or solid wall) hold discretely; see "Reflecting walls" in
+`CODE.md`.
+
 `truncate` selects the paper's scheme (`true`: `v` held at degree `P - 1`)
 or the plain one (`false`: both at degree `P`). The default is the paper.
 It takes effect through [`initial_state`](@ref) and through
@@ -120,11 +130,28 @@ struct WaveProblem{T,D,F,S,V,A,EL}
     valD::Val{D}
 end
 
+# The reflection symmetry a solid wall puts on each variable of the two
+# field sets: both state variables are even scalars, and the `d`-th
+# component of the gradient is odd under a mirror in `d` and even in the
+# others. Deriving it from the forest's faces means the caller only has to
+# ask for a reflecting forest; the parity follows from the physics.
+state_statesparity(::Val{D}) where {D} = [EvenParity, EvenParity]
+function state_gradparity(::Val{D}) where {D}
+    return [ntuple(d -> (d == j ? OddParity : EvenParity), D) for j in 1:D]
+end
+
 function WaveProblem(forest::Forest{D}, el::Element{T}; truncate::Bool=true,
                      backend::Backend=CPU()) where {D,T}
     check_layout(forest, el)
-    fs = FieldSet{T}(forest, 2; G=1, centering=cellcentered(D), backend=backend)
-    grad = FieldSet{T}(forest, D; G=1, centering=cellcentered(D), backend=backend)
+    if TreeAMR.hasreflecting(forest)
+        fs = FieldSet{T}(forest, 2; G=1, centering=cellcentered(D),
+                         parity=state_statesparity(Val(D)), backend=backend)
+        grad = FieldSet{T}(forest, D; G=1, centering=cellcentered(D),
+                          parity=state_gradparity(Val(D)), backend=backend)
+    else
+        fs = FieldSet{T}(forest, 2; G=1, centering=cellcentered(D), backend=backend)
+        grad = FieldSet{T}(forest, D; G=1, centering=cellcentered(D), backend=backend)
+    end
     # The operators are a formality: they say how to fill a coarse-fine
     # ghost, and a uniform forest has none.
     schedule = GhostSchedule(fs, Operators(prolongation=2, restriction=2))
