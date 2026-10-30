@@ -3,13 +3,17 @@
 # 1, 8, 16, 32 and 64 threads, 3D, P = 3, 16.8M nodes in two block sizes
 # (4096 blocks of 16³ and 512 of 32³).
 #
+#     bash bin/symmetry/benchmark.sh setup      # on the login node, once
 #     sbatch bin/symmetry/benchmark.sh
 #
 # Run from a checkout of its own (`TREEWAVEOLDG_REPO`, default `$PWD`),
-# rsynced to the cluster without `.git` and `Manifest*.toml`. The
-# environment is one of its own under scratch that `Pkg.develop`s the
-# checkout, so the package's own environment is never touched, and it is
-# precompiled here, on the node type that runs it.
+# rsynced to the cluster without `.git` and `Manifest*.toml`, with the
+# same environment variables both times. The environment is one of its
+# own under scratch that `Pkg.develop`s the checkout, so the package's own
+# environment is never touched. `setup` builds it on the login node, which
+# reaches GitHub (IMEXRungeKutta comes from there), without precompiling;
+# the job precompiles it on the node type that runs it, since the login
+# node is Intel and its cache would be rejected there.
 #
 # To compare against another version in the same job, on the same node
 # (two nominally identical nodes have measured 20% apart), set
@@ -44,27 +48,32 @@ BASE_ENVDIR="$ENVDIR-baseline"
 OUTDIR="${TREEWAVEOLDG_OUT:-$SCRATCH/treewaveoldg-bench-${SLURM_JOB_ID:-local}}"
 SCAN="${TREEWAVEOLDG_SCAN:-4:16,8:8}"
 THREADS="${TREEWAVEOLDG_THREADS:-1 8 16 32 64}"
-mkdir -p "$ENVDIR" "$OUTDIR"
+
+setup() {  # setup <envdir> <checkout>
+    mkdir -p "$1"
+    JULIA_PKG_PRECOMPILE_AUTO=0 julia --project="$1" -e "
+        using Pkg
+        Pkg.Registry.update()
+        Pkg.develop(path = \"$2\")
+        Pkg.instantiate()"
+}
+if [ "${1:-}" = setup ]; then
+    setup "$ENVDIR" "$REPO"
+    [ -n "$BASE_REPO" ] && setup "$BASE_ENVDIR" "$BASE_REPO"
+    exit 0
+fi
+mkdir -p "$OUTDIR"
 
 . "$REPO/bin/symmetry/simwatch.sh"
 simwatch_begin "$OUTDIR" "TreeWaveOLDG benchmark" 3
 
-simwatch_stage "setting up the environments"
+simwatch_stage "precompiling"
 echo "# $(hostname) $(date -Iseconds)"
 lscpu | grep -E 'Model name|^Socket|^NUMA node\(s\)|Thread\(s\) per core'
 julia --version
-setup() {  # setup <envdir> <checkout>
-    julia --project="$1" -e "
-        using Pkg
-        Pkg.Registry.update()
-        Pkg.develop(path = \"$2\")
-        Pkg.instantiate()
-        Pkg.precompile()"
-}
-setup "$ENVDIR" "$REPO"
+julia --project="$ENVDIR" -e 'using Pkg; Pkg.precompile()'
 if [ -n "$BASE_REPO" ]; then
-    mkdir -p "$BASE_ENVDIR"
-    setup "$BASE_ENVDIR" "$BASE_REPO"
+    julia --project="$BASE_ENVDIR" -e 'using Pkg; Pkg.precompile()'
 fi
 
 export JULIA_EXCLUSIVE=1
