@@ -292,6 +292,41 @@ end
     end
 end
 
+@testset "The threaded near pass is the nested rule over each element" begin
+    # Guards `project_near!`, which threads over the points of each near
+    # element's outermost line and sums them afterwards: a point missed or
+    # counted twice, or an item given to the wrong element, would change
+    # the projection. The reference is the nested rule over each element,
+    # serially; the two sum in the same order and differ by an ulp where the
+    # compiler fuses a `muladd` in one and not the other.
+    for (D, P) in ((1, 3), (2, 2), (3, 3))
+        forest = wave_forest(Float64, Val(D), P, 2; roots=2)
+        p = WaveProblem(forest, Element(Float64, P))
+        t = TransferTables(Float64, P)
+        P1 = P + 1
+        z = SVector(ntuple(d -> 0.5 + 0.03d, D))
+        s = ParticleSupport(z, SVector(ntuple(d -> 0.1 / d, D)), 0.01)
+        S(x) = 1 / (dot(x - z, x - z) + 1e-4) + x[1]
+        plan = TWT.projection_plan(p, t, (s,), (z, 1.0), 1.5)
+        @test length(plan.near) > 2^D
+        du = statevector(p.fs)
+        du .= 0
+        dua = statearray(du, p.fs)
+        TWT.project_near!(dua, plan, t, S, 1.0, 2)
+        ref = zero(dua)
+        wₙ = TWT.element_weights(t, plan.hₑ, Val(D))
+        for (b, e, _) in plan.near
+            lo, hi = TWT.element_box(plan.origins[b], plan.spacings[b], e, Val(P1), Val(D))
+            vals = TWT.nested_rule(x -> S(x) * TWT.element_basis(t, lo, hi, x), zero(wₙ),
+                                   s, t, lo, hi, SVector{0,Float64}(), Val(D), false)
+            for (n, K) in enumerate(CartesianIndices(ntuple(_ -> P1, D)))
+                ref[ntuple(d -> e[d] * P1 + K[d], D)..., 2, b] += vals[n] / wₙ[n]
+            end
+        end
+        @test maximum(abs, dua - ref) <= 1e-15 * maximum(abs, ref)
+    end
+end
+
 @testset "The graded rule is the tensor Gauss rule, contracted" begin
     # Guards the graded rule's contraction one dimension at a time as the
     # points are visited, in the state's node order, against the tensor

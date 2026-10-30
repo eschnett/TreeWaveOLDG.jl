@@ -71,6 +71,22 @@ an exact discrete symmetry whose energy is conserved to the integrator's own
 loss. Mesh refinement, partly reflecting or outflow boundaries, and a device
 run are not there yet.
 
+The first parts of [two inspiralling scalar particles](INSPIRAL.md) exist
+([INSPIRAL-PLAN.md](INSPIRAL-PLAN.md) has the milestones): a scalar
+particle of physical size much smaller than an element, its analytic
+field, the transfer of its source to the grid and of the grid's field
+back to it, and a particle on a prescribed path stepped together with the
+remainder field. A particle at rest or in uniform motion keeps its exact
+remainder to the discretization error, which converges at order `P`, in
+the part of the periodic box the error from its faces has not reached;
+the particle in uniform motion is
+
+```bash
+julia --project=. -t 4,0 bin/uniform_motion.jl --hdiv=4 --tend=0.125
+```
+
+The particles do not yet move under their forces.
+
 ## Design
 
 See [CODE.md](CODE.md) for the design and the measured results, and

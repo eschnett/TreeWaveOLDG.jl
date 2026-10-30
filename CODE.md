@@ -17,9 +17,11 @@ radial blast wave) and a viewer for the second, on the CPU, stepped by
 IMEXRungeKutta's RK4 with its stage arithmetic run by block owner. The
 first parts of `INSPIRAL.md`'s inspiral exist: the analytic particle
 (`INSPIRAL-PLAN.md`'s M1), its field, the field's time derivative, the
-effective source and the window, and the transfer between particles and
-grid (M2), the projection of a source onto the nodes and its adjoint,
-not yet coupled into a right-hand side; see [Particles](#particles). The suite passes, also with
+effective source and the window, the transfer between particles and
+grid (M2), the projection of a source onto the nodes and its adjoint, and
+the coupled right-hand side for particles on a prescribed path (M3), in
+which a particle at rest or in uniform motion keeps its remainder; see
+[Particles](#particles). The suite passes, also with
 `--check-bounds=yes` and with four threads.
 
 **Contents**
@@ -51,6 +53,7 @@ not yet coupled into a right-hand side; see [Particles](#particles). The suite p
   - [The window](#the-window)
   - [The transfer](#the-transfer)
   - [Quadrature](#quadrature)
+  - [The right-hand side with particles](#the-right-hand-side-with-particles)
 - [File layout](#file-layout)
 - [Tests](#tests)
 - [Measured results](#measured-results)
@@ -61,6 +64,7 @@ not yet coupled into a right-hand side; see [Particles](#particles). The suite p
   - [Threads on Symmetry](#threads-on-symmetry)
   - [The source bracket](#the-source-bracket)
   - [The transfer's cost](#the-transfers-cost)
+  - [Uniform motion](#uniform-motion)
 - [What carried over from TreeWave, and what did not](#what-carried-over-from-treewave-and-what-did-not)
 - [Possible extensions](#possible-extensions)
 - [Open questions](#open-questions)
@@ -528,9 +532,11 @@ steps.
 `INSPIRAL.md` designs two inspiralling scalar particles of fixed size
 `ℓ ≪ h` on this scheme, and `INSPIRAL-PLAN.md` builds it in milestones.
 What exists is M1, the analytic particle, everything about a particle
-that needs no mesh, and M2, the transfer between particles and grid.
-The coupled problem (M3) does not exist yet, so nothing here changes
-`wave_rhs!`. Sections of `INSPIRAL.md` are named below without links.
+that needs no mesh; M2, the transfer between particles and grid; and
+M3, the coupled right-hand side for particles on a prescribed path, which
+subtracts the projected source after `wave_rhs!` and leaves `wave_rhs!`
+unchanged. The particles do not yet move under their forces (M6a).
+Sections of `INSPIRAL.md` are named below without links.
 
 The closed forms are derived in the Wolfram Language and generated into
 Julia:
@@ -782,13 +788,16 @@ discontinuous across faces. It is element-local and needs no exchange.
   one per element contracts its `q^D` values one dimension at a time, in
   place, into `P S` at its nodes. That is the one place a kernel is not
   launched through `map_blocks!`; it is written so that it could run on
-  a device, and has not been. The others run on the host, threaded over
-  elements, one band at a time: those at least `rnear·hₑ` from every
-  particle take the graded rule, `q` points per dimension by their
-  distance from the nearest particle, evaluated and contracted one
-  dimension at a time as the points are visited (`tensor_rule`), and the
-  few dozen closer ones take the nested rule. Each element writes only
-  its own nodes, so the result does not depend on the thread count. An
+  a device, and has not been. The others run on the host: those at
+  least `rnear·hₑ` from every particle take the graded rule, `q` points
+  per dimension by their distance from the nearest particle, evaluated
+  and contracted one dimension at a time as the points are visited
+  (`tensor_rule`), threaded over elements one band at a time, and the few
+  dozen closer ones take the nested rule, threaded over the points of
+  each element's outermost line and summed afterwards in the rule's
+  order, since the element that holds a particle can be a third of the
+  nested work. Each element writes only its own nodes, and every sum is
+  in a fixed order, so the result does not depend on the thread count. An
   element near two particles takes its rule from the nearer one, since
   the other is then at least about half their separation away. An
   element that two supports meet is refused.
@@ -939,6 +948,76 @@ elements within a few `hₑ` of the spheres, not cut by them, reach a few
 not move with the particles; how it falls with `hₑ` is not measured, and
 the `10⁻¹²` of `INSPIRAL.md` does not hold on those elements **(open)**.
 
+### The right-hand side with particles
+
+[`src/inspiral.jl`](src/inspiral.jl), `INSPIRAL.md`'s "The remainder on
+OLDG", "The right-hand side" and "Time integration", as far as they need
+no solve (`INSPIRAL-PLAN.md`'s M3). The remainder `(Φ_r, Π_r)` is the
+package's `(u, v)`, and
+
+    du = v
+    dv = Σ_d D_d(D_d u) - P S
+
+with `wave_rhs!` unchanged and the source subtracted after it.
+
+- **The state** is one plain vector: the field's state vector, `u` and
+  `v` interleaved block by block as `statearray` has them, followed by
+  `z` and `v` of each particle, six numbers per particle.
+  `field_state(u, p)` is the field's part as a view, which every function
+  that takes a field state accepts with `p.wave`, as TreeAMR's multi-set
+  state vectors are used through `stateview`; `particle_state(u, p)` reads
+  the particles. `INSPIRAL-PLAN.md` planned an `ArrayPartition` for
+  OrdinaryDiffEq; IMEXRungeKutta's stage arithmetic by block owner takes a
+  plain `Array` only, and the particles' entries are added to thread 1's
+  ranges of the partition (`inspiral_partition`), so that path needs no
+  change there.
+- `InspiralProblem(wave, models, window, motion; order = 3, tables,
+  rnear = 1)` holds the three-dimensional `WaveProblem`, the particle
+  models, the window, the motion, the near-field order, the transfer
+  tables and the projection's scratch, which is reused across calls and
+  carries nothing between them. The motion is `Prescribed(path)`, with
+  `path(t)` the particles' `Trajectory`s at `t`, `isbits`;
+  `uniform_motion(z, v)` is one. `Dynamic` is M6a's.
+- `inspiral_rhs!(du, u, p, t)`: `wave_rhs!` on the field part,
+  `project_source!` of `ParticleSource(models, window, path(t))` over the
+  window's ball, subtracted from `dv`, and `ż = v`, `v̇ = a` for each
+  particle with `a` from the path. A prescribed motion gives the source
+  its trajectories whatever the state; the particles' part of the state
+  follows the path to the integrator's error, which the tests check. The
+  right-hand side does not truncate, writes nothing of `u`, and is a pure
+  function of `(u, t)`, with `t` entering only through the path.
+- `inspiral_stage!` truncates the field part and is the stage and step
+  limiter; `inspiral_integrator` installs it, with the partition, as
+  `wave_integrator` installs `truncate_stage!`.
+- `inspiral_initial_state(p; t = 0)`: `Φ_r = (1 - W)Ψ̂` and
+  `Π_r = (1 - W)𝒟Ψ̂` through `fill_at_nodes!` at the trajectories of time
+  `t`, `Π_r` truncated, and the particles from the path. `Ψ̂` is not
+  evaluated where `W = 1`. For a particle in uniform motion
+  `(1 - W)Φ_C(z + vt)` is the exact remainder at every `t`, since `Φ_C`
+  solves the wave equation with the particle's source, so the same
+  function at time `t` is the reference the runs are compared with.
+- `particle_forces(p, u, t)`: the remainder's force on each particle,
+  `F = -(Q/γ)(∇̄Φ_r + vΠ̄_r) = ∫(∇ρ)Φ_r,h - v∫ρΠ_r,h`, through the pairing
+  over the support's elements. It is a diagnostic and does not act on the
+  particles; the analytic parts of the force are M6a's.
+- `ball_norm(p, u, centre, radius; p = 2, vars = 1:2)`:
+  `quadrature_norm` over the nodes within a ball, through `mesh_fold`,
+  with each node's position from its block's origin, which reaches the
+  fold as its tag.
+
+**The box.** The field of a charge is not periodic, and in a periodic
+box the initial data `(1 - W)Ψ̂` has kinks at the faces, where `Φ_C` and
+its images do not match. The source also has a net charge,
+`∫S = ∫ρ = Q/γ`, since `∫∇²(WΨ̂) = 0`, which in a periodic box drives the
+mean of `Π_r` down at the rate `Q/(γV)`. Neither reaches a point before
+a signal from the faces does, so the solution at distance `r` from the
+centre is that of an unbounded domain until the clean time. In the
+continuum that is `L/2 - r`; on the grid the faces' error travels at
+about twice the speed of light, and it is about `(L/2 - r)/2`. Every
+error norm of an inspiral run is taken within the ball that is still
+clean. [Uniform motion](#uniform-motion) has when the faces' error
+arrives and how large it is.
+
 ## File layout
 
 - `src/TreeWaveOLDG.jl`: the module and its exports.
@@ -965,6 +1044,11 @@ the `10⁻¹²` of `INSPIRAL.md` does not hold on those elements **(open)**.
   nested rules, the
   projection's kernels and `project_source!`, `support_elements`,
   `pairing`, `reconstruct`, `reconstruct_gradient` and `ball_rule`.
+- `src/inspiral.jl`: `Prescribed`, `uniform_motion`, `InspiralProblem`,
+  the state's parts (`field_state`, `particle_state`),
+  `inspiral_initial_state`, `inspiral_rhs!`, `inspiral_stage!`,
+  `inspiral_partition`, `inspiral_integrator`, `particle_forces` and
+  `ball_norm`.
 - `derivations/`: the Wolfram Language derivations (`profile.wl`,
   `nearfield.wl`, `selfforce.wl`), each runnable alone with
   `wolframscript -file` and asserting its identities, the generator
@@ -979,6 +1063,13 @@ the `10⁻¹²` of `INSPIRAL.md` does not hold on those elements **(open)**.
 - `bin/projection.jl`: the cost of the transfer on the first run's
   source, one tab-separated row per quantity, run in the package
   environment.
+- `bin/uniform_motion.jl`: one particle of the first run in uniform
+  motion, its error against the exact remainder, its force and, with
+  `--cost`, the cost of a right-hand side and its parts and the bytes per
+  node, one tab-separated row per quantity, run in the package
+  environment; `bin/symmetry/uniform_motion.sh` runs its convergence
+  series, `bin/projection.jl` and its clean-time runs on a Symmetry AMD
+  node.
 - `test/reference.jl`: dense global operators built from the element's
   tables, and the state rearranged into global arrays, which the kernels
   are checked against.
@@ -996,9 +1087,10 @@ does.
 
 ## Tests
 
-`julia --project=. -e 'using Pkg; Pkg.test()'`, about a minute and
-three quarters on the laptop, of which the particle and the transfer
-take about two thirds.
+`julia --project=. -e 'using Pkg; Pkg.test()'`, about three and a
+half minutes on the laptop, of which the particle, the transfer and the
+inspiral take about four fifths; the inspiral's coarse 3D runs about
+50 s of it on four threads.
 
 - `element_tests.jl`: the nodes integrate to degree `2P-1`, and no
   further; the wide derivative is the paper's matrix for `P = 2, 3, 4`
@@ -1067,6 +1159,18 @@ take about two thirds.
   for `ρ` and `∇ρ`, at rest and moving; `reconstruct` and its gradient
   are exact on polynomials of degree `P` per dimension and give the
   stored value at a node; the ball rule's moments are exact.
+- `inspiral_tests.jl`, a coarse 3D box (`P = 3`, `hₑ = 1/2` and `1/4`,
+  one particle of `ℓ = 0.01`): the inspiral's right-hand side is
+  `wave_rhs!` minus the projected source on the field part, moves the
+  particles as their path says, neither writes `u` nor remembers a call;
+  every stage and step has `v` truncated, RK4 without `inspiral_stage!`
+  does not, and the stage arithmetic by owner is bitwise the broadcast;
+  a particle at rest and one moving at `v = 0.2` keep their remainder
+  `(1 - W)Φ_C(z + vt)` to an error that falls by more than 3 from
+  `hₑ = 1/2` to `1/4` at `t = 1/4`, their force falls by more than 100,
+  and their state follows the path to `10⁻¹³`; `ball_norm` is
+  `quadrature_norm` over a ball holding the box and a node's value over
+  a ball holding only it.
 
 ## Measured results
 
@@ -1246,57 +1350,172 @@ of size `Qa/ℓ²`.
 
 ### The transfer's cost
 
-`bin/projection.jl` on the laptop (Apple M3 Pro, Julia 1.13.3, four
-threads), 2026-10-30, not yet on Symmetry: the first run of
-`INSPIRAL.md` (`q² = 0.005`, `ℓ = 10⁻³`, `v = 0.2`, orders 1–3, the
-window `R₁ = 1.25`, `R₂ = 2.5`), `P = 3`, `hₑ = d/8`, in a periodic box of
-side 5 that just holds the window: 4.1M nodes, 2.4M of them in the
-37 224 elements that meet the window's ball. Seconds, the least of
-three runs after a warm-up, with the source of [The split](#the-split)
-and the rules of [Quadrature](#quadrature). The particles sit on
-element corners, or off the grid by `(0.31, 0.17, 0.43)hₑ`
-(`--offgrid`), where a moving particle generically is.
+`bin/projection.jl`, 2026-10-30, on the laptop (Apple M3 Pro, Julia
+1.13.3, four threads) and on Symmetry (job 586064, `cn101`, dual AMD EPYC
+7543, 64 threads pinned): the first run of `INSPIRAL.md` (`q² = 0.005`,
+`ℓ = 10⁻³`, `v = 0.2`, orders 1–3, the window `R₁ = 1.25`, `R₂ = 2.5`),
+`P = 3`, `hₑ = d/8`, in a periodic box of side 5 that just holds the
+window: 4.1M nodes, 2.4M of them in the 37 224 elements that meet the
+window's ball. Seconds, the least of three runs after a warm-up, with the
+source of [The split](#the-split) and the rules of
+[Quadrature](#quadrature). The particles sit on element corners, or off
+the grid by `(0.31, 0.17, 0.43)hₑ` (`--offgrid`), where a moving particle
+generically is.
 
-| | on corners | off the grid |
-|---|---|---|
-| far elements, points | 31 272, 6.8M | 31 102, 6.7M |
-| graded elements, points | 5 936, 2.5M | 6 078, 2.7M |
-| nested elements, points | 16, 2.5M | 44, 1.6M |
-| one projection | **0.87** | **0.83** |
-|   far rule | 0.50 | 0.47 |
-|   graded rule | 0.12 | 0.13 |
-|   nested rule | 0.27 | 0.23 |
-| `wave_rhs!`, whole box | 0.016 | 0.016 |
-|   its share on the window's nodes | 0.0095 | 0.0095 |
+| | laptop, on corners | laptop, off the grid | Symmetry, on corners | Symmetry, off the grid |
+|---|---|---|---|---|
+| far elements, points | 31 272, 6.8M | 31 102, 6.7M | | |
+| graded elements, points | 5 936, 2.5M | 6 078, 2.7M | | |
+| nested elements, points | 16, 2.5M | 44, 1.6M | | |
+| one projection | **0.77** | **0.77** | **0.153** | **0.190** |
+|   far rule | 0.47 | 0.50 | 0.095 | 0.094 |
+|   graded rule | 0.12 | 0.13 | 0.021 | 0.023 |
+|   nested rule | 0.18 | 0.14 | 0.036 | 0.068 |
+| `wave_rhs!`, whole box | 0.014 | 0.014 | 0.0039 | 0.0039 |
+|   its share on the window's nodes | 0.0083 | 0.0081 | 0.0023 | 0.0023 |
+| pairing of `ρ`, of `∇ρ` | 0.011, 0.012 | 0.0014, 0.0015 | 0.013, 0.015 | 0.0016, 0.0020 |
+| projection and fold of `ρ` | 0.043 | 0.021 | 0.045 | 0.042 |
 
-One evaluation of the source, both particles, is 0.16 µs, under
-`INSPIRAL.md`'s estimate of 0.3 µs for "roughly ten times the wave
-equation's work". What it says:
+One evaluation of the source, both particles, is 0.16 µs on the laptop
+and 0.40 µs on Symmetry, one thread, against `INSPIRAL.md`'s estimate of
+0.3 µs for "roughly ten times the wave equation's work". What it says:
 
-- **The projection is about 90 times the wave equation's work** on the
-  same elements, where the plan's gate is ten. That is the number of
+- **The projection is about 70 to 95 times the wave equation's work** on
+  the same elements, where the plan's gate is ten. That is the number of
   points: the far rule evaluates the source at 3.4 points per node of its
   elements, the graded rule at 7, and the nested rule at 560 off the
-  grid and 2 500 on corners. The
-  gate is the owner's ([Open questions](#open-questions)); M2 only
-  measures it.
+  grid and 2 500 on corners. The gate is the owner's ([Open
+  questions](#open-questions)); M2 only measured it.
 - **The far rule is more than half,** almost all of it the source (0.03 s
-  with a source that costs nothing). Its `q = P + 3` is what the
-  window's transition and the elements far from the particles get, where
-  the source is smooth on the scale of the transition.
+  on the laptop with a source that costs nothing). Its `q = P + 3` is
+  what the window's transition and the elements far from the particles
+  get, where the source is smooth on the scale of the transition. On
+  Symmetry it takes 0.094 s where its 6.7M source evaluations, at
+  0.40 µs on one thread, would take 0.042 s spread evenly over 64: its
+  kernels run each block on the block's owner, and the blocks that meet
+  the window's ball are half the box, owned by some of the threads only
+  **(open)**.
 - **The graded rule costs what its source evaluations do,** 0.16 µs a
-  point on one thread, and scales by 3.9 on four.
-- **The nested rule costs three to four times its source evaluations**
-  (0.23 s off the grid, where its 1.6M evaluations take about 0.06 s),
-  for its breakpoints, its allocations and the product with the
-  element's basis at every point, on the few dozen elements within `hₑ`
-  of a particle. With the particles on corners, the 16 elements that
-  touch them take 160 000 points each.
-- **The pairing over the support** takes 16 ms for `ρ` and 22 ms for
-  `∇ρ`, at 1 to 8 elements whatever the mesh. The `mesh_fold` it
-  replaces, a projection of `ρ` and a fold over the 4.1M nodes, takes
-  77 ms and grows with the mesh. So the pairing stays host-side, over
-  the support's elements, as the plan proposed.
+  point on one thread of the laptop, and scales by 3.9 on four.
+- **The nested rule costs about two and a half times its source
+  evaluations** on the laptop (0.14 s off the grid, where its 1.6M
+  evaluations take about 0.06 s), for its breakpoints and the product
+  with the element's basis at every point, on the few dozen elements
+  within `hₑ` of a particle. With the particles on corners, the 16
+  elements that touch them take 160 000 points each. It is threaded over
+  the points of each element's outermost line, since the element that
+  holds a particle can be a third of its work ([Quadrature](#quadrature);
+  `HISTORY.md` has the measurements).
+- **The pairing over the support** takes 1.4 to 15 ms for `ρ` and `∇ρ`,
+  at 1 to 8 elements whatever the mesh, the most when the support meets
+  eight. The `mesh_fold` it replaces, a projection of `ρ` and a fold over
+  the 4.1M nodes, takes 21 to 45 ms and grows with the mesh. So the
+  pairing stays host-side, over the support's elements, as the plan
+  proposed.
+
+### Uniform motion
+
+`bin/symmetry/uniform_motion.sh` on Symmetry, 2026-10-30, jobs 586061,
+586064 and 586068 on `cn102`, `cn101` and `cn103`, each a dual AMD EPYC
+7543 (Zen 3, 64 cores), Julia 1.13.3, 64 threads pinned. The series' errors
+are 586061's and the costs 586064's; 586068 repeated both with the
+threaded near pass, the errors to every digit printed and the costs
+within 3%. One particle of the first run (`Q² = 0.005`,
+`ℓ = 10⁻³`, orders 1–3, the window `R₁ = 1.25`, `R₂ = 2.5`), `P = 3`,
+in a periodic box of side `L = 6`, starting `(0.5, 0, 0)` from the
+centre, off the element corners, and moving along `y` at `v = 0.2`, or
+at rest; RK4 at `cfl = 1/2`. The error is that of `(Φ_r, Π_r)` against
+`(1 - W)Φ_C(z + vt)`, the exact remainder, in quadrature-weighted L2 over
+a ball, and the force is the remainder's force on the particle.
+
+**Convergence.** At `t = 1/2`, `v = 0.2`, with the least-squares rate:
+
+| `hₑ` | `d/4` | `d/6` | `d/8` | `d/10` | `d/12` | rate |
+|---|---|---|---|---|---|---|
+| error, ball `R₁` about the centre | 3.25e-6 | 9.18e-7 | 2.60e-7 | 1.40e-7 | 8.16e-8 | 3.43 |
+| error, ball `1/2` about the particle | 1.61e-6 | 4.99e-7 | 1.94e-7 | 9.90e-8 | 5.26e-8 | 3.11 |
+| error, ball `R₂`, at `t = 1/8` | 7.81e-6 | 8.95e-7 | 4.74e-7 | 2.14e-7 | 5.21e-8 | 4.21 |
+| largest force over `t ≤ 1/2` | 2.7e-7 | 2.1e-8 | 3.0e-8 | 9.8e-9 | 2.5e-9 | 3.74 |
+
+against an exact remainder of `1.26·10⁻³` in the `R₂` ball. At rest the
+errors agree to two digits and the rates are 3.51, 3.12 and 3.84 over
+`d/4 … d/10`, and the force's 3.24. So:
+
+- **The remainder converges at order `P`,** with or without motion, and
+  the particle's crossing of element faces, one at `d/12` over the run,
+  shows in nothing: the uniformly moving field is exact, the window's
+  terms are resolved, and the particle's own field exerts no force.
+- **The force is zero to the discretization error,** which falls at
+  about order `P` too, irregularly, and is `10⁻⁷` and less: four orders
+  of magnitude below the first run's radiation-reaction force, about
+  `10⁻⁵`.
+- **The particle's state follows its path** to `10⁻¹³`.
+- **The `R₂` ball is clean for less than `L/2 - R₂ = 1/2`.** At `t = 1/4`
+  its error has stopped falling (`2.2·10⁻⁵` to `7.0·10⁻⁶`, rate 0.97), and
+  by `t = 1/2` it grows with resolution (`1.7·10⁻⁴` to `2.8·10⁻⁴`), with
+  the L∞ error at the sphere `3·10⁻³`. The faces' error outruns light;
+  see the clean time below.
+
+**The clean time.** The same particle at `v = 0.2` to `t = 5`, at `d/4`,
+`d/6`, `d/8` and `d/12` (`d/12` to `t = 4.2`, where the job's hour ended),
+sampled every `1/16`. When the error in each ball first exceeds three
+times its clean level, and the force ten times, against the ball's
+distance from the nearest face:
+
+| where | distance | arrives at `d/4`, `d/6`, `d/8`, `d/12` | speed |
+|---|---|---|---|
+| the `R₂` sphere | 0.5 | 0.25, 0.19, 0.19, 0.19 | 2.0–2.7 |
+| the `R₁` sphere | 1.75 | 0.88, 0.81, 0.81, 0.88 | 2.0–2.2 |
+| the ball of radius `1/2` about the particle | 1.99 | 0.88, 0.94, 0.94, 0.94 | 2.1–2.3 |
+| the particle, its force | 2.49 | 1.19, 1.13, 1.25, 1.19 | 2.0–2.2 |
+
+- **The faces' error travels at about twice the speed of light,** at
+  every resolution, so it is a property of the scheme's dispersion and
+  not of `hₑ`: the kinks the non-periodic initial data have at the faces
+  excite high modes, whose group velocity OLDG does not bound by one. A
+  point at distance `r` from the centre of a box of side `L` is clean
+  until about `(L/2 - r)/2`, half the time the speed of light allows.
+- **Once there it is the whole error,** `10⁴` times the discretization
+  error at `d/12`, and the same at every resolution. From about `t = 2`
+  on, it is the net charge's drift: the source carries `∫S = Q/γ`, so in
+  the periodic box the mean of `Π_r` falls at `Q/(γV) = 3.2·10⁻⁴` and that
+  of `Φ_r` at `1.6·10⁻⁴t²`, which predict `1.25·10⁻³` at `t = 3` and
+  `3.0·10⁻³` at `t = 4.9` for the error measured at `1.2·10⁻³` and
+  `2.9·10⁻³`, more than the remainder itself.
+- **The force after the arrival** is `10⁻⁵` to `3·10⁻⁴`, up to thirty
+  times the first run's radiation-reaction force, so no force can be
+  measured past the clean time. A uniform drift of `Φ_r` exerts none;
+  this is its uneven part, and `vΠ̄_r`.
+- **What it sizes.** M4's circle measures the force at `t ≈ 5` at
+  `r ≈ 0.5`, which needs `L ≥ 21` and is a gate of `INSPIRAL-PLAN.md`
+  ([Open questions](#open-questions)).
+
+**The cost** at `v = 0.2`, seconds per call, the least of three after a
+warm-up, at 64 threads:
+
+| `hₑ` | `d/4` | `d/6` | `d/8` | `d/10` | `d/12` |
+|---|---|---|---|---|---|
+| nodes | 0.88M | 3.0M | 7.1M | 13.8M | 23.9M |
+| `inspiral_rhs!` | 0.042 | 0.069 | 0.117 | 0.200 | 0.311 |
+|   `wave_rhs!` | 0.0023 | 0.0034 | 0.0051 | 0.0081 | 0.0148 |
+|   `project_source!` | 0.041 | 0.066 | 0.112 | 0.190 | 0.292 |
+| `particle_forces` | 0.0036 | 0.0036 | 0.0036 | 0.0036 | 0.0036 |
+| RK4 step | 0.17 | 0.29 | 0.48 | 0.82 | 1.28 |
+
+and in bytes per node: the state 16, the wave problem's working arrays
+54, the projection's scratch 27, RK4's scratch 80, about 180 in all, a
+little above the 160 that `INSPIRAL-PLAN.md`'s memory table assumes.
+
+- **The source is 20 times the wave equation's work over the whole
+  box** of side 6, at every resolution, and over 90% of a step. Over the
+  window's elements alone it is about 65 times, and 84 for the binary's
+  source ([The transfer's cost](#the-transfers-cost)). A larger box
+  dilutes it: in a box of side 24, which the deferred binary run needs,
+  it would be about a third of the wave equation's work.
+- **Before the near pass was threaded over its points** (job 586061, on
+  the same CPU model), the source took 0.118 s at `d/4` and 0.368 s at
+  `d/12`: at `d/4` the element that holds the particle was a third of
+  the near work and ran on one thread.
 
 ## What carried over from TreeWave, and what did not
 
@@ -1330,19 +1549,13 @@ layout would be modal (the decay of the top Legendre coefficients)
 - The paper's modal filter (eq. 76), as a term in the right-hand side.
 - A comparison with TreeWave's finite differences at equal cost: same
   number of points and same wall clock.
-- **(proposed)** Two changes to IMEXRungeKutta, for the inspiral:
-  - Its by-owner path takes a plain `Array` only, and `INSPIRAL-PLAN.md`
-    plans the inspiral's state as `ArrayPartition(field, particles)` for
-    OrdinaryDiffEq. Either the 12 particle values go at the end of the
-    field's state vector, owned by thread 1 in the partition, which
-    needs no change there, or IMEXRungeKutta learns to partition an
-    `ArrayPartition`.
-  - A low-storage (2N) explicit Runge–Kutta method. Its RK4 keeps the
-    state and five scratch arrays, OrdinaryDiffEq's about nine; a 2N
-    scheme keeps two in all, which matters where memory sets the box
-    size, as in `INSPIRAL-PLAN.md`'s table. It would also cut the stage
-    arithmetic, a quarter of a 64-thread step ([Threads on
-    Symmetry](#threads-on-symmetry)), by about half.
+- **(proposed)** A low-storage (2N) explicit Runge–Kutta method in
+  IMEXRungeKutta, for the inspiral. Its RK4 keeps the state and five
+  scratch arrays, OrdinaryDiffEq's about nine; a 2N scheme keeps two in
+  all, which matters where memory sets the box size, as in
+  `INSPIRAL-PLAN.md`'s table. It would also cut the stage arithmetic, a
+  quarter of a 64-thread step ([Threads on
+  Symmetry](#threads-on-symmetry)), by about half.
 - The paper's averaging post-processing (its eq. 98–100), which makes
   the interpolated solution continuous for plotting.
 - A 1D viewer, a device run, and a subprocess thread-count test, as in
@@ -1382,6 +1595,20 @@ layout would be modal (the decay of the top Legendre coefficients)
   for ten (see [The transfer's cost](#the-transfers-cost)). It is
   accepted for now and to be revisited, probably with threading or a
   device.
+- What to do about the clean time, about `(L/2 - r)/2` where `L/2 - r`
+  was expected, since the error of the box's faces outruns light (see
+  [Uniform motion](#uniform-motion)). It fires the gate of
+  `INSPIRAL-PLAN.md`'s "Gates and fallbacks" for M4's circle, measured at
+  `t ≈ 5`, which would need a box of side about 24: 4.5·10⁸ nodes and
+  80 GB at `d/8`, and more than a node's memory at `d/12`. The plan's
+  fallbacks are a smaller circle radius or `P = 4` at a coarser `hₑ`;
+  others are initial data that are periodic, or carry no net charge, so
+  that the faces start no error, and an outflow boundary. The owner
+  decides before M4.
+- Whether the far rule's kernels should balance the window's blocks over
+  all threads instead of running each block on its owner: on Symmetry
+  they reach about half the speed their source evaluations allow (see
+  [The transfer's cost](#the-transfers-cost)).
 - The quadrature error on the elements the window's spheres cut, which
   `INSPIRAL.md`'s `10⁻¹²` does not cover (see [Quadrature](#quadrature)):
   whether it matters, and if so a split at `R₁` and `R₂` like the one at

@@ -299,6 +299,61 @@ How the package got where it is, by topic in `CODE.md`'s order.
   elements found from `z` (`INSPIRAL-PLAN.md`, "Left to settle later"),
   measured against the `mesh_fold` it replaces (`CODE.md`, "The
   transfer's cost").
+- 2026-10-30: M3 of `INSPIRAL-PLAN.md`, a particle at rest and in uniform
+  motion, on branch `inspiral-m3-uniform`, started at Erik Schnetter's
+  request: `src/inspiral.jl`, `test/inspiral_tests.jl`,
+  `bin/uniform_motion.jl` and `bin/symmetry/uniform_motion.sh`. It
+  departs from the plan in two places:
+  - **The state is a plain vector, not an `ArrayPartition`.** The
+    decision of 2026-10-30 ("Decisions" in `INSPIRAL-PLAN.md`) was made
+    for OrdinaryDiffEq, before the integrator became IMEXRungeKutta, whose
+    stage arithmetic by block owner takes a plain `Array` only and would
+    fall back to its broadcast for an `ArrayPartition`. The particles'
+    six numbers each go after the field's state vector, owned by thread 1
+    in the partition, the first of the two options `CODE.md` listed
+    under "Possible extensions"; IMEXRungeKutta needs no change. This
+    also settles the plan's "`SVector` or `Vector`" for the particles'
+    part (`INSPIRAL-PLAN.md`, "Left to settle later").
+  - **A prescribed motion drives the source, not the state.** The source
+    and the forces take the trajectories from the path at `t`; the
+    particles' part of the state integrates `ż = v`, `v̇ = a` from the
+    path alongside, as the plan says, and the tests check that it follows
+    the path.
+- 2026-10-30: found in M3: the error of the box's faces travels inward
+  at about twice the speed of light, independent of the resolution, so
+  a point at distance `r` from the centre of a box of side `L` is clean
+  until about `(L/2 - r)/2`, not `L/2 - r` (`CODE.md`, "Uniform motion").
+  Once there, it is the size of the remainder itself, and the force it
+  exerts grows to ten times the first run's radiation-reaction force.
+  This fires the gate "the clean time is too short" of
+  `INSPIRAL-PLAN.md` ("Gates and fallbacks") for M4's circle, measured
+  at `t ≈ 5`, and goes to Erik Schnetter before M4.
+- 2026-10-30: found in M3: the nested rule was compiled without
+  specializing on its integrand, which it only passes on, and inference
+  widened its recursion from one dimension to the next, so every
+  accumulator, the `(P+1)^D` values of an element's projection, was boxed
+  and every call below the top dispatched dynamically, and
+  `element_basis` allocated its partial Kronecker products. With the
+  integrand specialized, a method per level, and the products by
+  recursion, the nested rule on the 20 near elements of a coarse box
+  (`hₑ = 1/2`) went from 0.126 s and 630 MB allocated to 0.080 s and
+  1.7 MB on the laptop at four threads. The results are unchanged: the
+  suite's transfer tests pass as before.
+- 2026-10-30: found in M3, on Symmetry: at 64 threads the source of one
+  uniformly moving particle took 0.12 s at `hₑ = d/4`, barely less than
+  on the laptop's four threads, because the near pass was threaded over
+  elements and the element that holds the particle is about a third of
+  its work (69 ms of 237 ms serially on the laptop, 342 000 points). The
+  near pass is now threaded over the points of each element's outermost
+  line, and summed afterwards in the nested rule's order, so it still
+  does not depend on the thread count; it equals the serial nested rule to
+  an ulp, where the compiler fuses a `muladd` in one and not the other
+  (a test). Each line of the rule is now its points and weights
+  (`line_fold`), shared by both, and each level of the recursion has its
+  own methods throughout. On the laptop the near pass of that box takes
+  0.229 s at one thread, against the 0.237 s its elements took one after
+  another, 0.069 s at four and 0.052 s at eight; on Symmetry, see
+  `CODE.md`, "Uniform motion".
 
 ## Dependencies
 

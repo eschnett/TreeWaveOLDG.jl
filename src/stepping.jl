@@ -37,6 +37,13 @@ function state_partition(fs::FieldSet{T,D}, u) where {T,D}
         "the state vector has $(length(u)) entries but the field set's blocks " *
         "hold $(L * nblocks(fs)): a partition of one mesh's state cannot be " *
         "applied to another's."))
+    return owner_ranges(fs)
+end
+
+# Thread `c`'s range of the state vector of `fs`, one per thread, padded
+# with empty ranges.
+function owner_ranges(fs::FieldSet{T,D}) where {T,D}
+    L = fs.forest.N^D * fs.nvars
     parts = UnitRange{Int}[((first(r) - 1) * L + 1):(last(r) * L)
                            for r in TreeAMR.threadchunks(nblocks(fs))]
     while length(parts) < Threads.nthreads()

@@ -74,6 +74,15 @@ a few minutes on four threads:
 julia --project=. -t 4,0 bin/projection.jl --hdiv=8
 ```
 
+A particle in uniform motion against its exact remainder ("Uniform
+motion"), in the package environment; its series, clean-time runs and
+costs run on Symmetry, `sbatch bin/symmetry/uniform_motion.sh` from a
+rsynced checkout after `bash bin/symmetry/uniform_motion.sh setup`:
+
+```bash
+julia --project=. -t 4,0 bin/uniform_motion.jl --hdiv=4 --tend=0.125 --cost
+```
+
 From M1 of `INSPIRAL-PLAN.md` on, `src/particle_forms.jl` is generated
 from the Wolfram Language derivations in `derivations/`; do not edit it
 by hand. Regenerate it, and let the suite check that the checked-in
@@ -138,6 +147,15 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   ("Quadrature").
 - **The transfer looks for no periodic images.** The source's ball and
   every particle's support lie inside the box ("The transfer").
+- **The inspiral's state is the field's state vector followed by six
+  numbers per particle.** Use `field_state` and `particle_state`, and
+  `inspiral_integrator`, whose partition gives the particles to thread 1;
+  not an `ArrayPartition` ("The right-hand side with particles").
+- **Error norms of an inspiral run are taken in the clean ball,** with
+  `ball_norm`: the field of a charge is not periodic, and the box's
+  faces' error, which travels at about twice the speed of light, spoils
+  a point at `r` from the centre from `t ≈ (L/2 - r)/2` on ("Uniform
+  motion").
 - **The asserted rates are measurements.** If one moves, re-measure and
   update "Measured results" rather than widen a tolerance.
 

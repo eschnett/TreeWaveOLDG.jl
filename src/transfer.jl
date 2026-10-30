@@ -201,6 +201,12 @@ end
 @inline skron(a::SVector{M}, b::SVector{N}) where {M,N} =
     SVector{M * N}(ntuple(j -> a[(j - 1) ÷ N + 1] * b[(j - 1) % N + 1], Val(M * N)))
 
+# `fs[D] ⊗ … ⊗ fs[1]`, the first factor's index running fastest. A `foldl`
+# over the tuple, whose partial products differ in type, allocated each
+# one.
+@inline kron_all(fs::Tuple{Any}) = fs[1]
+@inline kron_all(fs::Tuple) = skron(last(fs), kron_all(Base.front(fs)))
+
 # `φₙ(x)` for every node `n` of the element `[lo, hi]`, as one static
 # vector in the state's order (dimension 1 fastest), with dimension `d`'s
 # factor replaced by its derivative in `x_d` when `d == deriv`.
@@ -212,14 +218,14 @@ end
         SVector(lagrange_derivatives(t, ξ)) * (2 / (hi[d] - lo[d])) :
         SVector(lagrange_values(t, ξ))
     end
-    return foldl((acc, f) -> skron(f, acc), Base.tail(φ); init=φ[1])
+    return kron_all(φ)
 end
 
 # The quadrature weight `wₙ` of every node of an element `hₑ` wide, in
 # the order of `element_basis`.
 @inline function element_weights(t::TransferTables{T,P1}, hₑ, ::Val{D}) where {T,P1,D}
     w = ntuple(_ -> SVector(t.weights) * (hₑ / 2), Val(D))
-    return foldl((acc, f) -> skron(f, acc), Base.tail(w); init=w[1])
+    return kron_all(w)
 end
 
 # Johnston and Elliott's transformation of `[-1, 1]` onto itself for a
@@ -356,8 +362,10 @@ end
 @inline nested_rule(f, init, s::ParticleSupport, t::TransferTables, lo, hi,
                     prefix::SVector, ::Val{0}, compact::Bool) = f(prefix)
 
-function nested_rule(f, init, s::ParticleSupport{D,T}, t::TransferTables, lo, hi,
-                     prefix::SVector{F}, ::Val{n}, compact::Bool) where {D,T,F,n}
+# The segments of one line of the nested rule, along dimension
+# `d = F + 1`: `acc = op(acc, xs, ws)` for each segment's points `xs` and
+# weights `ws`, tuples, in order along the line.
+const LINE_FOLD = quote
     d = F + 1
     breaks, extent = support_breaks(s, prefix, lo, hi)
     # The squared distance from the particle's centre to the line, outside
@@ -367,19 +375,23 @@ function nested_rule(f, init, s::ParticleSupport{D,T}, t::TransferTables, lo, hi
     for j in 1:F
         off² += (prefix[j] - s.z[j])^2
     end
-    inner(x) = nested_rule(f, init, s, t, lo, hi, push(prefix, x), Val(n - 1), compact)
-    acc = init
     a = lo[d]
     for k in 1:(length(breaks) + 1)
         b = k <= length(breaks) ? breaks[k] : hi[d]
         if b > a
             mid = (a + b) / 2
             if extent !== nothing && extent[1] < mid < extent[2]
-                acc += inner_segment(inner, init, t, a, b, n == 1)
+                acc = op(acc, inner_points(t, a, b, innermost)...)::A
             elseif !compact
                 c = clamp(s.z[d], a, b)
-                β = sqrt(off² + (s.z[d] - c)^2)
-                acc += sinh_segment(inner, init, t, a, b, c, max(β, eps(T) * (b - a)))
+                β = max(sqrt(off² + (s.z[d] - c)^2), eps(T) * (b - a))
+                # `NM` points when `β` is at least half the segment's
+                # length, where they reach `10⁻¹⁶` on the first run's
+                # source, and `NS` closer. Both are converged at the
+                # switch, so it moves the result by roundoff only.
+                acc = β >= (b - a) / 2 ?
+                      op(acc, sinh_points(t.midnodes, t.midweights, a, b, c, β)...)::A :
+                      op(acc, sinh_points(t.sinhnodes, t.sinhweights, a, b, c, β)...)::A
             end
         end
         a = b
@@ -387,42 +399,62 @@ function nested_rule(f, init, s::ParticleSupport{D,T}, t::TransferTables, lo, hi
     return acc
 end
 
-function inner_segment(g, init, t::TransferTables{T}, a, b, plain::Bool) where {T}
-    acc = init
-    half = (b - a) / 2
-    for (u, w) in zip(t.innernodes, t.innerweights)
-        if plain
-            acc += (w * half) * g(a + half * (1 + u))
-        else
-            θ = T(π) * (1 + u) / 2
-            acc += (w * T(π) / 2 * half * sin(θ)) * g(a + half * (1 - cos(θ)))
-        end
+# The nested rule, one level per remaining dimension `n`: its line's
+# segments by `line_fold`, each summed by `rule_sum` over `inner(x)`, the
+# integral over the remaining dimensions at `x_d = x`, which is the next
+# level. Each of the three has a method per level, so that no method
+# recurs from one level to the next: inference widens such a recursion,
+# the next level was then dispatched dynamically, and every accumulator,
+# `(P+1)^D` numbers in the projection, was boxed. `f` is specialized on
+# (`::G`), since it is only passed on. Up to four dimensions.
+for n in 1:4
+    @eval @inline function line_fold(op::O, acc::A, s::ParticleSupport{D,T},
+                                     t::TransferTables, lo, hi, prefix::SVector{F},
+                                     innermost::Bool, compact::Bool,
+                                     ::Val{$n}) where {O,A,D,T,F}
+        $LINE_FOLD
     end
-    return acc
+    @eval @inline function rule_sum(g::G, init::A, xs, ws, ::Val{$n}) where {G,A}
+        acc::A = init
+        for k in eachindex(xs, ws)
+            acc += ws[k] * g(xs[k])
+        end
+        return acc
+    end
+    @eval function nested_rule(f::G, init::A, s::ParticleSupport, t::TransferTables, lo,
+                               hi, prefix::SVector, ::Val{$n}, compact::Bool) where {G,A}
+        inner(x) = nested_rule(f, init, s, t, lo, hi, push(prefix, x), Val($(n - 1)),
+                               compact)::A
+        return line_fold((acc, xs, ws) -> acc + rule_sum(inner, init, xs, ws, Val($n)),
+                         init, s, t, lo, hi, prefix, $(n == 1), compact, Val($n))
+    end
 end
 
-# The sinh rule on `[a, b]` toward `c` at distance `β`: `NM` points when
-# `β` is at least half the segment's length, where they reach `10⁻¹⁶` on
-# the first run's source, and `NS` closer. Both are converged at the
-# switch, so it moves the result by roundoff only.
-function sinh_segment(g, init, t::TransferTables, a, b, c, β)
+# The inner Gauss rule's points and weights on `[a, b]`, plain on the
+# innermost line and under `x = a + (b - a)(1 - cos θ)/2` on the others.
+# Both are `ntuple`s of a static length, since `map` over a tuple of more
+# than 32 elements allocates.
+@inline function inner_points(t::TransferTables{T,P1,Q,NS,NM,NI}, a, b,
+                              plain::Bool) where {T,P1,Q,NS,NM,NI}
     half = (b - a) / 2
-    return β >= half ? sinh_points(g, init, t.midnodes, t.midweights, a, b, c, β) :
-           sinh_points(g, init, t.sinhnodes, t.sinhweights, a, b, c, β)
+    u, w = t.innernodes, t.innerweights
+    θ(k) = T(π) * (1 + u[k]) / 2
+    xs = ntuple(k -> plain ? a + half * (1 + u[k]) : a + half * (1 - cos(θ(k))), Val(NI))
+    ws = ntuple(k -> plain ? w[k] * half : w[k] * T(π) / 2 * half * sin(θ(k)), Val(NI))
+    return xs, ws
 end
 
-function sinh_points(g, init, nodes, weights, a, b, c, β)
+# The sinh rule's points and weights on `[a, b]` toward `c` at distance
+# `β`, from the reference Gauss points `nodes` and `weights`.
+@inline function sinh_points(nodes::NTuple{N}, weights::NTuple{N}, a, b, c, β) where {N}
     half = (b - a) / 2
     mid = (a + b) / 2
     ξc = (c - mid) / half
     ε = β / half
     μ, η = sinh_parameters(ξc, ε)
-    acc = init
-    for (u, w) in zip(nodes, weights)
-        s = μ * u - η
-        acc += (w * ε * μ * cosh(s) * half) * g(mid + half * (ξc + ε * sinh(s)))
-    end
-    return acc
+    xs = ntuple(k -> mid + half * (ξc + ε * sinh(μ * nodes[k] - η)), Val(N))
+    ws = ntuple(k -> weights[k] * ε * μ * cosh(μ * nodes[k] - η) * half, Val(N))
+    return xs, ws
 end
 
 # The far rule over the box `[lo, hi]`, on the host: the tensor product of
@@ -674,21 +706,54 @@ function project_tensor!(dua, plan, t::TransferTables{T,P1}, g::GaussRule, list,
     return nothing
 end
 
-# The near elements, on the host, threaded over elements.
+# The near elements, on the host. One element, the one holding the
+# particle, takes about a third of the near work, so threading over
+# elements left it on one thread whatever the thread count. The work is
+# threaded over the points of each element's outermost line instead: each
+# point's integral over the other dimensions is one item, and the items
+# are summed per segment and the segments per element in the order the
+# nested rule sums them, so the result does not depend on the thread
+# count, and is the serial nested rule's to roundoff (the compiler may fuse
+# a `muladd` in one and not in the other).
 function project_near!(dua, plan, t::TransferTables{T,P1}, S, factor, var) where {T,P1}
     near = plan.near
-    isempty(near) && return nothing    # and the loop is not compiled
-    Threads.@threads :dynamic for i in eachindex(near)
-        D = length(plan.region[1])     # here, so that the closure knows it
-        wₙ = element_weights(t, plan.hₑ, Val(D))
-        b, e, k = near[i]
-        lo, hi = element_box(plan.origins[b], plan.spacings[b], e, Val(P1), Val(D))
+    isempty(near) && return nothing    # and the loops are not compiled
+    D = ndims(dua) - 2                 # from the type, so that `Val(D)` is static
+    origins, spacings, particles = plan.origins, plan.spacings, plan.particles
+    box(i) = element_box(origins[near[i][1]], spacings[near[i][1]], near[i][2], Val(P1),
+                         Val(D))
+    # The outermost line's segments of every element, as `(element, xs, ws)`.
+    segments = Tuple{Int,Vector{T},Vector{T}}[]
+    for i in eachindex(near)
+        lo, hi = box(i)
+        line_fold((list, xs, ws) -> push!(list, (i, collect(T, xs), collect(T, ws))),
+                  segments, particles[near[i][3]], t, lo, hi, SVector{0,T}(), D == 1, false,
+                  Val(D))
+    end
+    items = [(j, k) for j in eachindex(segments) for k in eachindex(segments[j][2])]
+    wₙ = element_weights(t, plan.hₑ, Val(D))
+    values = Vector{typeof(wₙ)}(undef, length(items))
+    Threads.@threads :dynamic for n in eachindex(items)
+        j, k = items[n]
+        i = segments[j][1]
+        lo, hi = box(i)
         integrand(x) = S(x) * element_basis(t, lo, hi, x)
-        vals = nested_rule(integrand, zero(wₙ), plan.particles[k], t, lo, hi,
-                           SVector{0,T}(), Val(D), false)
-        for (n, K) in enumerate(CartesianIndices(ntuple(_ -> P1, D)))
+        values[n] = nested_rule(integrand, zero(wₙ), particles[near[i][3]], t, lo, hi,
+                                SVector{1,T}(segments[j][2][k]), Val(D - 1), false)
+    end
+    sums = fill(zero(wₙ), length(near))
+    n = 0
+    for (i, xs, ws) in segments
+        acc = zero(wₙ)
+        for k in eachindex(xs, ws)
+            acc += ws[k] * values[n += 1]
+        end
+        sums[i] += acc
+    end
+    for (i, (b, e, _)) in enumerate(near)
+        for (m, K) in enumerate(CartesianIndices(ntuple(_ -> P1, D)))
             node = ntuple(d -> e[d] * P1 + K[d], D)
-            dua[node..., var, b] += factor * vals[n] / wₙ[n]
+            dua[node..., var, b] += factor * sums[i][m] / wₙ[m]
         end
     end
     return nothing

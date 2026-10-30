@@ -26,7 +26,8 @@ conditions, a standing sine mode and a radial blast wave, in `sinewave.jl`
 and `blast.jl`. The analytic particle of the inspiral (`INSPIRAL.md`) is
 in `particle.jl`, on top of the closed forms that `derivations/` generates
 into `particle_forms.jl`, and its transfer to and from the grid in
-`transfer.jl`. See `CODE.md` in the
+`transfer.jl`; the coupled problem, the remainder stepped with the
+particles, is in `inspiral.jl`. See `CODE.md` in the
 package root for the design and the measurements.
 """
 module TreeWaveOLDG
@@ -72,6 +73,11 @@ export TransferTables, gauss_nodes_weights, sinh_rule, ParticleSupport, project_
        projection_scratch, support_elements, pairing, reconstruct, reconstruct_gradient,
        ball_rule
 
+# The coupled problem
+export InspiralProblem, Prescribed, uniform_motion, field_state, particle_state,
+       inspiral_initial_state, inspiral_rhs!, inspiral_stage!, inspiral_partition,
+       inspiral_integrator, particle_forces, ball_norm
+
 include("precision.jl")
 include("device.jl")
 include("element.jl")
@@ -83,5 +89,6 @@ include("blast.jl")
 include("particle_forms.jl")
 include("particle.jl")
 include("transfer.jl")
+include("inspiral.jl")
 
 end

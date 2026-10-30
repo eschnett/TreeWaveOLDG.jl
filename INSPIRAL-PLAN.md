@@ -6,9 +6,9 @@ merged pull request and a green suite. The milestones follow
 knows it is done. Section names of `INSPIRAL.md` and `CODE.md` are used
 below without links.
 
-**Status.** M0 and M1 are done; M2 is implemented on its branch and not
-yet merged, with its cost gate fired and the cost accepted for now;
-nothing else is started. The
+**Status.** M0, M1 and M2 are done, M2 with its cost gate fired and the
+cost accepted for now; M3 is implemented on its branch and not yet
+merged; nothing else is started. The
 decisions below were settled with the owner on 2026-10-30. A milestone's
 status line changes here when its work starts and when its pull request
 merges.
@@ -286,7 +286,7 @@ disagreement with `INSPIRAL.md`'s results.
 
 ## M2: The transfer operator
 
-**Status:** implemented on `inspiral-m2-transfer`, not yet merged; the
+**Status:** done; on `main`. The
 cost gate of [Gates and fallbacks](#gates-and-fallbacks) fired, and after
 tuning the source and grading the far rule the owner accepted the cost
 for now (`HISTORY.md`, "Particles"); the near rule and `r_near` depart
@@ -354,7 +354,12 @@ ball of radius `2.5d` at `hₑ = d/8` is measured and recorded (the
 
 ## M3: A particle at rest and in uniform motion
 
-**Status:** not started. `INSPIRAL.md`: "The remainder on OLDG", "Time
+**Status:** implemented on `inspiral-m3-uniform`, not yet merged; the
+state is a plain vector rather than an `ArrayPartition`, and a
+prescribed motion drives the source from its path (`HISTORY.md`,
+"Particles"). The clean time is about half what a light-speed estimate
+gives, which fires the gate "the clean time is too short" below; it goes
+to the owner before M4. `INSPIRAL.md`: "The remainder on OLDG", "Time
 integration"; validation step 3.
 
 ### M3 code
