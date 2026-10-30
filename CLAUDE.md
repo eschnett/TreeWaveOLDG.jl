@@ -128,9 +128,10 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   `d`). Do not build the faces by hand and forget the parity, and do not
   try to add a boundary hook (see "Reflecting walls").
 - **The source bracket is never formed by subtracting the large terms.**
-  `ρ` cancels against `□_vΦ_C` analytically, the acceleration part of
-  `𝒟²Φ_C` is a derivative in a deformation parameter, and near-field
-  Laplacians are generated closed forms ("The split").
+  `ρ` cancels against `□_vΦ_C` analytically, the acceleration's parts
+  of the invariants' rates are written out term by term, never as `İ`
+  minus its uniform part, and near-field Laplacians are generated closed
+  forms ("The split").
 - **A particle's support is a breakpoint.** Integrate `ρ`, `∇ρ` or the
   source near a particle with the nested rule, never a Gauss or sinh rule
   across the support's edge, where the profile is only `C³`

@@ -677,27 +677,50 @@ particle field":
 Near the particle `∇²Ψ`, `(v·∇)²Ψ` and `ρ` are each of size `Q/ℓ³`, and
 the bracket is assembled without subtracting them:
 
-- `ρ` cancels against `□_vΦ_C` analytically. What is left of `Φ_C` is
-  `A = 𝒟²Φ_C - (v·∂_z)²Φ_C`, the part of its second time derivative the
-  acceleration causes. Along the motion with every derivative of the
-  velocity scaled by `s` (`deform`), `∂ₜ²Φ_C` at `t = 0` is quadratic in
-  `s`, and `A` is its first `s`-derivative plus half its second at
-  `s = 0`, by nested dual numbers.
-- Each near-field term contributes `𝒟²Φ⁽ᴺ⁾ - ∇²Φ⁽ᴺ⁾`, with
-  `∇²_x = ∇²_y + γ²(v·∇_y)²`: `∇²_y` from the generated closed form, and
-  the directional second derivative by dual numbers.
+- `ρ` cancels against `□_vΦ_C = ∇²Φ_C - (v·∇)²Φ_C` analytically, and
+  each near-field term has `∇²_x = ∇²_y + γ²(v·∇_y)²`, where
+  `γ²(v·∇_y)² = (v·∇_x)² = (v·∂_z)²`. So the bracket is
+  `𝒟²Ψ - (v·∂_z)²Ψ`, the part of `Ψ`'s second time derivative the
+  acceleration causes, minus `∇²_y` of the near-field terms, which is
+  their generated closed form.
+- `Ψ` depends on `x` and `t` only through four invariants: `q = |y|²`,
+  `α′·y`, `|α′|²` and `ä·y`. With `r = x - z` and `M = Λ(v)² = I + γ²vvᵀ`
+  they are `rᵀMr`, `k·r` with `k = γ²Ma`, `γ⁴aᵀMa`, and `e·r` with
+  `e = Λ(v)ä`, so their dependence on time is through `r`, with `ṙ = -v`
+  and `r̈ = -a`, and through `M`, `k`, `γ⁴aᵀMa` and `e`, which do not
+  depend on `x`. Of each invariant `I` the bracket needs the rate `İᵤ`
+  of uniform motion (`r` moving with `-v`, everything else held) and the
+  acceleration's parts `δİ = İ - İᵤ` and `δÏ = Ï - Ïᵤ`, written out
+  term by term: for `q`, `δq̇ = rᵀṀr` and
+  `δq̈ = -2aᵀMr - 4vᵀṀr + rᵀM̈r`. Then
+
+      𝒟²Ψ - (v·∂_z)²Ψ = Σᵢ Ψ_i δÏᵢ + Σᵢⱼ Ψ_ij δİᵢ (2İᵤ + δİ)ⱼ,
+
+  the coefficient of `ε₁ε₂` in `Ψ(I + ε₁δİ + ε₂(2İᵤ + δİ) + ε₁ε₂δÏ)`, one
+  evaluation of `Ψ` on nested dual numbers.
 
 The cancellations left are between terms of size `Qa/ℓ²`, and cost
-little (see [The source bracket](#the-source-bracket)).
-`particle_source(models, w, x, trajs; order)` is the effective source
-for several particles,
+little (see [The source bracket](#the-source-bracket)). The generator
+emits each near-field term and its Laplacian as a function of the
+invariants (`_near_field_term`, `_near_field_laplacian`) as well as of
+`y`.
+
+`ParticleSource(models, w, trajs; order)` is the effective source for
+several particles, a callable `S(x)`,
 
     S = W Σₐ [𝒟²Ψₐ - ∇²Ψₐ + ρₐ] - 2∇W·∇Ψ̂ - Ψ̂ ∇²W,
 
-with `∇Ψ̂` by dual numbers, and zero beyond the window. A bracket costs
-about 30 µs in `Float64` on the laptop, with a few small allocations
-from the nested closures; nothing is tuned yet, since how often it is
-evaluated is M2's to measure.
+zero beyond the window, and `particle_source(models, w, x, trajs; order)`
+is the same at one point. It holds each particle's `ParticleJets`, the
+`x`-independent `M`, `k`, `|α′|²` and `e` with their first two time
+derivatives, by dual numbers along the trajectory, once per source and
+not per point, and is `isbits`, so that it can be a kernel argument. In
+the window's transition the same evaluation of `Ψ` carries a second
+outer partial seeded with `∇W·∇I`, which gives `∇W·∇Ψ`, and its value
+gives `Ψ`. On the laptop a point inside the window costs 0.14 µs for
+both particles and one in the transition 0.22 µs, of which 11 ns is
+`window_terms`; building the jets costs 0.8 µs per particle
+([The transfer's cost](#the-transfers-cost)).
 
 ### The window
 
@@ -909,7 +932,8 @@ the `10⁻¹²` of `INSPIRAL.md` does not hold on those elements **(open)**.
   edited by hand; the profile's radial functions, the near-field terms
   and their Laplacians, and the self-force coefficients.
 - `src/particle.jl`: `ParticleModel`, `Trajectory`, the boost, `Ψ`,
-  `𝒟Ψ`, the source bracket, `Window` and the source.
+  `𝒟Ψ`, `ParticleJets` and the source bracket, `Window`, and
+  `ParticleSource`.
 - `src/transfer.jl`: `gauss_nodes_weights`, `TransferTables`,
   `sinh_rule`, `ParticleSupport`, the far and nested rules, the
   projection's kernels and `project_source!`, `support_elements`,
@@ -994,7 +1018,8 @@ take about two thirds.
   `1e-15 Q/ℓ³` without acceleration; the window's step is exactly
   `C^m`, and its closed-form derivatives are its dual-number ones; the
   source equals `∂ₜ²(WΨ̂) - ∇²(WΨ̂) + Σρ` evaluated naively in
-  `BigFloat`; and, where `wolframscript` is available, regenerating
+  `BigFloat`, and `ParticleSource` is `isbits` and does not allocate;
+  and, where `wolframscript` is available, regenerating
   `particle_forms.jl` reproduces it byte for byte.
 - `transfer_tests.jl`: the transfer tables are the `BigFloat` ones
   rounded, and the Gauss rules exact to degree `2n - 1`; `(P S)ₙ - S(xₙ)`
@@ -1196,34 +1221,38 @@ threads), 2026-10-30, not yet on Symmetry: the first run of
 `INSPIRAL.md` (`q² = 0.005`, `ℓ = 10⁻³`, `v = 0.2`, orders 1–3, the
 window `R₁ = 1.25`, `R₂ = 2.5`), `P = 3`, `hₑ = d/8`, in a periodic box of
 side 5 that just holds the window: 4.1M nodes, 2.4M of them in the
-37 224 elements that meet the window's ball. Seconds, the least of one
-run after a warm-up.
+37 224 elements that meet the window's ball. Seconds, the least of
+three runs after a warm-up, with the source of
+[The split](#the-split).
 
 | | `r_near = 2hₑ` | `r_near = 5hₑ` |
 |---|---|---|
 | far elements, points | 37 096, 8.0M | 35 856, 7.7M |
 | near elements, points | 128, 3.4M | 1 368, 10.7M |
-| one projection | 11.5 | **20.3** |
-|   far rule | 8.2 | 8.3 |
-|   near rule | 3.4 | 11.6 |
-| `wave_rhs!`, whole box | 0.018 | 0.018 |
+| one projection | 0.95 | **2.08** |
+|   far rule | 0.60 | 0.58 |
+|   near rule | 0.36 | 1.49 |
+|   near rule, with a source that costs nothing | 0.18 | 0.78 |
+| `wave_rhs!`, whole box | 0.017 | 0.017 |
 |   its share on the window's nodes | 0.010 | 0.010 |
 
-One evaluation of the source, both particles, is 2.9 µs; `INSPIRAL.md`'s
-estimate of "roughly ten times the wave equation's work" assumed a
-tenth of that. What it says:
+One evaluation of the source, both particles, is 0.16 µs, under
+`INSPIRAL.md`'s estimate of 0.3 µs for "roughly ten times the wave
+equation's work". What it says:
 
-- **The projection is about 2000 times the wave equation's work** on
-  the same elements at the default `r_near`, and 1100 times at `2hₑ`,
-  where the plan's gate is ten. Nearly all of it is evaluating the
-  source: with a source that costs nothing, the far rule takes 0.03 s and
-  the near rule 0.86 s (its breakpoints and allocations), so the source
-  is 99.6% and 93% of them. The gate is the owner's ([Open
-  questions](#open-questions)); M2 only measures it.
-- **The near rule is more than half** at `r_near = 5hₑ`: 1 368 elements
-  at 16³ points or more each, against 216 for the far rule. Most of
-  them are there only because the far rule is not accurate enough
-  closer in ([Quadrature](#quadrature)).
+- **The projection is about 210 times the wave equation's work** on
+  the same elements at the default `r_near`, and 100 times at `2hₑ`,
+  where the plan's gate is ten. That is the number of points: the far
+  rule evaluates the source at 3.4 points per node of its elements, and
+  the near rule at about 120 per node of its own at `5hₑ`. The gate is the
+  owner's ([Open questions](#open-questions)); M2 only measures it.
+- **The source is 95% of the far rule** (0.03 s with a source that
+  costs nothing) **and half of the near rule**, whose breakpoints and
+  allocations are the other half.
+- **The near rule is more than two thirds** at `r_near = 5hₑ`: 1 368
+  elements at 16³ points or more each, against 216 for the far rule.
+  Most of them are there only because the far rule is not accurate
+  enough closer in ([Quadrature](#quadrature)).
 - **The pairing over the support** takes 16 ms for `ρ` and 22 ms for
   `∇ρ`, at 1 to 8 elements whatever the mesh. The `mesh_fold` it
   replaces, a projection of `ρ` and a fold over the 4.1M nodes, takes

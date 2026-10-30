@@ -18,6 +18,13 @@
     return q, ay, aa, äy
 end
 
+# A near-field term and its Laplacian at y, through the invariants, on
+# which the generated forms below depend.
+@inline near_field_term(::Val{N}, Q, ℓ, y, a, ä) where {N} =
+    _near_field_term(Val(N), Q, ℓ, _invariants(y, a, ä)...)
+@inline near_field_laplacian(::Val{N}, Q, ℓ, y, a, ä) where {N} =
+    _near_field_laplacian(Val(N), Q, ℓ, _invariants(y, a, ä)...)
+
 # ρ₀/Q: the profile, zero outside the particle.
 @inline function _rho0(q, ℓ)
     T = typeof(ℓ)
@@ -105,13 +112,11 @@ end
     end
 end
 
-@inline function near_field_term(::Val{1}, Q, ℓ, y, a, ä)
-    q, ay, aa, äy = _invariants(y, a, ä)
+@inline function _near_field_term(::Val{1}, Q, ℓ, q, ay, aa, äy)
     return Q * (ay * _F1_1(q, ℓ))
 end
 
-@inline function near_field_laplacian(::Val{1}, Q, ℓ, y, a, ä)
-    q, ay, aa, äy = _invariants(y, a, ä)
+@inline function _near_field_laplacian(::Val{1}, Q, ℓ, q, ay, aa, äy)
     return Q * (ay * _L1_1(q, ℓ))
 end
 
@@ -159,14 +164,12 @@ end
     end
 end
 
-@inline function near_field_term(::Val{2}, Q, ℓ, y, a, ä)
-    q, ay, aa, äy = _invariants(y, a, ä)
+@inline function _near_field_term(::Val{2}, Q, ℓ, q, ay, aa, äy)
     return Q * (aa * _F2_1(q, ℓ) +
                 ay * ay * _F2_2(q, ℓ))
 end
 
-@inline function near_field_laplacian(::Val{2}, Q, ℓ, y, a, ä)
-    q, ay, aa, äy = _invariants(y, a, ä)
+@inline function _near_field_laplacian(::Val{2}, Q, ℓ, q, ay, aa, äy)
     return Q * (aa * _L2_1(q, ℓ) +
                 ay * ay * _L2_2(q, ℓ))
 end
@@ -237,15 +240,13 @@ end
     end
 end
 
-@inline function near_field_term(::Val{3}, Q, ℓ, y, a, ä)
-    q, ay, aa, äy = _invariants(y, a, ä)
+@inline function _near_field_term(::Val{3}, Q, ℓ, q, ay, aa, äy)
     return Q * (äy * _F3_1(q, ℓ) +
                 aa * ay * _F3_2(q, ℓ) +
                 ay * ay * ay * _F3_3(q, ℓ))
 end
 
-@inline function near_field_laplacian(::Val{3}, Q, ℓ, y, a, ä)
-    q, ay, aa, äy = _invariants(y, a, ä)
+@inline function _near_field_laplacian(::Val{3}, Q, ℓ, q, ay, aa, äy)
     return Q * (äy * _L3_1(q, ℓ) +
                 aa * ay * _L3_2(q, ℓ) +
                 ay * ay * ay * _L3_3(q, ℓ))

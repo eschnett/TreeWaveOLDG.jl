@@ -94,12 +94,6 @@ from the moment `traj` describes.
                       a⃛ + zero(t) * a⃛)
 end
 
-# The trajectory with every derivative of the velocity scaled by `s`:
-# `s = 0` is uniform motion, `s = 1` the actual one.
-@inline deform(traj::Trajectory, s) =
-    Trajectory(traj.z + zero(s) * traj.z, traj.v + zero(s) * traj.v,
-               s * traj.a, s * traj.ȧ, s * traj.ä, s * traj.a⃛)
-
 # The boost: `Λ(v) r = r + (γ - 1)(v̂·r)v̂`, with `(γ - 1)/v² = γ²/(γ + 1)`,
 # which needs no `v̂` at rest.
 @inline function lorentz_factor(v)
@@ -195,44 +189,132 @@ end
 
 The residual of the particle field's wave equation along the motion,
 `𝒟²Ψ - ∇²Ψ + ρ`, for one particle: the bracket of the effective source
-in INSPIRAL.md, "The remainder equations".
-
-Near the particle `∇²Ψ`, `(v·∇)²Ψ` and `ρ` are each of size `Q/ℓ³`, and
-the bracket is assembled without subtracting them:
-
-- `ρ` cancels against `□_vΦ_C = ∇²Φ_C - (v·∇)²Φ_C` analytically, which
-  leaves `A := 𝒟²Φ_C - (v·∂_z)²Φ_C`, the part of `Φ_C`'s second time
-  derivative that the acceleration causes. `A` is computed as
-  derivatives in a deformation parameter `s` of the motion with every
-  derivative of the velocity scaled by `s`: `∂ₜ²Φ_C` along it is
-  quadratic in `s`, and `A` is its first derivative plus half its second
-  at `s = 0`, not the difference of two second time derivatives.
-- Each near-field term contributes `𝒟²Φ⁽ᴺ⁾ - ∇²Φ⁽ᴺ⁾`, with
-  `∇²_x = ∇²_y + γ²(v·∇_y)²` and `∇²_y` the generated closed form from
-  the hierarchy.
+in INSPIRAL.md, "The remainder equations". See
+[`ParticleSource`](@ref) for how it is assembled.
 """
-function source_bracket(m::ParticleModel, x, traj::Trajectory{T}; order::Int=3) where {T}
+function source_bracket(m::ParticleModel, x, traj::Trajectory; order::Int=3)
     check_order(order)
-    # ∂ₜ²Φ_C along the deformed motion, as a function of s.
-    h(s) = second_derivative(
-        t -> (tr = trajectory_at(deform(traj, s), t); boosted_static(m, x, tr.z, tr.v)),
-        zero(s))
-    A = ForwardDiff.derivative(h, zero(T)) + second_derivative(h, zero(T)) / 2
-    order >= 1 && (A += near_field_residual(m, Val(1), x, traj))
-    order >= 2 && (A += near_field_residual(m, Val(2), x, traj))
-    order >= 3 && (A += near_field_residual(m, Val(3), x, traj))
-    return A
+    return source_terms(ParticleJets(m, traj), order, x)[2]
 end
 
-# `𝒟²Φ⁽ᴺ⁾ - ∇²Φ⁽ᴺ⁾` for one near-field term.
-function near_field_residual(m::ParticleModel, ::Val{N}, x, traj::Trajectory{T}) where {N,T}
-    D² = second_derivative(t -> near_field(m, Val(N), x, trajectory_at(traj, t)), zero(T))
-    y, α′ = rest_frame(traj, x)
-    w = lorentz_factor(traj.v) * traj.v
-    ∇²y = near_field_laplacian(Val(N), m.Q, m.ℓ, y, α′, traj.ä)
-    vv = second_derivative(ε -> near_field_term(Val(N), m.Q, m.ℓ, y + ε * w, α′, traj.ä),
-                           zero(T))
-    return D² - ∇²y - vv
+# The tags of the source's nested dual numbers, seeded in `lift`: their
+# product carries the acceleration's part of `𝒟²`, and a second outer
+# partial a directional derivative.
+struct SourceOuterTag end
+struct SourceInnerTag end
+
+# A field that depends on `x` through `q = |y|²`, `α′·y`, `|α′|²` and
+# `ä·y`, and on `t` through them along the motion. Of each invariant `I`
+# the bracket needs its value, its rate `İᵤ` in uniform motion (`z`
+# moving with `v`, and `v`, `a`, `ä` held), and the acceleration's parts
+# `δİ = İ - İᵤ` and `δÏ = Ï - Ïᵤ`, each formed directly and not as a
+# difference. With them,
+#
+#     𝒟²G - (v·∂_z)²G = Σᵢ G_i δÏᵢ + Σᵢⱼ G_ij δİᵢ (2İᵤ + δİ)ⱼ,
+#
+# the coefficient of `ε₁ε₂` in `G(I + ε₁ δİ + ε₂ (2İᵤ + δİ) + ε₁ε₂ δÏ)`.
+# `d` holds directional derivatives `∇I·n` to carry in further outer
+# partials.
+@inline function lift(I, İᵤ, δİ, δÏ, d::Tuple)
+    I, İᵤ, δİ, δÏ = promote(I, İᵤ, δİ, δÏ)
+    Inner = ForwardDiff.Dual{SourceInnerTag}
+    return ForwardDiff.Dual{SourceOuterTag}(Inner(I, 2İᵤ + δİ), Inner(δİ, δÏ),
+                                           map(dᵢ -> Inner(oftype(I, dᵢ), zero(I)), d)...)
+end
+
+"""
+    ParticleJets(m, traj)
+
+What [`ParticleSource`](@ref) needs of one particle, at the moment
+`traj` describes, that does not depend on the point: the invariants'
+`x`-independent factors and their first two time derivatives. With
+`r = x - z`, `y = Λ(v)r` and `M = Λ(v)² = I + γ²vvᵀ`,
+
+    |y|² = rᵀMr,   α′·y = k·r with k = γ²Ma,   |α′|² = γ⁴aᵀMa,
+    ä·y = e·r with e = Λ(v)ä,
+
+and `ṙ = -v`, `r̈ = -a`.
+"""
+struct ParticleJets{T}
+    Q::T
+    ℓ::T
+    z::SVector{3,T}
+    M::NTuple{3,SMatrix{3,3,T,9}}   # M, Ṁ, M̈
+    uq::SVector{3,T}                # q̇ᵤ = uq·r
+    bq::SVector{3,T}                # δq̈ = bq·r + rᵀM̈r
+    k::NTuple{3,SVector{3,T}}       # k, k̇, k̈
+    k̇ᵤ::T                           # d(α′·y)/dt in uniform motion
+    k̈₀::T                           # δ d²(α′·y)/dt² = k̈·r + k̈₀
+    aa::NTuple{3,T}                 # |α′|² and its derivatives
+    e::NTuple{3,SVector{3,T}}       # e, ė, ë
+    ėᵤ::T                           # the same for ä·y
+    ë₀::T
+end
+
+function ParticleJets(m::ParticleModel{T}, traj::Trajectory{T}) where {T}
+    jet(f) = (g = t -> f(trajectory_at(traj, t));
+              (g(zero(T)), ForwardDiff.derivative(g, zero(T)), second_derivative(g, zero(T))))
+    γ²(v) = inv(1 - dot(v, v))
+    Mof(v) = one(SMatrix{3,3,eltype(v)}) + γ²(v) * v * v'
+    M = jet(tr -> Mof(tr.v))
+    k = jet(tr -> γ²(tr.v) * (Mof(tr.v) * tr.a))
+    aa = jet(tr -> γ²(tr.v)^2 * dot(tr.a, Mof(tr.v) * tr.a))
+    e = jet(tr -> boost(tr.v, tr.ä))
+    (; z, v, a) = traj
+    # q = rᵀMr: q̇ = 2ṙᵀMr + rᵀṀr, q̈ = 2r̈ᵀMr + 2ṙᵀMṙ + 4ṙᵀṀr + rᵀM̈r, of
+    # which uniform motion keeps -2vᵀMr and 2vᵀMv.
+    uq = -2 * (M[1] * v)
+    bq = -2 * (M[1] * a) - 4 * (M[2] * v)
+    linear(k) = (-dot(k[1], v), -2dot(k[2], v) - dot(k[1], a))
+    k̇ᵤ, k̈₀ = linear(k)
+    ėᵤ, ë₀ = linear(e)
+    return ParticleJets{T}(m.Q, m.ℓ, z, M, uq, bq, k, k̇ᵤ, k̈₀, aa, e, ėᵤ, ë₀)
+end
+
+# Ψ as a function of the invariants.
+@inline function invariant_field(p::ParticleJets, order, q, ay, aa, äy)
+    Ψ = p.Q * _phi0(q, p.ℓ)
+    order >= 1 && (Ψ += _near_field_term(Val(1), p.Q, p.ℓ, q, ay, aa, äy))
+    order >= 2 && (Ψ += _near_field_term(Val(2), p.Q, p.ℓ, q, ay, aa, äy))
+    order >= 3 && (Ψ += _near_field_term(Val(3), p.Q, p.ℓ, q, ay, aa, äy))
+    return Ψ
+end
+
+# ∇²_y of the near-field terms, as a function of the invariants.
+@inline function invariant_laplacian(p::ParticleJets, order, q, ay, aa, äy)
+    L = zero(q)
+    order >= 1 && (L += _near_field_laplacian(Val(1), p.Q, p.ℓ, q, ay, aa, äy))
+    order >= 2 && (L += _near_field_laplacian(Val(2), p.Q, p.ℓ, q, ay, aa, äy))
+    order >= 3 && (L += _near_field_laplacian(Val(3), p.Q, p.ℓ, q, ay, aa, äy))
+    return L
+end
+
+# One particle's `(Ψ, 𝒟²Ψ - ∇²Ψ + ρ, n·∇Ψ)` at `x`, with `n·∇Ψ` only
+# where `n` is given.
+#
+# `ρ` cancels against `□_vΦ_C = ∇²Φ_C - (v·∇)²Φ_C` analytically, and
+# each near-field term has `∇²_x = ∇²_y + γ²(v·∇_y)²` with
+# `γ²(v·∇_y)² = (v·∂_z)²`, so the bracket is `𝒟²Ψ - (v·∂_z)²Ψ`, which
+# `lift` forms from the acceleration's parts alone, minus the generated
+# `∇²_y` of the near-field terms.
+@inline function source_terms(p::ParticleJets, order, x, n...)
+    r = x - p.z
+    M, M′, M″ = p.M
+    Mr = M * r
+    q = lift(dot(r, Mr), dot(p.uq, r), dot(r, M′ * r), dot(p.bq, r) + dot(r, M″ * r),
+             map(nᵢ -> 2dot(nᵢ, Mr), n))
+    k, k′, k″ = p.k
+    ay = lift(dot(k, r), p.k̇ᵤ, dot(k′, r), dot(k″, r) + p.k̈₀, map(nᵢ -> dot(nᵢ, k), n))
+    aa = lift(p.aa[1], zero(p.aa[1]), p.aa[2], p.aa[3], map(nᵢ -> zero(p.aa[1]), n))
+    e, e′, e″ = p.e
+    äy = lift(dot(e, r), p.ėᵤ, dot(e′, r), dot(e″, r) + p.ë₀, map(nᵢ -> dot(nᵢ, e), n))
+    G = invariant_field(p, order, q, ay, aa, äy)
+    value = ForwardDiff.value
+    partial = ForwardDiff.partials
+    ∇²y = invariant_laplacian(p, order, value(value(q)), value(value(ay)),
+                              value(value(aa)), value(value(äy)))
+    return (value(value(G)), partial(partial(G, 1), 1) - ∇²y,
+            map(i -> value(partial(G, i + 1)), ntuple(identity, length(n)))...)
 end
 
 """
@@ -267,11 +349,17 @@ function Window(centre, R₁, R₂; continuity::Integer)
     return Window{T}(centre, R₁, R₂, continuity)
 end
 
-# S_m(ξ) = ξ^{m+1} Σₖ C(m+k, k) (1-ξ)^k for 0 ≤ ξ ≤ 1.
+# S_m(ξ) = ξ^{m+1} Σₖ C(m+k, k) (1-ξ)^k for 0 ≤ ξ ≤ 1, summed upward with
+# C(m+k+1, k+1) = C(m+k, k) (m+k+1)/(k+1), exact in integers.
 function smoothstep(m, ξ)
+    y = 1 - ξ
+    yᵏ = one(ξ)
+    C = 1
     acc = zero(ξ)
-    for k in m:-1:0
-        acc = acc * (1 - ξ) + binomial(m + k, k)
+    for k in 0:m
+        acc += C * yᵏ
+        yᵏ *= y
+        C = C * (m + k + 1) ÷ (k + 1)
     end
     return ξ^(m + 1) * acc
 end
@@ -299,34 +387,72 @@ function window_terms(w::Window, x)
     ξ = (r - w.R₁) / Δ
     m = w.m
     S = smoothstep(m, ξ)
-    S′ = w.c * (ξ * (1 - ξ))^m
-    S″ = m == 0 ? zero(ξ) : w.c * m * (ξ * (1 - ξ))^(m - 1) * (1 - 2ξ)
+    p = m == 0 ? zero(ξ) : (ξ * (1 - ξ))^(m - 1)
+    S′ = m == 0 ? w.c : w.c * p * (ξ * (1 - ξ))
+    S″ = w.c * m * p * (1 - 2ξ)
     return (1 - S, -(S′ / (Δ * r)) * d, -(S″ / Δ^2 + 2S′ / (Δ * r)))
+end
+
+"""
+    ParticleSource(models, w, trajs; order = 3)
+
+The effective source of the remainder equations (INSPIRAL.md, "The
+remainder equations") for particles `models[i]` on `trajs[i]`, as a
+callable `S(x)`:
+
+    S = W Σₐ [𝒟²Ψₐ - ∇²Ψₐ + ρₐ] - 2∇W·∇Ψ̂ - Ψ̂ ∇²W,    Ψ̂ = Σₐ Ψₐ.
+
+It vanishes outside the window's outer radius. It is `isbits` for an
+`isbits` `T`, so that it can be passed to a kernel, and holds each
+particle's [`ParticleJets`](@ref), which do not depend on `x`.
+
+Near a particle `∇²Ψ`, `(v·∇)²Ψ` and `ρ` are each of size `Q/ℓ³`, and
+the bracket is assembled without subtracting them (CODE.md, "The
+split"). `Ψ` depends on `x` and `t` through four invariants, `|y|²`,
+`α′·y`, `|α′|²` and `ä·y`. `ρ` cancels against `□_vΦ_C` analytically and
+`∇²_x` of each near-field term is `∇²_y + (v·∂_z)²`, so the bracket is
+`𝒟²Ψ - (v·∂_z)²Ψ` minus the generated `∇²_y` of the near-field terms,
+and `𝒟²Ψ - (v·∂_z)²Ψ` is formed from the acceleration's parts of the
+invariants' rates, which are formed directly. One evaluation of `Ψ` on
+nested dual numbers gives it, and in the window's transition also `Ψ`
+and `∇W·∇Ψ`.
+"""
+struct ParticleSource{T,K}
+    particles::NTuple{K,ParticleJets{T}}
+    window::Window{T}
+    order::Int
+end
+
+function ParticleSource(models::Tuple, w::Window, trajs::Tuple; order::Int=3)
+    length(models) == length(trajs) || throw(ArgumentError(
+        "got $(length(models)) particle models and $(length(trajs)) trajectories"))
+    check_order(order)
+    return ParticleSource(map(ParticleJets, models, trajs), w, order)
+end
+
+function (s::ParticleSource)(x)
+    W, ∇W, ∇²W = window_terms(s.window, x)
+    S = zero(W)
+    iszero(W) && return S
+    if iszero(∇W) && iszero(∇²W)
+        for p in s.particles
+            S += W * source_terms(p, s.order, x)[2]
+        end
+    else
+        for p in s.particles
+            Ψ, bracket, ∇WΨ = source_terms(p, s.order, x, ∇W)
+            S += W * bracket - 2∇WΨ - Ψ * ∇²W
+        end
+    end
+    return S
 end
 
 """
     particle_source(models, w, x, trajs; order = 3)
 
-The effective source of the remainder equations (INSPIRAL.md, "The
-remainder equations") at `x`, for particles `models[i]` on `trajs[i]`:
-
-    S = W Σₐ [𝒟²Ψₐ - ∇²Ψₐ + ρₐ] - 2∇W·∇Ψ̂ - Ψ̂ ∇²W,    Ψ̂ = Σₐ Ψₐ
-
-with each bracket from [`source_bracket`](@ref). It vanishes outside the
-window's outer radius.
+The effective source at `x`, `ParticleSource(models, w, trajs; order)(x)`;
+see [`ParticleSource`](@ref), which is the form to evaluate at many
+points.
 """
-function particle_source(models::Tuple, w::Window, x, trajs::Tuple; order::Int=3)
-    length(models) == length(trajs) || throw(ArgumentError(
-        "got $(length(models)) particle models and $(length(trajs)) trajectories"))
-    W, ∇W, ∇²W = window_terms(w, x)
-    S = zero(W)
-    iszero(W) && return S
-    for (m, traj) in zip(models, trajs)
-        S += W * source_bracket(m, x, traj; order)
-        if !iszero(∇²W) || !iszero(∇W)
-            Ψ = ξ -> particle_field(m, ξ, traj; order)
-            S -= 2dot(∇W, ForwardDiff.gradient(Ψ, x)) + Ψ(x) * ∇²W
-        end
-    end
-    return S
-end
+particle_source(models::Tuple, w::Window, x, trajs::Tuple; order::Int=3) =
+    ParticleSource(models, w, trajs; order)(x)

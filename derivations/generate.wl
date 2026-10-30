@@ -13,7 +13,8 @@
    the particle ℓ^p times a polynomial in σ² = q/ℓ², outside r^p times a
    polynomial in ℓ²/q, with q = |y|², r = √q, and the branch on σ < 1.
    Each near-field term is a sum over a basis of rotation invariants
-   (a·y, a², ä·y) times such radial functions. Coefficients are exact
+   (a·y, a², ä·y) times such radial functions, emitted as a function of
+   q and those invariants, which the source evaluates on dual numbers. Coefficients are exact
    rationals, written `_q(T, n, d)` and rounded once to the model's type
    `T`, and π is `T(π)`, so that the code is generic in its argument
    types and works on dual numbers. *)
@@ -142,13 +143,11 @@ nearFieldCode[nOrder_] := Module[{fin, fout, lin, lout, nb = Length[basis[nOrder
         Table[radialFunction[lname[j], "Its Laplacian, radial factor of " <>
             StringRiffle[basis[nOrder][[j]], "·"] <> ".",
             lin[[j]], lout[[j]]] <> "\n", {j, nb}],
-        "@inline function near_field_term(::Val{", ToString[nOrder], "}, Q, ℓ, y, a, ä)\n",
-        "    q, ay, aa, äy = _invariants(y, a, ä)\n",
+        "@inline function _near_field_term(::Val{", ToString[nOrder], "}, Q, ℓ, q, ay, aa, äy)\n",
         "    return Q * (", StringRiffle[Table[term[fname, j], {j, nb}], " +\n" <>
             StringRepeat[" ", 16]], ")\n",
         "end\n\n",
-        "@inline function near_field_laplacian(::Val{", ToString[nOrder], "}, Q, ℓ, y, a, ä)\n",
-        "    q, ay, aa, äy = _invariants(y, a, ä)\n",
+        "@inline function _near_field_laplacian(::Val{", ToString[nOrder], "}, Q, ℓ, q, ay, aa, äy)\n",
         "    return Q * (", StringRiffle[Table[term[lname, j], {j, nb}], " +\n" <>
             StringRepeat[" ", 16]], ")\n",
         "end\n"]];
@@ -186,6 +185,13 @@ code = StringJoin[
     "    äy = ä[1] * y[1] + ä[2] * y[2] + ä[3] * y[3]\n",
     "    return q, ay, aa, äy\n",
     "end\n",
+    "\n",
+    "# A near-field term and its Laplacian at y, through the invariants, on\n",
+    "# which the generated forms below depend.\n",
+    "@inline near_field_term(::Val{N}, Q, ℓ, y, a, ä) where {N} =\n",
+    "    _near_field_term(Val(N), Q, ℓ, _invariants(y, a, ä)...)\n",
+    "@inline near_field_laplacian(::Val{N}, Q, ℓ, y, a, ä) where {N} =\n",
+    "    _near_field_laplacian(Val(N), Q, ℓ, _invariants(y, a, ä)...)\n",
     "\n",
     profileCode,
     Table[nearFieldCode[n] <> "\n", {n, 3}],

@@ -39,7 +39,7 @@ using KernelAbstractions: @kernel, @index, @Const, Backend, CPU, get_backend,
                           allocate, synchronize
 using LinearAlgebra: dot
 using SpecialFunctions: besselj0
-using StaticArrays: SVector, push
+using StaticArrays: SMatrix, SVector, push
 
 # The reference element
 export Element, gll_nodes_weights
@@ -65,7 +65,7 @@ export blast_initial, blast_reference, blast_radial_table, blast_exact,
 # The analytic particle
 export ParticleModel, Trajectory, trajectory_at, self_inertia, particle_density,
        boosted_static, near_field, particle_field, particle_rate, source_bracket,
-       Window, window_terms, particle_source
+       Window, window_terms, ParticleSource, particle_source
 
 # The transfer between particles and grid
 export TransferTables, gauss_nodes_weights, sinh_rule, ParticleSupport, project_source!,

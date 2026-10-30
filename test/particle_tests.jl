@@ -307,6 +307,26 @@ end
     end
 end
 
+@testset "The source can be a kernel argument and does not allocate" begin
+    # Guards ParticleSource as what the projection evaluates some 10⁷
+    # times: it must be isbits to reach a kernel, and an allocation or a
+    # type instability per call would cost more than the source itself.
+    m1 = ParticleModel(; Q=0.07, ℓ=1e-3, M=1.0)
+    m2 = ParticleModel(; Q=-0.07, ℓ=1e-3, M=1.0)
+    t1 = Trajectory(; z=SA[0.5, 0.0, 0.0], v=SA[0.0, 0.2, 0.0],
+                    a=SA[-0.08, 0.0, 0.0], ȧ=SA[0.0, -0.032, 0.0],
+                    ä=SA[0.0128, 0.0, 0.0])
+    t2 = Trajectory(; z=-t1.z, v=-t1.v, a=-t1.a, ȧ=-t1.ȧ, ä=-t1.ä)
+    w = Window(SA[0.0, 0.0, 0.0], 1.25, 2.5; continuity=4)
+    S = ParticleSource((m1, m2), w, (t1, t2))
+    @test isbits(S)
+    for x in (SA[0.5, 0.002, 0.0], SA[1.3, 0.4, 0.2], SA[2.0, 1.0, 1.0])
+        @test S(x) == particle_source((m1, m2), w, x, (t1, t2))
+        S(x)
+        @test (@allocated S(x)) == 0
+    end
+end
+
 @testset "The checked-in closed forms are what the derivations generate" begin
     # Guards src/particle_forms.jl against a hand edit or a derivation
     # changed without regenerating: where wolframscript is available, the

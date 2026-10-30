@@ -67,7 +67,7 @@ function measure(hdiv, rnear, order, reps)
     tr₁ = Trajectory(; z=c + r, v=v, a=a, ȧ=-Ω^2 * v, ä=-Ω^2 * a, a⃛=Ω^4 * v)
     tr₂ = Trajectory(; z=c - r, v=-v, a=-a, ȧ=Ω^2 * v, ä=Ω^2 * a, a⃛=-Ω^4 * v)
     w = Window(c, 1.25, 2.5; continuity=P + 1)
-    S(x) = particle_source((m₁, m₂), w, x, (tr₁, tr₂); order=order)
+    S = ParticleSource((m₁, m₂), w, (tr₁, tr₂); order=order)
     particles = (ParticleSupport(m₁, tr₁), ParticleSupport(m₂, tr₂))
     ball = (c, w.R₂)
 

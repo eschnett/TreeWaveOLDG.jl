@@ -234,6 +234,28 @@ How the package got where it is, by topic in `CODE.md`'s order.
   to measure only in M2: `q` stays `P + 3` everywhere, and neither the
   plan's first fallback (`q = P + 1` far out) nor tuning the source is
   done yet.
+- 2026-10-30: the source is tuned, on Erik Schnetter's request, after
+  the cost gate. The bracket was nested dual numbers through the
+  trajectory, the boost and `α′` at every point, 16 components deep for
+  `Φ_C`'s derivatives in the deformation parameter `s`, which were
+  evaluated twice, and a further dual pass for `∇Ψ̂` in the window's
+  transition. It is now one evaluation of `Ψ` through its four
+  invariants on nested dual numbers, with the invariants' `x`-independent
+  factors and their time derivatives computed once per particle
+  (`ParticleSource`, `ParticleJets`; `CODE.md`, "The split"), and the
+  deformation parameter is gone. This also folds each near-field term's
+  `(v·∂_z)²` into the acceleration's part instead of subtracting it. The
+  generator now also emits the near-field terms as functions of the
+  invariants, and the window's step sums its binomials by a recurrence.
+  A source evaluation went from 2.9 µs to 0.16 µs, and one projection
+  from 20.3 s (far rule 8.3, near rule 11.6) to 2.08 s at `r_near = 5hₑ`
+  and from 11.5 s (8.2, 3.4) to 0.95 s at `2hₑ` (`CODE.md`, "The
+  transfer's cost"), 210 and 100 times the wave equation's work on the
+  window's elements, where they were 2000 and 1100. The `Float64`
+  bracket's error against the naive difference in `BigFloat`, on twelve
+  points at `σ = 0.3, 0.9, 1.5, 4` with `ä = -4va`, is `3.4·10⁻¹⁴`
+  against the old `3.5·10⁻¹⁴` at `v = 0.2`, and `6.7·10⁻¹³` against
+  `1.1·10⁻¹²` at `v = 0.05`.
 - 2026-10-30: found in M2: elements cut by the window's spheres `R₁`
   and `R₂` carry a quadrature error of `10⁻⁸`–`3·10⁻⁷` relative at
   `hₑ = d/8`, since the window is only `C^{P+1}` there. It is static,
