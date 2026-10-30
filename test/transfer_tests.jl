@@ -89,9 +89,13 @@ bump(r², ℓ) = r² < ℓ^2 ? (1 - r² / ℓ^2)^4 : zero(r²)
     end
     tb = TransferTables(BigFloat, 3)
     t32 = TransferTables(Float32, 3)
+    rounded(v::Number) = Float32(v)
+    rounded(v::Tuple) = map(rounded, v)
+    fields(v) = map(f -> getfield(v, f), fieldnames(typeof(v)))
     for f in fieldnames(typeof(tb))
-        @test getfield(t32, f) == map(v -> v isa Tuple ? Float32.(v) : Float32(v),
-                                     getfield(tb, f))
+        a, b = getfield(t32, f), getfield(tb, f)
+        @test (b isa Tuple{Vararg{TWT.GaussRule}} ? map(fields, a) == map(rounded ∘ fields, b) :
+               a == rounded(b))
     end
     # The contraction table is the Lagrange table weighted, so the far rule
     # projects a polynomial of degree P - 1 onto its nodal values.
@@ -285,6 +289,72 @@ end
               SVector(0.5 + 1.5hₑ - 1e-6, 0.3, 0.2),
               SVector(0.5 - 0.3ℓ, 0.3, 0.2), SVector(0.5 + 0.3ℓ, 0.5 - 0.2ℓ, 0.2))
         @test maximum(abs, project(z) - base) < 1e-12 * maximum(abs, base)
+    end
+end
+
+@testset "The graded rule is the tensor Gauss rule, contracted" begin
+    # Guards the graded rule's contraction one dimension at a time as the
+    # points are visited, in the state's node order, against the tensor
+    # Gauss rule applied point by point with the element's basis.
+    for (D, P) in ((1, 4), (2, 3), (3, 3))
+        t = TransferTables(Float64, P)
+        g = t.graded[2]
+        lo = SVector(ntuple(d -> 0.1d, D))
+        hi = lo .+ 0.3
+        S(x) = exp(x[1]) * prod(d -> cos(3x[d] + d), 1:D)
+        gt = TransferTables(Float64, P; q=length(g.nodes))
+        ref = TWT.gauss_rule(x -> S(x) * TWT.element_basis(gt, lo, hi, x),
+                             zero(SVector{(P + 1)^D,Float64}), gt, lo, hi) ./
+              TWT.element_weights(gt, 0.3, Val(D))
+        @test TWT.tensor_rule(S, g, lo, hi, lo, Val(D)) ≈ ref rtol = 1e-14
+    end
+end
+
+@testset "Each rule meets 1e-12 from where it applies, on the first run's source" begin
+    # Guards the graded rule's bands and r_far, which are measurements: on
+    # the source of INSPIRAL.md's first run (hₑ = d/8, orders 1–3), an
+    # element whose nearest point is at the inner edge of a band, or at
+    # r_far for the far rule, integrates `S φₙ` to 1e-12 of `∫|S|` against
+    # a 32-point tensor Gauss rule, in 24 directions spread over the sphere
+    # (elements within hₑ of the window's spheres left out, where the far
+    # rule is limited by the window). Where one fails, a band's points or
+    # its distance must change, and "Quadrature" in CODE.md with them.
+    P = 3
+    hₑ = 1 / 8
+    q = sqrt(0.005)
+    Ω = 0.4
+    m₁ = ParticleModel(; Q=q, ℓ=1e-3, M=1.0)
+    m₂ = ParticleModel(; Q=-q, ℓ=1e-3, M=1.0)
+    r = SVector(0.5, 0.0, 0.0)
+    v = SVector(0.0, Ω / 2, 0.0)
+    tr₁ = Trajectory(; z=r, v=v, a=-Ω^2 * r, ȧ=-Ω^2 * v, ä=Ω^4 * r, a⃛=Ω^4 * v)
+    tr₂ = Trajectory(; z=-r, v=-v, a=Ω^2 * r, ȧ=Ω^2 * v, ä=-Ω^4 * r, a⃛=-Ω^4 * v)
+    R₁, R₂ = 1.25, 2.5
+    S = ParticleSource((m₁, m₂), Window(zero(r), R₁, R₂; continuity=P + 1), (tr₁, tr₂))
+    t = TransferTables(Float64, P)
+    ref = TransferTables(Float64, P; q=32, graded=((0, 32),))
+    far = TransferTables(Float64, P; graded=((0, P + 3),))
+    @test far.graded[1].nodes == t.gauss
+    w = TWT.element_weights(t, hₑ, Val(3))
+    distance(lo, hi, z) = sqrt(TWT.box_distance2(z, lo, hi, 1:3))
+    rules = (zip(t.gradedfrom, t.graded)..., (t.rfar, far.graded[1]))
+    for (δ, g) in rules, k in 1:24
+        # A direction on the golden spiral, the point δ hₑ from z₁ along it,
+        # and the element on the far side of that point, offset across.
+        c = 1 - (2k - 1) / 24
+        φ = 2π * 0.618034 * k
+        n = SVector(sqrt(1 - c^2) * cos(φ), sqrt(1 - c^2) * sin(φ), c)
+        pt = tr₁.z + δ * hₑ * n
+        lo = SVector(ntuple(d -> abs(n[d]) < 0.2 ? pt[d] - mod(0.618034 * (k + d), 1) * hₑ :
+                                 n[d] > 0 ? pt[d] : pt[d] - hₑ, 3))
+        hi = lo .+ hₑ
+        min(distance(lo, hi, tr₁.z), distance(lo, hi, tr₂.z)) >= (δ - 0.05) * hₑ || continue
+        rmin, rmax = distance(lo, hi, zero(r)), sqrt(sum(max.(abs.(lo), abs.(hi)) .^ 2))
+        any(R -> rmin - hₑ < R < rmax + hₑ, (R₁, R₂)) && continue
+        exact = TWT.tensor_rule(S, ref.graded[1], lo, hi, lo, Val(3))
+        absS = TWT.gauss_rule(x -> abs(S(x)), 0.0, ref, lo, hi)
+        @test maximum(abs, w .* (TWT.tensor_rule(S, g, lo, hi, lo, Val(3)) - exact)) <
+              1e-12 * absS
     end
 end
 

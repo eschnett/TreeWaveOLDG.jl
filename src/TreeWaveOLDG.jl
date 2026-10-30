@@ -39,7 +39,7 @@ using KernelAbstractions: @kernel, @index, @Const, Backend, CPU, get_backend,
                           allocate, synchronize
 using LinearAlgebra: dot
 using SpecialFunctions: besselj0
-using StaticArrays: SMatrix, SVector, push
+using StaticArrays: SMatrix, SVector, push, setindex
 
 # The reference element
 export Element, gll_nodes_weights

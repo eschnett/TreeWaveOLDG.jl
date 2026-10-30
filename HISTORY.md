@@ -256,6 +256,40 @@ How the package got where it is, by topic in `CODE.md`'s order.
   points at `σ = 0.3, 0.9, 1.5, 4` with `ä = -4va`, is `3.4·10⁻¹⁴`
   against the old `3.5·10⁻¹⁴` at `v = 0.2`, and `6.7·10⁻¹³` against
   `1.1·10⁻¹²` at `v = 0.05`.
+- 2026-10-30: a graded rule between `r_near` and the far rule, on Erik
+  Schnetter's request ("a better far rule, which would let `r_near`
+  shrink and cut the near work", the extension `CODE.md` proposed).
+  Away from the support the source is analytic and a tensor Gauss rule
+  converges geometrically in the element's distance from the particle, so
+  the points per dimension now grow toward the particle (14, 10, 8, 7 from
+  `1hₑ`, `2hₑ`, `3hₑ`, `4hₑ`), the far rule's 6 apply from `9hₑ`, and the
+  nested rule only within `hₑ`. The far rule on subdivided elements, the
+  other option, was not tried. Sampling elements in random directions
+  showed that the old `r_near = 5hₑ` was optimistic: it came from
+  elements on the axes, offset `0.3hₑ` across, where the far rule's
+  largest error relative to `∫|S|` was
+
+  | `δ` | `2hₑ` | `3hₑ` | `4hₑ` | `4.5hₑ` |
+  |---|---|---|---|---|
+  | order 0 | 9.3e-10 | 3.4e-11 | 3.0e-12 | 1.1e-12 |
+  | order 1 | 3.4e-9 | 7.7e-11 | 4.4e-12 | 1.3e-12 |
+  | order 2 | 4.2e-9 | 9.1e-11 | 5.0e-12 | 1.5e-12 |
+  | order 3 | 5.1e-9 | 1.3e-10 | 7.6e-12 | 2.4e-12 |
+
+  while at random it is `1.7·10⁻¹¹` at `5hₑ` and reaches `10⁻¹²` only at
+  `9hₑ` (`CODE.md`, "Quadrature"). With the old rules, elements between
+  the particles had also come out within `3·10⁻¹⁵` of a 24-point Gauss
+  rule clustered toward either particle. One projection at `hₑ = d/8`
+  went from 2.08 s to 0.87 s, of which the near work from 1.49 s on
+  1 368 elements to 0.27 s on 16 (graded rule 0.12 s on 5 936), and now
+  meets `10⁻¹²` where it did not; about 90 times the wave equation's work
+  on the window's elements. `bin/projection.jl` reports the graded rule
+  and takes `--offgrid`.
+- 2026-10-30: Erik Schnetter accepted the projection's cost, about 90
+  times the wave equation's work where the gate asks for ten, for now;
+  it is to be revisited later, probably together with threading or a
+  device. The gate's fallbacks (`q = P + 1` far out, the exterior and
+  core split) are not taken.
 - 2026-10-30: found in M2: elements cut by the window's spheres `R₁`
   and `R₂` carry a quadrature error of `10⁻⁸`–`3·10⁻⁷` relative at
   `hₑ = d/8`, since the window is only `C^{P+1}` there. It is static,

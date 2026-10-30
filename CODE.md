@@ -751,42 +751,47 @@ weight, and
 for every grid function `g`, with `g_h = Σₙ gₙ φₙ` its reconstruction,
 discontinuous across faces. It is element-local and needs no exchange.
 
-- `TransferTables(T, P; q = P + 3, nsinh = 48, nmid = 16, ninner = 24)`
-  is `isbits` and sits beside the `Element`, which it leaves alone. It
+- `TransferTables(T, P; q = P + 3, graded = ((1, 14), (2, 10), (3, 8),
+  (4, 7)), rfar = 9, nsinh = 48, nmid = 16, ninner = 24)` is `isbits`
+  and sits beside the `Element`, which it leaves alone. It
   holds the Gauss–Lobatto nodes and weights with their barycentric
   weights, so that `φᵢ(ξ) = λᵢ ∏_{j≠i}(ξ - ξⱼ)` anywhere; the far
   rule's `q` Gauss–Legendre points; the `q × (P+1)` Lagrange table at
   them and the same divided by the node weight, `wᴳₖ φᵢ(ξᴳₖ)/ŵᵢ`, which
   is the far rule's one-dimensional factor of `P` (the element's
   Jacobian cancels between the integral and `wₙ`); and the reference
-  Gauss points of the near rule ([Quadrature](#quadrature)). All built
-  in `BigFloat` and rounded once. There is no derivative table at the
+  Gauss points of the nested rule; and the graded rule, a `GaussRule`
+  (points, weights and contraction table) for each `(distance, points)`
+  pair of `graded`, with `rfar`, the distance from which the far rule
+  applies ([Quadrature](#quadrature)). All built in `BigFloat` and
+  rounded once. There is no derivative table at the
   far rule's points, since nothing reads one; derivatives come from the
   product form where they are needed.
 - `ParticleSupport(z, v, ℓ)`, or `ParticleSupport(m, traj)`: where a
   particle is for the transfer. Its support is the ellipsoid
   `|Λ(v)(x - z)| ≤ ℓ`.
-- `project_source!(du, p, t, S, particles; ball, rnear = 5, factor = -1,
+- `project_source!(du, p, t, S, particles; ball, rnear = 1, factor = -1,
   var = 2)` adds `factor · P S` to variable `var` of `du`, by default
   subtracting it from `v`'s rate as the remainder equations want. `S`
   takes an `SVector{D}` and is a kernel argument, so it is `isbits`;
   `ball = (centre, R)` holds its support, and elements that miss it are
-  skipped, blocks by a per-block mask. Elements farther than `rnear·hₑ`
+  skipped, blocks by a per-block mask. Elements at least `rfar·hₑ`
   from every particle take the far rule in two kernels launched through
   `TreeAMR.launch_by_owner!`: one over `E·q` points per dimension and
   block evaluates `S` into a scratch array (`projection_scratch`), and
   one per element contracts its `q^D` values one dimension at a time, in
   place, into `P S` at its nodes. That is the one place a kernel is not
   launched through `map_blocks!`; it is written so that it could run on
-  a device, and has not been. The near elements, several hundred per
-  particle, take the near rule on the host, threaded over elements. Each
-  element writes only its own nodes, so the result does not depend on
-  the thread count. An element near two particles takes the rule toward
-  the nearer one, since the other is then at least about half their
-  separation away. On the first run's source at `hₑ = d/8`, elements
-  between the particles came out within `3·10⁻¹⁵` of a 24-point Gauss
-  rule clustered toward either particle, where the far rule was off by
-  `4·10⁻¹¹`–`10⁻⁸`. An element that two supports meet is refused.
+  a device, and has not been. The others run on the host, threaded over
+  elements, one band at a time: those at least `rnear·hₑ` from every
+  particle take the graded rule, `q` points per dimension by their
+  distance from the nearest particle, evaluated and contracted one
+  dimension at a time as the points are visited (`tensor_rule`), and the
+  few dozen closer ones take the nested rule. Each element writes only
+  its own nodes, so the result does not depend on the thread count. An
+  element near two particles takes its rule from the nearer one, since
+  the other is then at least about half their separation away. An
+  element that two supports meet is refused.
 - `pairing(p, t, u, K, s; var = 1)` is `∫ K g_h = ⟨P K, g⟩_w` for a
   particle kernel `K` that vanishes outside the support, `ρ` or `∇ρ`
   (`K` may return a vector). It visits the elements `support_elements`
@@ -807,16 +812,18 @@ discontinuous across faces. It is element-local and needs no exchange.
 
 The transfer does not look for periodic images: the source's ball and
 every particle's support must lie inside the box, and `support_elements`
-refuses a support that reaches a face. The near rule and the pairing
-run on the CPU.
+refuses a support that reaches a face. The graded and nested rules and
+the pairing run on the CPU.
 
 ### Quadrature
 
 `INSPIRAL.md`'s "Quadrature" proposed tensor Gauss–Legendre far from the
 particles and, within `r_near ≈ 2hₑ`, a tensor-product sinh rule
 (Johnston and Elliott, 2005) that clusters points about the particle on
-the scale `ℓ`. The far rule is as proposed. The near rule is not, and
-neither is `r_near`.
+the scale `ℓ`. The far rule is as proposed, but only from `r_far = 9hₑ`
+on. Between `r_near = hₑ` and there a graded tensor Gauss rule takes its
+place, and within `r_near` a nested rule split at the support replaces
+the sinh rule.
 
 **The profile's edge.** `ρ₀ ∝ (1 - σ²)⁴` is only `C³` at `σ = 1`, and
 across such an edge every Gauss rule converges algebraically, the sinh
@@ -887,29 +894,48 @@ an element `ℓ` from the particle needs 48 points to reach `6·10⁻¹³`, one
 `ℓ/hₑ = 10⁻¹` to `10⁻⁴`, moving or not, with the support straddling an
 element corner, and `Σₙ wₙ (P ρ)ₙ = Q/γ`.
 
-**`r_near`.** The far rule must agree with the near rule where they meet,
-so that a particle crossing `r_near` does nothing visible. On the first
-run's source (`hₑ = d/8`, an element `δ` from particle 1 and offset
-`0.3hₑ` across), the far rule's largest error at a node, relative to
-`∫|S|` over the element:
+**The graded rule, `r_near` and `r_far`.** Wherever two rules meet,
+they must agree to `10⁻¹²`, so that a particle crossing the switch does
+nothing visible, and away from the support, which only the nested rule
+splits at, a tensor Gauss rule converges geometrically in the element's
+distance from the particle: the source is analytic there. So the points
+per dimension grow toward the particle instead of the nested rule
+spreading out. On the first run's source (`hₑ = d/8`, orders 1–3), the
+worst error at a node, relative to `∫|S|` over the element, of `q`
+Gauss points per dimension against 32, over 200 elements at each
+distance `δ` of their nearest point from the nearer particle, in random
+directions and offsets, leaving out elements within `hₑ` of the
+window's spheres:
 
-| `δ` | `2hₑ` | `3hₑ` | `4hₑ` | `4.5hₑ` |
-|---|---|---|---|---|
-| order 0 | 9.3e-10 | 3.4e-11 | 3.0e-12 | 1.1e-12 |
-| order 1 | 3.4e-9 | 7.7e-11 | 4.4e-12 | 1.3e-12 |
-| order 2 | 4.2e-9 | 9.1e-11 | 5.0e-12 | 1.5e-12 |
-| order 3 | 5.1e-9 | 1.3e-10 | 7.6e-12 | 2.4e-12 |
+| `δ` | `q = 6` | 7 | 8 | 10 | 12 | 14 |
+|---|---|---|---|---|---|---|
+| `1hₑ` | 3.5e-6 | 2.4e-7 | 1.7e-8 | 7.4e-11 | 2.5e-13 | **8.9e-16** |
+| `2hₑ` | 2.5e-8 | 4.1e-10 | 6.5e-12 | **2.7e-15** | 1.0e-15 | 1.1e-15 |
+| `3hₑ` | 2.6e-9 | 2.0e-11 | **1.4e-13** | 2.3e-15 | 3.0e-15 | 2.9e-15 |
+| `4hₑ` | 7.2e-11 | **3.5e-13** | 3.2e-15 | 4.4e-15 | 2.9e-15 | 1.3e-15 |
+| `5hₑ` | 1.7e-11 | 7.1e-14 | 4.8e-15 | 3.5e-15 | 2.4e-15 | 2.7e-15 |
+| `8hₑ` | 2.0e-12 | 1.4e-14 | 1.7e-14 | 1.1e-14 | 7.4e-15 | 6.3e-15 |
+| `9hₑ` | **3.7e-13** | 3.9e-16 | 1.1e-16 | 7.9e-17 | 8.5e-17 | 9.5e-17 |
 
-`INSPIRAL.md`'s `r_near ≈ 2hₑ` therefore leaves `5·10⁻⁹`; `10⁻¹²` needs
-about `5hₑ`, which is `rnear`'s default. A model `1/r³` source reaches
-`10⁻¹²` at `3hₑ` with `q = P + 3`, so it is the real source's structure
-on scales larger than `ℓ` that needs the distance. The suite checks that
-a source that does not move projects the same to `10⁻¹²` with and
-without a particle on either side of `r_near` and of an element face.
+The bold entries are the defaults: `graded = ((1, 14), (2, 10), (3, 8),
+(4, 7))`, each pair the distance from which a `q` applies, and
+`rfar = 9` for the far rule's `q = P + 3 = 6`, which nothing closer
+reaches `10⁻¹²` with. Within `rnear = 1` the nested rule applies;
+14 points at `0.5hₑ` give `6·10⁻¹²`, and a smaller `rnear` saves
+nothing ([The transfer's cost](#the-transfers-cost)). Placed at random,
+elements come out worse than on the axes, where the far rule seemed to
+reach `10⁻¹²` near `5hₑ`; `HISTORY.md` has that table. A model `1/r³`
+source does with fewer points, so it is the real source's structure on
+scales larger than `ℓ` that needs them. The suite checks every band and
+`r_far` in directions spread over the sphere, and that a source that does not move projects
+the same to `10⁻¹²` with and without a particle on either side of
+`r_near` and of an element face.
 
 **The window's edge.** Elements cut by the window's spheres `R₁` and
 `R₂` carry a far-rule error of `10⁻⁸`–`3·10⁻⁷` relative at `hₑ = d/8`,
-because the window is `C^{P+1}` there and nothing splits at it. It does
+because the window is `C^{P+1}` there and nothing splits at it, and
+elements within a few `hₑ` of the spheres, not cut by them, reach a few
+`10⁻¹²` with the far rule for the same reason. It does
 not move with the particles; how it falls with `hₑ` is not measured, and
 the `10⁻¹²` of `INSPIRAL.md` does not hold on those elements **(open)**.
 
@@ -934,8 +960,9 @@ the `10⁻¹²` of `INSPIRAL.md` does not hold on those elements **(open)**.
 - `src/particle.jl`: `ParticleModel`, `Trajectory`, the boost, `Ψ`,
   `𝒟Ψ`, `ParticleJets` and the source bracket, `Window`, and
   `ParticleSource`.
-- `src/transfer.jl`: `gauss_nodes_weights`, `TransferTables`,
-  `sinh_rule`, `ParticleSupport`, the far and nested rules, the
+- `src/transfer.jl`: `gauss_nodes_weights`, `GaussRule`,
+  `TransferTables`, `sinh_rule`, `ParticleSupport`, the far, graded and
+  nested rules, the
   projection's kernels and `project_source!`, `support_elements`,
   `pairing`, `reconstruct`, `reconstruct_gradient` and `ball_rule`.
 - `derivations/`: the Wolfram Language derivations (`profile.wl`,
@@ -1029,7 +1056,10 @@ take about two thirds.
   against a graded composite Gauss rule; the particle's `ρ` against a
   polynomial is exact to `10⁻¹²` from `ℓ/hₑ = 10⁻¹` to `10⁻⁴`, at rest
   and moving, across a corner, and `Σ wₙ (P ρ)ₙ = Q/γ`; the sinh rule
-  reaches `10⁻¹²` with `16 + 8 log₁₀(hₑ/ℓ)` points per line; the
+  reaches `10⁻¹²` with `16 + 8 log₁₀(hₑ/ℓ)` points per line; the graded
+  rule's contraction is the tensor Gauss rule's, in 1D, 2D and 3D, and on
+  the first run's source each band, and the far rule at `r_far`, reach
+  `10⁻¹²` at their inner edge in directions spread over the sphere; the
   pairing's second differences in `z` across a face, an edge and a corner
   are the exact ones to `10⁻¹²`, and a source that does not move projects
   the same with a particle on either side of `r_near` and of a face; the
@@ -1222,37 +1252,46 @@ threads), 2026-10-30, not yet on Symmetry: the first run of
 window `R₁ = 1.25`, `R₂ = 2.5`), `P = 3`, `hₑ = d/8`, in a periodic box of
 side 5 that just holds the window: 4.1M nodes, 2.4M of them in the
 37 224 elements that meet the window's ball. Seconds, the least of
-three runs after a warm-up, with the source of
-[The split](#the-split).
+three runs after a warm-up, with the source of [The split](#the-split)
+and the rules of [Quadrature](#quadrature). The particles sit on
+element corners, or off the grid by `(0.31, 0.17, 0.43)hₑ`
+(`--offgrid`), where a moving particle generically is.
 
-| | `r_near = 2hₑ` | `r_near = 5hₑ` |
+| | on corners | off the grid |
 |---|---|---|
-| far elements, points | 37 096, 8.0M | 35 856, 7.7M |
-| near elements, points | 128, 3.4M | 1 368, 10.7M |
-| one projection | 0.95 | **2.08** |
-|   far rule | 0.60 | 0.58 |
-|   near rule | 0.36 | 1.49 |
-|   near rule, with a source that costs nothing | 0.18 | 0.78 |
-| `wave_rhs!`, whole box | 0.017 | 0.017 |
-|   its share on the window's nodes | 0.010 | 0.010 |
+| far elements, points | 31 272, 6.8M | 31 102, 6.7M |
+| graded elements, points | 5 936, 2.5M | 6 078, 2.7M |
+| nested elements, points | 16, 2.5M | 44, 1.6M |
+| one projection | **0.87** | **0.83** |
+|   far rule | 0.50 | 0.47 |
+|   graded rule | 0.12 | 0.13 |
+|   nested rule | 0.27 | 0.23 |
+| `wave_rhs!`, whole box | 0.016 | 0.016 |
+|   its share on the window's nodes | 0.0095 | 0.0095 |
 
 One evaluation of the source, both particles, is 0.16 µs, under
 `INSPIRAL.md`'s estimate of 0.3 µs for "roughly ten times the wave
 equation's work". What it says:
 
-- **The projection is about 210 times the wave equation's work** on
-  the same elements at the default `r_near`, and 100 times at `2hₑ`,
-  where the plan's gate is ten. That is the number of points: the far
-  rule evaluates the source at 3.4 points per node of its elements, and
-  the near rule at about 120 per node of its own at `5hₑ`. The gate is the
-  owner's ([Open questions](#open-questions)); M2 only measures it.
-- **The source is 95% of the far rule** (0.03 s with a source that
-  costs nothing) **and half of the near rule**, whose breakpoints and
-  allocations are the other half.
-- **The near rule is more than two thirds** at `r_near = 5hₑ`: 1 368
-  elements at 16³ points or more each, against 216 for the far rule.
-  Most of them are there only because the far rule is not accurate
-  enough closer in ([Quadrature](#quadrature)).
+- **The projection is about 90 times the wave equation's work** on the
+  same elements, where the plan's gate is ten. That is the number of
+  points: the far rule evaluates the source at 3.4 points per node of its
+  elements, the graded rule at 7, and the nested rule at 560 off the
+  grid and 2 500 on corners. The
+  gate is the owner's ([Open questions](#open-questions)); M2 only
+  measures it.
+- **The far rule is more than half,** almost all of it the source (0.03 s
+  with a source that costs nothing). Its `q = P + 3` is what the
+  window's transition and the elements far from the particles get, where
+  the source is smooth on the scale of the transition.
+- **The graded rule costs what its source evaluations do,** 0.16 µs a
+  point on one thread, and scales by 3.9 on four.
+- **The nested rule costs three to four times its source evaluations**
+  (0.23 s off the grid, where its 1.6M evaluations take about 0.06 s),
+  for its breakpoints, its allocations and the product with the
+  element's basis at every point, on the few dozen elements within `hₑ`
+  of a particle. With the particles on corners, the 16 elements that
+  touch them take 160 000 points each.
 - **The pairing over the support** takes 16 ms for `ρ` and 22 ms for
   `∇ρ`, at 1 to 8 elements whatever the mesh. The `mesh_fold` it
   replaces, a projection of `ρ` and a fold over the 4.1M nodes, takes
@@ -1311,14 +1350,13 @@ layout would be modal (the decay of the top Legendre coefficients)
 - **(proposed)** Cheaper transfer, if the cost gate is to be met (see
   [The transfer's cost](#the-transfers-cost)), in the order the plan
   gives: `q = P + 1` far from the particles, then `INSPIRAL.md`'s
-  exterior and core split. Before either, the source itself: its
-  evaluation allocates, and it re-derives each particle's trajectory
-  quantities at every point.
-- **(proposed)** A smaller `r_near` through a better far rule rather
-  than more near elements: `q` that grows toward the particles, or the
-  far rule on subdivided elements.
-- The near pass on a device, and the pairing there too; both run on the
-  host now.
+  exterior and core split. Far from the particles the window's spheres
+  limit the far rule ([Quadrature](#quadrature)), so a smaller `q` there
+  would come with a split at `R₁` and `R₂`. The nested rule's own cost,
+  its breakpoints, allocations and per-point basis products, is most of
+  its time.
+- The graded and nested passes on a device, and the pairing there too;
+  they run on the host now.
 - **(proposed)** The `t′²` term of the lab-slice re-expansion of `Φ_C`,
   `½γ²(v·r)²(-α′·∇Φ₀)`, in the particle field ahead of M5, which would
   make the bracket at rest the first order not carried at order 3 too
@@ -1339,9 +1377,11 @@ layout would be modal (the decay of the top Legendre coefficients)
   hyperbolic motion (see [The near field](#the-near-field)).
 - Which `ä` the order-3 term should take for a moving particle. M1 takes
   the lab one; the rest-frame proper-time derivative is M5's.
-- What to do about the cost of the projection, which is the gate of
-  `INSPIRAL-PLAN.md`'s "Gates and fallbacks" (see [The transfer's
-  cost](#the-transfers-cost)), before M3.
+- What to do about the cost of the projection, about 90 times the wave
+  equation's work where `INSPIRAL-PLAN.md`'s "Gates and fallbacks" asks
+  for ten (see [The transfer's cost](#the-transfers-cost)). It is
+  accepted for now and to be revisited, probably with threading or a
+  device.
 - The quadrature error on the elements the window's spheres cut, which
   `INSPIRAL.md`'s `10⁻¹²` does not cover (see [Quadrature](#quadrature)):
   whether it matters, and if so a split at `R₁` and `R₂` like the one at

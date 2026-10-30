@@ -7,7 +7,8 @@ knows it is done. Section names of `INSPIRAL.md` and `CODE.md` are used
 below without links.
 
 **Status.** M0 and M1 are done; M2 is implemented on its branch and not
-yet merged, with its cost gate fired; nothing else is started. The
+yet merged, with its cost gate fired and the cost accepted for now;
+nothing else is started. The
 decisions below were settled with the owner on 2026-10-30. A milestone's
 status line changes here when its work starts and when its pull request
 merges.
@@ -286,9 +287,10 @@ disagreement with `INSPIRAL.md`'s results.
 ## M2: The transfer operator
 
 **Status:** implemented on `inspiral-m2-transfer`, not yet merged; the
-cost gate of [Gates and fallbacks](#gates-and-fallbacks) fired, and the
-near rule and `r_near` depart from what is planned here (`HISTORY.md`,
-"Particles"). `INSPIRAL.md`: "The transfer operator", "Quadrature";
+cost gate of [Gates and fallbacks](#gates-and-fallbacks) fired, and after
+tuning the source and grading the far rule the owner accepted the cost
+for now (`HISTORY.md`, "Particles"); the near rule and `r_near` depart
+from what is planned here. `INSPIRAL.md`: "The transfer operator", "Quadrature";
 validation step 2.
 
 ### M2 code

@@ -15,12 +15,15 @@
 # `g_h = Σₙ gₙ φₙ` its reconstruction. It is element-local and needs no
 # exchange.
 #
-# Three rules integrate over an element, chosen per element:
+# Four rules integrate over an element, chosen per element:
 #
-# - Far from every particle, tensor Gauss–Legendre with `q = P + 3`
-#   points per dimension, in two kernels: one evaluates `S` at the points,
-#   the other contracts them against the Lagrange table one dimension at
-#   a time.
+# - Far from every particle, beyond `r_far`, tensor Gauss–Legendre with
+#   `q = P + 3` points per dimension, in two kernels: one evaluates `S` at
+#   the points, the other contracts them against the Lagrange table one
+#   dimension at a time.
+# - Between `r_near` and `r_far`, the graded rule: tensor Gauss–Legendre
+#   with more points the closer the element is, on the host, contracted
+#   as the points are visited.
 # - Within `r_near` of a particle, a nested rule: one dimension at a
 #   time, each line split where it crosses the particle's support, with
 #   Gauss–Legendre inside the support and Johnston and Elliott's sinh rule
@@ -57,7 +60,21 @@ function gauss_nodes_weights(n::Integer; precision::Integer=512)
 end
 
 """
-    TransferTables{T,P1,Q,NS,NM,NI}
+    GaussRule{T,P1,Q}
+
+A tensor Gauss–Legendre rule of `Q` points per dimension for elements of
+order `P = P1 - 1`: the points `nodes` on `[-1, 1]`, their `weights`, and
+`contract[i+1][k] = wₖ φᵢ(ξₖ)/ŵᵢ`, its one-dimensional factor of the
+projection `P`.
+"""
+struct GaussRule{T,P1,Q}
+    nodes::NTuple{Q,T}
+    weights::NTuple{Q,T}
+    contract::NTuple{P1,NTuple{Q,T}}
+end
+
+"""
+    TransferTables{T,P1,Q,NS,NM,NI,K,G}
 
 The reference data of the transfer for elements of order `P = P1 - 1`,
 built in `BigFloat` and rounded once to `T`, as tuples, so that the
@@ -79,11 +96,15 @@ tables are `isbits` and travel as a kernel argument beside the
   it transforms on a line farther away.
 - `innernodes`, `innerweights`: the `NI` Gauss points used inside a
   particle's support.
+- `graded`, `gradedfrom`: the graded rule, `K` [`GaussRule`](@ref)s, of
+  which an element at least `gradedfrom[i]·hₑ` from every particle and
+  less than `rfar·hₑ` takes the last one that applies, and the first one
+  when none does. Beyond `rfar·hₑ` the far rule applies.
 
 The defaults are what "Quadrature" in `CODE.md` measured to give
 `10⁻¹²` relative.
 """
-struct TransferTables{T,P1,Q,NS,NM,NI}
+struct TransferTables{T,P1,Q,NS,NM,NI,K,G}
     nodes::NTuple{P1,T}
     weights::NTuple{P1,T}
     bary::NTuple{P1,T}
@@ -97,38 +118,55 @@ struct TransferTables{T,P1,Q,NS,NM,NI}
     midweights::NTuple{NM,T}
     innernodes::NTuple{NI,T}
     innerweights::NTuple{NI,T}
+    graded::G
+    gradedfrom::NTuple{K,T}
+    rfar::T
 end
 
 order(::TransferTables{T,P1}) where {T,P1} = P1 - 1
 
 """
-    TransferTables(T, P; q = P + 3, nsinh = 48, nmid = 16, ninner = 24,
+    TransferTables(T, P; q = P + 3, graded = ((1, 14), (2, 10), (3, 8), (4, 7)),
+                   rfar = 9, nsinh = 48, nmid = 16, ninner = 24,
                    precision = 512)
 
-The transfer tables for elements of order `P` in type `T`. See
+The transfer tables for elements of order `P` in type `T`. `graded` holds
+the graded rule as `(distance, points)` pairs, the distance from the
+nearest particle in units of `hₑ` from which each applies, increasing,
+and `rfar` the distance from which the far rule's `q` points apply. See
 [`TransferTables`](@ref) for what they hold.
 """
-function TransferTables(::Type{T}, P::Integer; q::Integer=P + 3, nsinh::Integer=48,
-                        nmid::Integer=16, ninner::Integer=24,
+function TransferTables(::Type{T}, P::Integer; q::Integer=P + 3,
+                        graded::Tuple=((1, 14), (2, 10), (3, 8), (4, 7)), rfar::Real=9,
+                        nsinh::Integer=48, nmid::Integer=16, ninner::Integer=24,
                         precision::Integer=512) where {T}
+    issorted(first.(graded); lt=<=) && all(r -> 0 <= first(r) < rfar, graded) ||
+        throw(ArgumentError("the graded rule's distances must increase from 0 and stay " *
+                            "below rfar = $rfar, got $graded"))
     ξ, ŵ = gll_nodes_weights(P; precision=precision)
     P1 = P + 1
     xg, wg = gauss_nodes_weights(q; precision=precision)
     xs, ws = gauss_nodes_weights(nsinh; precision=precision)
     xm, wm = gauss_nodes_weights(nmid; precision=precision)
     xi, wi = gauss_nodes_weights(ninner; precision=precision)
-    bary, lag, con = setprecision(BigFloat, precision) do
-        bary = [1 / prod(ξ[i] - ξ[j] for j in 1:P1 if j != i) for i in 1:P1]
-        lag = [bary[i] * prod(x - ξ[j] for j in 1:P1 if j != i) for x in xg, i in 1:P1]
-        con = [wg[k] * lag[k, i] / ŵ[i] for i in 1:P1, k in 1:q]
-        bary, lag, con
+    bary = setprecision(BigFloat, precision) do
+        [1 / prod(ξ[i] - ξ[j] for j in 1:P1 if j != i) for i in 1:P1]
+    end
+    # The Lagrange table at the points `x` and the contraction `wₖ φᵢ(xₖ)/ŵᵢ`.
+    tables(x, w) = setprecision(BigFloat, precision) do
+        φ = [bary[i] * prod(xk - ξ[j] for j in 1:P1 if j != i) for xk in x, i in 1:P1]
+        φ, [w[k] * φ[k, i] / ŵ[i] for i in 1:P1, k in eachindex(x)]
     end
     tup(v) = ntuple(i -> T(v[i]), length(v))
     rows(M) = ntuple(i -> tup(M[i, :]), size(M, 1))
-    return TransferTables{T,P1,q,nsinh,nmid,ninner}(tup(ξ), tup(ŵ), tup(bary), tup(xg),
-                                                   tup(wg), rows(lag), rows(con), tup(xs),
-                                                   tup(ws), tup(xm), tup(wm), tup(xi),
-                                                   tup(wi))
+    lag, con = tables(xg, wg)
+    rules = map(graded) do (_, n)
+        x, w = gauss_nodes_weights(n; precision=precision)
+        GaussRule{T,P1,n}(tup(x), tup(w), rows(tables(x, w)[2]))
+    end
+    return TransferTables{T,P1,q,nsinh,nmid,ninner,length(graded),typeof(rules)}(
+        tup(ξ), tup(ŵ), tup(bary), tup(xg), tup(wg), rows(lag), rows(con), tup(xs), tup(ws),
+        tup(xm), tup(wm), tup(xi), tup(wi), rules, map(r -> T(first(r)), graded), T(rfar))
 end
 
 # The Lagrange polynomials of the element's nodes at reference coordinate
@@ -400,18 +438,35 @@ function gauss_rule(f, init, t::TransferTables{T,P1,Q}, lo::SVector{D},
     return acc
 end
 
+# The graded rule over the box `[lo, hi]`: `P S` at the element's nodes,
+# in the order of `element_basis`, by the tensor product of `g`'s points,
+# contracted one dimension at a time as they are visited. Dimension `d`
+# is integrated here and `1:d-1` inside, with `x` holding the coordinates
+# of `d+1:D`; `x` keeps its type, so that inference follows the recursion.
+@inline function tensor_rule(S, g::GaussRule{T,P1,Q}, lo, hi, x::SVector,
+                             ::Val{d}) where {T,P1,Q,d}
+    acc = zero(SVector{P1^d,T})
+    for k in 1:Q
+        xk = setindex(x, lo[d] + (hi[d] - lo[d]) * (1 + g.nodes[k]) / 2, d)
+        column = SVector(ntuple(i -> g.contract[i][k], Val(P1)))
+        acc += d == 1 ? S(xk) * column :
+               skron(column, tensor_rule(S, g, lo, hi, xk, Val(max(d - 1, 1))))
+    end
+    return acc
+end
+
 # What the projection does with an element: nothing when it misses the
-# source's ball, the far rule, or the near rule when it lies within
-# `rnear` of a particle.
+# source's ball, the far rule in the kernels, or one of the host's rules
+# when it lies within `rfar` of a particle.
 const SKIP_ELEMENT = 0
 const FAR_ELEMENT = 1
-const NEAR_ELEMENT = 2
+const HOST_ELEMENT = 2
 
-@inline function element_class(lo, hi, ball, particles::Tuple, rnear)
+@inline function element_class(lo, hi, ball, particles::Tuple, rfar)
     D = length(lo)
     box_distance2(ball[1], lo, hi, 1:D) >= ball[2]^2 && return SKIP_ELEMENT
-    near = any(p -> box_distance2(p.z, lo, hi, 1:D) < rnear^2, particles)
-    return near ? NEAR_ELEMENT : FAR_ELEMENT
+    near = any(p -> box_distance2(p.z, lo, hi, 1:D) < rfar^2, particles)
+    return near ? HOST_ELEMENT : FAR_ELEMENT
 end
 
 # The box of element `e` (zero-based, per dimension) of a block. Both
@@ -429,7 +484,7 @@ end
 # Other elements' points are not written.
 @kernel function source_points_kernel!(scratch, S, @Const(origins), @Const(spacings),
                                        @Const(blockmask), t::TransferTables, ball,
-                                       particles, rnear, ::Val{D},
+                                       particles, rfar, ::Val{D},
                                        ::Val{P1}) where {D,P1}
     I = @index(Global, NTuple)                 # (j1..jD, block)
     b = I[D + 1]
@@ -438,7 +493,7 @@ end
         h = spacings[b]
         e = ntuple(d -> (I[d] - 1) ÷ Q, Val(D))
         lo, hi = element_box(origins[b], h, e, Val(P1), Val(D))
-        if element_class(lo, hi, ball, particles, rnear) == FAR_ELEMENT
+        if element_class(lo, hi, ball, particles, rfar) == FAR_ELEMENT
             x = SVector(ntuple(d -> lo[d] + (hi[d] - lo[d]) *
                                          (1 + t.gauss[(I[d] - 1) % Q + 1]) / 2, Val(D)))
             scratch[ntuple(d -> I[d], Val(D))..., b] = S(x)
@@ -454,14 +509,14 @@ end
 # `var` of `du`.
 @kernel function contract_kernel!(du, scratch, @Const(origins), @Const(spacings),
                                   @Const(blockmask), t::TransferTables, ball, particles,
-                                  rnear, factor, var, ::Val{D}, ::Val{P1}) where {D,P1}
+                                  rfar, factor, var, ::Val{D}, ::Val{P1}) where {D,P1}
     J = @index(Global, NTuple)                 # (e1..eD, block)
     b = J[D + 1]
     Q = length(t.gauss)
     @inbounds if blockmask[b]
         e = ntuple(d -> J[d] - 1, Val(D))
         lo, hi = element_box(origins[b], spacings[b], e, Val(P1), Val(D))
-        if element_class(lo, hi, ball, particles, rnear) == FAR_ELEMENT
+        if element_class(lo, hi, ball, particles, rfar) == FAR_ELEMENT
             base = ntuple(d -> e[d] * Q, Val(D))
             for d in 1:D
                 lines = ntuple(k -> k < d ? P1 : (k == d ? 1 : Q), Val(D))
@@ -507,7 +562,7 @@ end
 
 """
     project_source!(du, p::WaveProblem, t::TransferTables, S, particles; ball,
-                    rnear = 5, factor = -1, var = 2, scratch = nothing)
+                    rnear = 1, factor = -1, var = 2, scratch = nothing)
 
 Add `factor · (P S)` to variable `var` of the state vector `du`, where
 `(P S)ₙ = (1/wₙ) ∫_{element(n)} S φₙ` is the projection of the source `S`
@@ -521,40 +576,45 @@ subtract it from `v`'s rate, as the remainder equations want.
 - `ball = (centre, R)` holds `S`'s support; elements that miss it are
   skipped, and blocks that miss it by a per-block mask.
 - `rnear` is in units of the element width `hₑ`: elements closer than
-  `rnear·hₑ` to a particle use the near rule, the others the far one. At
-  the default the two agree to `10⁻¹²` relative ("Quadrature" in
-  `CODE.md`).
+  `rnear·hₑ` to a particle use the nested rule, those closer than
+  `t.rfar·hₑ` the graded rule, and the others the far one. At the
+  defaults the rules agree to `10⁻¹²` relative where they meet
+  ("Quadrature" in `CODE.md`).
 
 The far elements run as two kernels, one over the quadrature points and
-one over the elements. The near elements, several hundred per particle
-at the default `rnear`, run on the host, threaded over elements; each
-writes only its own nodes, so the result does not depend on the thread
-count. An element near two particles clusters its points toward the
-nearer; one that two particles' supports meet is refused.
+one over the elements. The others, several hundred per particle, run on
+the host, threaded over elements; each writes only its own nodes, so the
+result does not depend on the thread count. An element near two
+particles takes its rule from the nearer; one that two particles'
+supports meet is refused.
 """
 function project_source!(du, p::WaveProblem{T,D}, t::TransferTables, S, particles::Tuple;
-                         ball, rnear::Real=5, factor=-one(T), var::Int=2,
+                         ball, rnear::Real=1, factor=-one(T), var::Int=2,
                          scratch=nothing) where {T,D}
     check_tables(p, t)
     plan = projection_plan(p, t, particles, ball, rnear)
     scratch === nothing && (scratch = projection_scratch(p, t))
     dua = statearray(du, p.fs)
     project_far!(dua, plan, t, S, scratch, T(factor), var)
+    project_graded!(dua, plan, t, S, T(factor), var)
     project_near!(dua, plan, t, S, T(factor), var)
     return du
 end
 
 # Where a projection's work is: the blocks' geometry on the host and on
-# the kernels' backend, which blocks meet the source's ball, and the near
-# elements. Built once per call; `bin/projection.jl` times the two passes
-# that read it separately.
+# the kernels' backend, which blocks meet the source's ball, and the
+# host's elements, nested and graded. Built once per call;
+# `bin/projection.jl` times the passes that read it separately.
 function projection_plan(p::WaveProblem{T,D}, t::TransferTables{T,P1}, particles, ball,
                          rnear) where {T,D,P1}
+    0 <= rnear <= t.rfar || throw(ArgumentError(
+        "rnear = $rnear must lie between 0 and the far rule's distance rfar = $(t.rfar)"))
     fs = p.fs
     forest = fs.forest
     backend = get_backend(fs.work)
     hₑ = minimum_spacing(forest) * P1
     rn = T(rnear) * hₑ
+    rf = t.rfar * hₑ
     region = (SVector{D,T}(ball[1]), T(ball[2]))
     origins = block_origins(forest, T)
     spacings = block_spacings(forest, T)
@@ -562,11 +622,12 @@ function projection_plan(p::WaveProblem{T,D}, t::TransferTables{T,P1}, particles
         lo = SVector(origins[b])
         box_distance2(region[1], lo, lo .+ spacings[b] * forest.N, 1:D) < region[2]^2
     end
-    near = near_elements(fs, origins, spacings, mask, region, particles, rn, Val(P1))
-    return (; fs, backend, hₑ, rn, region, particles, origins, spacings,
+    near, graded = host_elements(fs, t, origins, spacings, mask, region, particles, rn, rf,
+                                 Val(P1))
+    return (; fs, backend, hₑ, rn, rf, region, particles, origins, spacings,
             dev_origins=to_backend(backend, origins),
             dev_spacings=to_backend(backend, spacings),
-            dev_mask=to_backend(backend, mask), near)
+            dev_mask=to_backend(backend, mask), near, graded)
 end
 
 # The far elements: the source at their Gauss points, then the
@@ -578,23 +639,48 @@ function project_far!(dua, plan, t::TransferTables{T,P1,Q}, S, scratch, factor,
     E = fs.forest.N ÷ P1
     TreeAMR.launch_by_owner!(source_points_kernel!, backend, scratch, S, plan.dev_origins,
                              plan.dev_spacings, plan.dev_mask, t, plan.region,
-                             plan.particles, plan.rn, Val(D), Val(P1);
+                             plan.particles, plan.rf, Val(D), Val(P1);
                              ndrange=(ntuple(_ -> E * Q, D)..., nblocks(fs)))
     synchronize(backend)
     TreeAMR.launch_by_owner!(contract_kernel!, backend, dua, scratch, plan.dev_origins,
                              plan.dev_spacings, plan.dev_mask, t, plan.region,
-                             plan.particles, plan.rn, factor, var, Val(D), Val(P1);
+                             plan.particles, plan.rf, factor, var, Val(D), Val(P1);
                              ndrange=(ntuple(_ -> E, D)..., nblocks(fs)))
     synchronize(backend)
     return nothing
 end
 
+# The graded elements, on the host, one band at a time, threaded over
+# elements.
+function project_graded!(dua, plan, t::TransferTables, S, factor, var)
+    foreach((g, list) -> project_tensor!(dua, plan, t, g, list, S, factor, var), t.graded,
+            plan.graded)
+    return nothing
+end
+
+function project_tensor!(dua, plan, t::TransferTables{T,P1}, g::GaussRule, list, S, factor,
+                         var) where {T,P1}
+    isempty(list) && return nothing    # and the loop is not compiled
+    Threads.@threads :dynamic for i in eachindex(list)
+        D = length(plan.region[1])     # here, so that the closure knows it
+        b, e = list[i]
+        lo, hi = element_box(plan.origins[b], plan.spacings[b], e, Val(P1), Val(D))
+        vals = tensor_rule(S, g, lo, hi, lo, Val(D))
+        for (n, K) in enumerate(CartesianIndices(ntuple(_ -> P1, D)))
+            node = ntuple(d -> e[d] * P1 + K[d], D)
+            dua[node..., var, b] += factor * vals[n]
+        end
+    end
+    return nothing
+end
+
 # The near elements, on the host, threaded over elements.
 function project_near!(dua, plan, t::TransferTables{T,P1}, S, factor, var) where {T,P1}
-    D = length(plan.region[1])
-    wₙ = element_weights(t, plan.hₑ, Val(D))
     near = plan.near
+    isempty(near) && return nothing    # and the loop is not compiled
     Threads.@threads :dynamic for i in eachindex(near)
+        D = length(plan.region[1])     # here, so that the closure knows it
+        wₙ = element_weights(t, plan.hₑ, Val(D))
         b, e, k = near[i]
         lo, hi = element_box(plan.origins[b], plan.spacings[b], e, Val(P1), Val(D))
         integrand(x) = S(x) * element_basis(t, lo, hi, x)
@@ -608,32 +694,43 @@ function project_near!(dua, plan, t::TransferTables{T,P1}, S, factor, var) where
     return nothing
 end
 
-# The near elements of the projection, as `(block, element, particle)`,
-# found on the host. The nested rule clusters toward one particle, the
-# nearest: another particle within `rnear` is then at least about half
-# their separation away, where the rule's 16 to 48 points per line resolve
-# its field better than the far rule's `P + 3` do. Only an element that two
-# supports meet is refused, since the rule splits at one.
-function near_elements(fs::FieldSet{T,D}, origins, spacings, mask, region, particles, rn,
-                       ::Val{P1}) where {T,D,P1}
+# The host's elements of the projection, found on the host: the nested
+# rule's as `(block, element, particle)`, and the graded rule's as
+# `(block, element)`, one list per band. The nested rule clusters toward
+# one particle, the nearest: another particle within `rnear` is then at
+# least about half their separation away, where the rule's 16 to 48 points
+# per line resolve its field better than the graded rule's do. Only an
+# element that two supports meet is refused, since the rule splits at one.
+# The graded rule's band is chosen by the distance to the nearest
+# particle.
+function host_elements(fs::FieldSet{T,D}, t::TransferTables, origins, spacings, mask,
+                       region, particles, rn, rf, ::Val{P1}) where {T,D,P1}
     E = fs.forest.N ÷ P1
-    list = Tuple{Int,NTuple{D,Int},Int}[]
+    hₑ = minimum_spacing(fs.forest) * P1
+    near = Tuple{Int,NTuple{D,Int},Int}[]
+    graded = map(_ -> Tuple{Int,NTuple{D,Int}}[], t.graded)
     for b in 1:nblocks(fs)
         mask[b] || continue
         for J in CartesianIndices(ntuple(_ -> E, D))
             e = Tuple(J) .- 1
             lo, hi = element_box(origins[b], spacings[b], e, Val(P1), Val(D))
-            element_class(lo, hi, region, particles, rn) == NEAR_ELEMENT || continue
+            element_class(lo, hi, region, particles, rf) == HOST_ELEMENT || continue
             dist² = map(s -> box_distance2(s.z, lo, hi, 1:D), particles)
+            if minimum(dist²) >= rn^2
+                δ = sqrt(minimum(dist²)) / hₑ
+                band = something(findlast(<=(δ), t.gradedfrom), 1)
+                push!(graded[band], (b, e))
+                continue
+            end
             count(k -> dist²[k] < particles[k].ℓ^2, eachindex(particles)) <= 1 ||
                 throw(ArgumentError(
                     "the supports of two particles meet the element at $(Tuple(lo)), " *
                     "and the near rule splits at one: the particles are closer than an " *
                     "element"))
-            push!(list, (b, e, argmin(dist²)))
+            push!(near, (b, e, argmin(dist²)))
         end
     end
-    return list
+    return near, graded
 end
 
 # The block and element that hold the point `x`, and the element's box.
