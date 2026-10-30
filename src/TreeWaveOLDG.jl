@@ -25,7 +25,8 @@ in `stepping.jl`, and the two initial
 conditions, a standing sine mode and a radial blast wave, in `sinewave.jl`
 and `blast.jl`. The analytic particle of the inspiral (`INSPIRAL.md`) is
 in `particle.jl`, on top of the closed forms that `derivations/` generates
-into `particle_forms.jl`. See `CODE.md` in the
+into `particle_forms.jl`, and its transfer to and from the grid in
+`transfer.jl`. See `CODE.md` in the
 package root for the design and the measurements.
 """
 module TreeWaveOLDG
@@ -38,7 +39,7 @@ using KernelAbstractions: @kernel, @index, @Const, Backend, CPU, get_backend,
                           allocate, synchronize
 using LinearAlgebra: dot
 using SpecialFunctions: besselj0
-using StaticArrays: SVector
+using StaticArrays: SVector, push
 
 # The reference element
 export Element, gll_nodes_weights
@@ -66,6 +67,11 @@ export ParticleModel, Trajectory, trajectory_at, self_inertia, particle_density,
        boosted_static, near_field, particle_field, particle_rate, source_bracket,
        Window, window_terms, particle_source
 
+# The transfer between particles and grid
+export TransferTables, gauss_nodes_weights, sinh_rule, ParticleSupport, project_source!,
+       projection_scratch, support_elements, pairing, reconstruct, reconstruct_gradient,
+       ball_rule
+
 include("precision.jl")
 include("device.jl")
 include("element.jl")
@@ -76,5 +82,6 @@ include("sinewave.jl")
 include("blast.jl")
 include("particle_forms.jl")
 include("particle.jl")
+include("transfer.jl")
 
 end

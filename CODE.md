@@ -15,10 +15,11 @@ what a refined forest needs.
 order `P ≥ 1`, two initial conditions (a standing sine mode and a 2D
 radial blast wave) and a viewer for the second, on the CPU, stepped by
 IMEXRungeKutta's RK4 with its stage arithmetic run by block owner. The
-first part of `INSPIRAL.md`'s inspiral exists: the analytic particle
+first parts of `INSPIRAL.md`'s inspiral exist: the analytic particle
 (`INSPIRAL-PLAN.md`'s M1), its field, the field's time derivative, the
-effective source and the window, not yet coupled to the mesh; see
-[Particles](#particles). The suite passes, also with
+effective source and the window, and the transfer between particles and
+grid (M2), the projection of a source onto the nodes and its adjoint,
+not yet coupled into a right-hand side; see [Particles](#particles). The suite passes, also with
 `--check-bounds=yes` and with four threads.
 
 **Contents**
@@ -48,6 +49,8 @@ effective source and the window, not yet coupled to the mesh; see
   - [The near field](#the-near-field)
   - [The split](#the-split)
   - [The window](#the-window)
+  - [The transfer](#the-transfer)
+  - [Quadrature](#quadrature)
 - [File layout](#file-layout)
 - [Tests](#tests)
 - [Measured results](#measured-results)
@@ -57,6 +60,7 @@ effective source and the window, not yet coupled to the mesh; see
   - [The blast wave's error](#the-blast-waves-error)
   - [Threads on Symmetry](#threads-on-symmetry)
   - [The source bracket](#the-source-bracket)
+  - [The transfer's cost](#the-transfers-cost)
 - [What carried over from TreeWave, and what did not](#what-carried-over-from-treewave-and-what-did-not)
 - [Possible extensions](#possible-extensions)
 - [Open questions](#open-questions)
@@ -523,10 +527,10 @@ steps.
 
 `INSPIRAL.md` designs two inspiralling scalar particles of fixed size
 `ℓ ≪ h` on this scheme, and `INSPIRAL-PLAN.md` builds it in milestones.
-What exists is M1, the analytic particle: everything about a particle
-that needs no mesh. The transfer to and from the grid (M2) and the
-coupled problem (M3) do not exist yet, so nothing here touches a
-`WaveProblem`. Sections of `INSPIRAL.md` are named below without links.
+What exists is M1, the analytic particle, everything about a particle
+that needs no mesh, and M2, the transfer between particles and grid.
+The coupled problem (M3) does not exist yet, so nothing here changes
+`wave_rhs!`. Sections of `INSPIRAL.md` are named below without links.
 
 The closed forms are derived in the Wolfram Language and generated into
 Julia:
@@ -711,6 +715,181 @@ and costs resolution for smoothness the scheme of order `P` cannot use.
 `window_terms(w, x)` gives `W`, `∇W` and `∇²W` in closed form; `W = 1`
 holds exactly where the particles are, so the split is exact there.
 
+### The transfer
+
+[`src/transfer.jl`](src/transfer.jl), generic in `D` and tested in 1D,
+2D and 3D; the particle physics on top of it is three-dimensional.
+`INSPIRAL.md`'s "The transfer operator": within an element `φₙ` is the
+tensor-product Lagrange polynomial of node `n` and `wₙ` its quadrature
+weight, and
+
+    (P S)ₙ = (1/wₙ) ∫_{element(n)} S φₙ,    ⟨P S, g⟩_w = ∫ S g_h
+
+for every grid function `g`, with `g_h = Σₙ gₙ φₙ` its reconstruction,
+discontinuous across faces. It is element-local and needs no exchange.
+
+- `TransferTables(T, P; q = P + 3, nsinh = 48, nmid = 16, ninner = 24)`
+  is `isbits` and sits beside the `Element`, which it leaves alone. It
+  holds the Gauss–Lobatto nodes and weights with their barycentric
+  weights, so that `φᵢ(ξ) = λᵢ ∏_{j≠i}(ξ - ξⱼ)` anywhere; the far
+  rule's `q` Gauss–Legendre points; the `q × (P+1)` Lagrange table at
+  them and the same divided by the node weight, `wᴳₖ φᵢ(ξᴳₖ)/ŵᵢ`, which
+  is the far rule's one-dimensional factor of `P` (the element's
+  Jacobian cancels between the integral and `wₙ`); and the reference
+  Gauss points of the near rule ([Quadrature](#quadrature)). All built
+  in `BigFloat` and rounded once. There is no derivative table at the
+  far rule's points, since nothing reads one; derivatives come from the
+  product form where they are needed.
+- `ParticleSupport(z, v, ℓ)`, or `ParticleSupport(m, traj)`: where a
+  particle is for the transfer. Its support is the ellipsoid
+  `|Λ(v)(x - z)| ≤ ℓ`.
+- `project_source!(du, p, t, S, particles; ball, rnear = 5, factor = -1,
+  var = 2)` adds `factor · P S` to variable `var` of `du`, by default
+  subtracting it from `v`'s rate as the remainder equations want. `S`
+  takes an `SVector{D}` and is a kernel argument, so it is `isbits`;
+  `ball = (centre, R)` holds its support, and elements that miss it are
+  skipped, blocks by a per-block mask. Elements farther than `rnear·hₑ`
+  from every particle take the far rule in two kernels launched through
+  `TreeAMR.launch_by_owner!`: one over `E·q` points per dimension and
+  block evaluates `S` into a scratch array (`projection_scratch`), and
+  one per element contracts its `q^D` values one dimension at a time, in
+  place, into `P S` at its nodes. That is the one place a kernel is not
+  launched through `map_blocks!`; it is written so that it could run on
+  a device, and has not been. The near elements, several hundred per
+  particle, take the near rule on the host, threaded over elements. Each
+  element writes only its own nodes, so the result does not depend on
+  the thread count. An element near two particles takes the rule toward
+  the nearer one, since the other is then at least about half their
+  separation away. On the first run's source at `hₑ = d/8`, elements
+  between the particles came out within `3·10⁻¹⁵` of a 24-point Gauss
+  rule clustered toward either particle, where the far rule was off by
+  `4·10⁻¹¹`–`10⁻⁸`. An element that two supports meet is refused.
+- `pairing(p, t, u, K, s; var = 1)` is `∫ K g_h = ⟨P K, g⟩_w` for a
+  particle kernel `K` that vanishes outside the support, `ρ` or `∇ρ`
+  (`K` may return a vector). It visits the elements `support_elements`
+  finds, those meeting the box `[z - ℓ, z + ℓ]`, at most `2^D` since
+  `2ℓ < hₑ`, from the box's corners through `TreeAMR.locate_point` and
+  the element arithmetic of `node_coordinates`, and reads the state on
+  the host. A `mesh_fold` of `wₙ (P K)ₙ gₙ` gives the same at the cost of
+  a projection and a pass over the mesh; the tests keep it as the
+  reference ([The transfer's cost](#the-transfers-cost) has both).
+- `reconstruct(p, t, u, x)` and `reconstruct_gradient` give `g_h(x)` and
+  `∇g_h(x)` at any point, for the flux spheres (M6b) and the tests. A
+  point on a face between elements takes the upper element, as
+  `locate_point` gives a point on a face between blocks to the upper
+  block.
+- `ball_rule(T, n_r, n_θ)`: Gauss in the radius with the `r²` in the
+  weights, times Gauss in `cos θ` and `2n_θ` equal steps in `φ`, for the
+  averages over a particle's ball in its rest frame (M3 on).
+
+The transfer does not look for periodic images: the source's ball and
+every particle's support must lie inside the box, and `support_elements`
+refuses a support that reaches a face. The near rule and the pairing
+run on the CPU.
+
+### Quadrature
+
+`INSPIRAL.md`'s "Quadrature" proposed tensor Gauss–Legendre far from the
+particles and, within `r_near ≈ 2hₑ`, a tensor-product sinh rule
+(Johnston and Elliott, 2005) that clusters points about the particle on
+the scale `ℓ`. The far rule is as proposed. The near rule is not, and
+neither is `r_near`.
+
+**The profile's edge.** `ρ₀ ∝ (1 - σ²)⁴` is only `C³` at `σ = 1`, and
+across such an edge every Gauss rule converges algebraically, the sinh
+transformation included, because it is the edge and not the scale `ℓ`
+that limits it. In 1D, a bump of half-width `ε = 10⁻³` against a
+Lorentzian of the same width, relative errors of the sinh rule:
+
+| points | 16 | 32 | 64 | 128 |
+|---|---|---|---|---|
+| bump `(1 - x²/ε²)⁴` | 0.12 | 0.05 | 2.3e-3 | 4.8e-5 |
+| Lorentzian `1/(x² + ε²)` | 1.1e-3 | 5.1e-6 | 4.8e-12 | 2.2e-23 |
+
+`∇ρ` has the same edge (`C²`), and so, weaker, does the source `S`. So
+the near rule puts a breakpoint wherever a line crosses the support.
+
+**The nested rule.** One dimension at a time: the outer coordinates are
+fixed and the line along the next dimension is integrated, so each line
+can have its own breakpoints and its own scale.
+
+- *Breakpoints.* The support is `rᵀMr ≤ ℓ²` with `r = x - z` and
+  `M = I + γ²vvᵀ`. With some coordinates fixed and the rest minimized
+  over, the form left on the fixed ones is `|r_K|² + c(v_K·r_K)²` with
+  `c = γ²/(1 + γ²|v_free|²)` (Sherman–Morrison), so the extent of the
+  support's section along the line is the pair of roots of a quadratic.
+  The integral over the remaining dimensions also changes character
+  where the section starts to cross an element face in one of them, so
+  each of those is free or fixed at either face, and every combination
+  adds two roots: at most `2·3^(D-d)` breakpoints at level `d`.
+- *Inside the support's extent,* `ninner = 24` Gauss points per segment,
+  plain on the innermost line, where the integrand is smooth between
+  breakpoints, and under `x = a + (b - a)(1 - cos θ)/2` on outer lines,
+  where the integral over the remaining dimensions behaves like a
+  half-integer power of the distance to the segment's ends (`(c² - t²)^{9/2}`
+  for `ρ₀` in 2D). With 16 points the bump in 3D was off by `2·10⁻¹⁰`.
+- *Outside,* the sinh rule toward the particle's centre projected onto
+  the segment, `ξ = ξc + ε sinh(μu - η)`, with the scale `β` the
+  distance from the particle's centre to the line: through the fixed
+  coordinates and to the element in the remaining ones. Outside the
+  support `β` is at least about `ℓ`. A segment with `β` at least half
+  its length takes `nmid = 16` points, a closer one `nsinh = 48`; both
+  are converged at the switch, so it moves the result by roundoff.
+
+A tensor sinh rule has one scale per dimension, and that does not fit
+every line of an element: with the particle just outside a face, `1/r²`
+needed 64 points per dimension at `ℓ/hₑ = 10⁻³`, and `1/r³` had not
+converged at 64. That is why the nested rule is used on every near
+element and not only on the at most `2^D` the support meets.
+
+**Point counts.** The points per line that bring the nested rule to
+`10⁻¹²` of `max|∫ f φₙ|` on a unit element, for a particle of size `ℓ`
+centred just outside a face (`f = 1/r` regularized inside, as the
+Coulomb field of a uniform ball, and `1/r²`) and inside the element
+(`1/r`):
+
+| `ℓ/hₑ` | `5·10⁻²` | `5·10⁻³` | `5·10⁻⁴` | `5·10⁻⁵` |
+|---|---|---|---|---|
+| face, `1/r` | 24 | 32 | 32 | 40 |
+| face, `1/r²` | 32 | 40 | 64 | 64 |
+| inside, `1/r` | 24 | 32 | 32 | 32 |
+
+The count grows like `log(hₑ/ℓ)`, as `INSPIRAL.md` wants, and the
+suite checks `16 + 8 log₁₀(hₑ/ℓ)` for the first row. On the first run's
+source (`ℓ/hₑ = 8·10⁻³`, orders 1–3), against a reference at 64 points:
+an element `ℓ` from the particle needs 48 points to reach `6·10⁻¹³`, one
+`0.08hₑ` away 24, and one `0.5hₑ` or more away 16, which is where
+`nsinh` and `nmid` come from. Integrated against a polynomial of degree
+`P` per dimension, the particle's own `ρ` is exact to `10⁻¹²` from
+`ℓ/hₑ = 10⁻¹` to `10⁻⁴`, moving or not, with the support straddling an
+element corner, and `Σₙ wₙ (P ρ)ₙ = Q/γ`.
+
+**`r_near`.** The far rule must agree with the near rule where they meet,
+so that a particle crossing `r_near` does nothing visible. On the first
+run's source (`hₑ = d/8`, an element `δ` from particle 1 and offset
+`0.3hₑ` across), the far rule's largest error at a node, relative to
+`∫|S|` over the element:
+
+| `δ` | `2hₑ` | `3hₑ` | `4hₑ` | `4.5hₑ` |
+|---|---|---|---|---|
+| order 0 | 9.3e-10 | 3.4e-11 | 3.0e-12 | 1.1e-12 |
+| order 1 | 3.4e-9 | 7.7e-11 | 4.4e-12 | 1.3e-12 |
+| order 2 | 4.2e-9 | 9.1e-11 | 5.0e-12 | 1.5e-12 |
+| order 3 | 5.1e-9 | 1.3e-10 | 7.6e-12 | 2.4e-12 |
+
+`INSPIRAL.md`'s `r_near ≈ 2hₑ` therefore leaves `5·10⁻⁹`; `10⁻¹²` needs
+about `5hₑ`, which is `rnear`'s default. A model `1/r³` source reaches
+`10⁻¹²` at `3hₑ` with `q = P + 3`, so it is the real source's structure
+on scales larger than `ℓ` that needs the distance. The suite checks that
+a source that does not move projects the same to `10⁻¹²` with and
+without a particle on either side of `r_near` and of an element face.
+
+**The window's edge.** Elements cut by the window's spheres `R₁` and
+`R₂` carry a far-rule error of `10⁻⁸`–`3·10⁻⁷` relative at `hₑ = d/8`,
+because the window is `C^{P+1}` there and nothing splits at it. It does
+not move with the particles; how it falls with `hₑ` is not measured, and
+the `10⁻¹²` of `INSPIRAL.md` does not hold on those elements **(open)**.
+
 ## File layout
 
 - `src/TreeWaveOLDG.jl`: the module and its exports.
@@ -731,6 +910,10 @@ holds exactly where the particles are, so the split is exact there.
   and their Laplacians, and the self-force coefficients.
 - `src/particle.jl`: `ParticleModel`, `Trajectory`, the boost, `Ψ`,
   `𝒟Ψ`, the source bracket, `Window` and the source.
+- `src/transfer.jl`: `gauss_nodes_weights`, `TransferTables`,
+  `sinh_rule`, `ParticleSupport`, the far and nested rules, the
+  projection's kernels and `project_source!`, `support_elements`,
+  `pairing`, `reconstruct`, `reconstruct_gradient` and `ball_rule`.
 - `derivations/`: the Wolfram Language derivations (`profile.wl`,
   `nearfield.wl`, `selfforce.wl`), each runnable alone with
   `wolframscript -file` and asserting its identities, the generator
@@ -742,6 +925,9 @@ holds exactly where the particles are, so the split is exact there.
   `bin/symmetry/benchmark.sh` runs it at several thread counts on a
   Symmetry AMD node, with `bin/symmetry/simwatch.sh` reporting its
   stages to SimWatch.
+- `bin/projection.jl`: the cost of the transfer on the first run's
+  source, one tab-separated row per quantity, run in the package
+  environment.
 - `test/reference.jl`: dense global operators built from the element's
   tables, and the state rearranged into global arrays, which the kernels
   are checked against.
@@ -759,8 +945,9 @@ does.
 
 ## Tests
 
-`julia --project=. -e 'using Pkg; Pkg.test()'`, a little over a
-minute, of which the particle takes half.
+`julia --project=. -e 'using Pkg; Pkg.test()'`, about a minute and
+three quarters on the laptop, of which the particle and the transfer
+take about two thirds.
 
 - `element_tests.jl`: the nodes integrate to degree `2P-1`, and no
   further; the wide derivative is the paper's matrix for `P = 2, 3, 4`
@@ -809,6 +996,22 @@ minute, of which the particle takes half.
   source equals `∂ₜ²(WΨ̂) - ∇²(WΨ̂) + Σρ` evaluated naively in
   `BigFloat`; and, where `wolframscript` is available, regenerating
   `particle_forms.jl` reproduces it byte for byte.
+- `transfer_tests.jl`: the transfer tables are the `BigFloat` ones
+  rounded, and the Gauss rules exact to degree `2n - 1`; `(P S)ₙ - S(xₙ)`
+  falls at order `P` for `P = 2, 3, 4` in 1D and 2D, and in a coarse 3D
+  check; `⟨P S, g⟩_w = ∫ S g_h` to `10⁻¹²` in 1D, 2D and 3D, for a source
+  with a compact bump across a face, a Lorentzian peak and a smooth part,
+  against a graded composite Gauss rule; the particle's `ρ` against a
+  polynomial is exact to `10⁻¹²` from `ℓ/hₑ = 10⁻¹` to `10⁻⁴`, at rest
+  and moving, across a corner, and `Σ wₙ (P ρ)ₙ = Q/γ`; the sinh rule
+  reaches `10⁻¹²` with `16 + 8 log₁₀(hₑ/ℓ)` points per line; the
+  pairing's second differences in `z` across a face, an edge and a corner
+  are the exact ones to `10⁻¹²`, and a source that does not move projects
+  the same with a particle on either side of `r_near` and of a face; the
+  pairing over the support equals the projection folded over the mesh,
+  for `ρ` and `∇ρ`, at rest and moving; `reconstruct` and its gradient
+  are exact on polynomials of degree `P` per dimension and give the
+  stored value at a node; the ball rule's moments are exact.
 
 ## Measured results
 
@@ -986,6 +1189,47 @@ order-1 part cancels against `∇²Φ⁽¹⁾`. The cancellation-free bracket
 loses about three digits, in that remaining cancellation between terms
 of size `Qa/ℓ²`.
 
+### The transfer's cost
+
+`bin/projection.jl` on the laptop (Apple M3 Pro, Julia 1.13.3, four
+threads), 2026-10-30, not yet on Symmetry: the first run of
+`INSPIRAL.md` (`q² = 0.005`, `ℓ = 10⁻³`, `v = 0.2`, orders 1–3, the
+window `R₁ = 1.25`, `R₂ = 2.5`), `P = 3`, `hₑ = d/8`, in a periodic box of
+side 5 that just holds the window: 4.1M nodes, 2.4M of them in the
+37 224 elements that meet the window's ball. Seconds, the least of one
+run after a warm-up.
+
+| | `r_near = 2hₑ` | `r_near = 5hₑ` |
+|---|---|---|
+| far elements, points | 37 096, 8.0M | 35 856, 7.7M |
+| near elements, points | 128, 3.4M | 1 368, 10.7M |
+| one projection | 11.5 | **20.3** |
+|   far rule | 8.2 | 8.3 |
+|   near rule | 3.4 | 11.6 |
+| `wave_rhs!`, whole box | 0.018 | 0.018 |
+|   its share on the window's nodes | 0.010 | 0.010 |
+
+One evaluation of the source, both particles, is 2.9 µs; `INSPIRAL.md`'s
+estimate of "roughly ten times the wave equation's work" assumed a
+tenth of that. What it says:
+
+- **The projection is about 2000 times the wave equation's work** on
+  the same elements at the default `r_near`, and 1100 times at `2hₑ`,
+  where the plan's gate is ten. Nearly all of it is evaluating the
+  source: with a source that costs nothing, the far rule takes 0.03 s and
+  the near rule 0.86 s (its breakpoints and allocations), so the source
+  is 99.6% and 93% of them. The gate is the owner's ([Open
+  questions](#open-questions)); M2 only measures it.
+- **The near rule is more than half** at `r_near = 5hₑ`: 1 368 elements
+  at 16³ points or more each, against 216 for the far rule. Most of
+  them are there only because the far rule is not accurate enough
+  closer in ([Quadrature](#quadrature)).
+- **The pairing over the support** takes 16 ms for `ρ` and 22 ms for
+  `∇ρ`, at 1 to 8 elements whatever the mesh. The `mesh_fold` it
+  replaces, a projection of `ρ` and a fold over the 4.1M nodes, takes
+  77 ms and grows with the mesh. So the pairing stays host-side, over
+  the support's elements, as the plan proposed.
+
 ## What carried over from TreeWave, and what did not
 
 Carried over: the equation and its variables, the periodic box, the sine
@@ -1035,6 +1279,17 @@ layout would be modal (the decay of the top Legendre coefficients)
   the interpolated solution continuous for plotting.
 - A 1D viewer, a device run, and a subprocess thread-count test, as in
   TreeWave.
+- **(proposed)** Cheaper transfer, if the cost gate is to be met (see
+  [The transfer's cost](#the-transfers-cost)), in the order the plan
+  gives: `q = P + 1` far from the particles, then `INSPIRAL.md`'s
+  exterior and core split. Before either, the source itself: its
+  evaluation allocates, and it re-derives each particle's trajectory
+  quantities at every point.
+- **(proposed)** A smaller `r_near` through a better far rule rather
+  than more near elements: `q` that grows toward the particles, or the
+  far rule on subdivided elements.
+- The near pass on a device, and the pairing there too; both run on the
+  host now.
 - **(proposed)** The `t′²` term of the lab-slice re-expansion of `Φ_C`,
   `½γ²(v·r)²(-α′·∇Φ₀)`, in the particle field ahead of M5, which would
   make the bracket at rest the first order not carried at order 3 too
@@ -1055,3 +1310,10 @@ layout would be modal (the decay of the top Legendre coefficients)
   hyperbolic motion (see [The near field](#the-near-field)).
 - Which `ä` the order-3 term should take for a moving particle. M1 takes
   the lab one; the rest-frame proper-time derivative is M5's.
+- What to do about the cost of the projection, which is the gate of
+  `INSPIRAL-PLAN.md`'s "Gates and fallbacks" (see [The transfer's
+  cost](#the-transfers-cost)), before M3.
+- The quadrature error on the elements the window's spheres cut, which
+  `INSPIRAL.md`'s `10⁻¹²` does not cover (see [Quadrature](#quadrature)):
+  whether it matters, and if so a split at `R₁` and `R₂` like the one at
+  the support, or a smoother window.

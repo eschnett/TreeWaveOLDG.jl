@@ -6,8 +6,8 @@ merged pull request and a green suite. The milestones follow
 knows it is done. Section names of `INSPIRAL.md` and `CODE.md` are used
 below without links.
 
-**Status.** M0 is done; M1 is implemented on its branch and not yet
-merged; nothing else is started. The
+**Status.** M0 and M1 are done; M2 is implemented on its branch and not
+yet merged, with its cost gate fired; nothing else is started. The
 decisions below were settled with the owner on 2026-10-30. A milestone's
 status line changes here when its work starts and when its pull request
 merges.
@@ -184,7 +184,7 @@ on `main`.
 
 ## M1: The analytic particle
 
-**Status:** implemented on `inspiral-m1-particle`, not yet merged.
+**Status:** done; on `main`.
 `INSPIRAL.md`: "The particle profile", "The
 near field of an accelerated particle", "The particle field", "The
 remainder equations", "The window"; validation step 1.
@@ -285,8 +285,11 @@ disagreement with `INSPIRAL.md`'s results.
 
 ## M2: The transfer operator
 
-**Status:** not started. `INSPIRAL.md`: "The transfer operator",
-"Quadrature"; validation step 2.
+**Status:** implemented on `inspiral-m2-transfer`, not yet merged; the
+cost gate of [Gates and fallbacks](#gates-and-fallbacks) fired, and the
+near rule and `r_near` depart from what is planned here (`HISTORY.md`,
+"Particles"). `INSPIRAL.md`: "The transfer operator", "Quadrature";
+validation step 2.
 
 ### M2 code
 

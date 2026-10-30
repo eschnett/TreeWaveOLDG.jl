@@ -49,7 +49,7 @@ julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--check-bounds=yes"])
 julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--threads=4"])'
 ```
 
-Each takes about a minute. The kernels are `@inbounds`, so run the
+Each takes under two minutes. The kernels are `@inbounds`, so run the
 second one too after touching a kernel or the layout.
 
 The viewer, in its own environment (CairoMakie is not a package
@@ -65,6 +65,13 @@ The benchmark, in the package environment; on Symmetry,
 
 ```bash
 julia --project=. -t 4,0 bin/benchmark.jl --scan=4:8
+```
+
+The transfer's cost on the first run's source ("The transfer's cost"),
+a few minutes on four threads:
+
+```bash
+julia --project=. -t 4,0 bin/projection.jl --hdiv=8
 ```
 
 From M1 of `INSPIRAL-PLAN.md` on, `src/particle_forms.jl` is generated
@@ -124,6 +131,12 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   `ρ` cancels against `□_vΦ_C` analytically, the acceleration part of
   `𝒟²Φ_C` is a derivative in a deformation parameter, and near-field
   Laplacians are generated closed forms ("The split").
+- **A particle's support is a breakpoint.** Integrate `ρ`, `∇ρ` or the
+  source near a particle with the nested rule, never a Gauss or sinh rule
+  across the support's edge, where the profile is only `C³`
+  ("Quadrature").
+- **The transfer looks for no periodic images.** The source's ball and
+  every particle's support lie inside the box ("The transfer").
 - **The asserted rates are measurements.** If one moves, re-measure and
   update "Measured results" rather than widen a tolerance.
 

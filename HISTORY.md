@@ -199,6 +199,50 @@ How the package got where it is, by topic in `CODE.md`'s order.
 - 2026-10-30: the generator writes each interior polynomial in `σ²`, or
   in `1 - σ²` where that is better conditioned. Written in `σ²`, `ρ₀`
   lost 12 digits near the particle's edge.
+- 2026-10-30: M2 of `INSPIRAL-PLAN.md`, the transfer, on branch
+  `inspiral-m2-transfer`: `src/transfer.jl`, `test/transfer_tests.jl` and
+  `bin/projection.jl`. It departs from `INSPIRAL.md`'s "Quadrature" and
+  the plan's M2 in three places, all measured first:
+  - **The near rule is split at the particle's support.** The plan's
+    tensor sinh rule cannot integrate the profile to `10⁻¹²`: `ρ₀` is
+    only `C³` at `σ = 1`, and across that edge Gauss rules converge
+    algebraically, with or without the sinh transformation (in 1D at
+    `ℓ/hₑ = 10⁻³`, `5·10⁻⁵` at 128 points, against `2·10⁻²³` for a
+    Lorentzian of the same width). The same edge is in `∇ρ` (`C²`) and,
+    weaker, in `S`. Erik Schnetter chose, of three options put to him,
+    a rule that splits every line at the support; "Quadrature" in
+    `CODE.md` has it.
+  - **The near rule is nested, not a tensor product,** also on the near
+    elements that the support does not meet. One sinh scale per
+    dimension does not fit every line of an element: with the particle
+    just outside a face, `1/r²` needed 64 points per dimension at
+    `ℓ/hₑ = 10⁻³` and `1/r³` did not converge by 64. With each line's
+    scale its own distance from the particle, as Johnston and Elliott
+    do in 2D, the points grow like `log(hₑ/ℓ)`.
+  - **`r_near` is `5hₑ`, not `2hₑ`.** On the first run's source the far
+    rule (`q = P + 3`) is off by `5·10⁻⁹` relative at `2hₑ`, and reaches
+    `10⁻¹²` near `4.5hₑ`, at every order of the near field.
+  The plan's derivative table at the far rule's points is not built:
+  nothing reads a derivative there, and `reconstruct_gradient` takes the
+  Lagrange polynomials' derivatives at arbitrary points from the product
+  form.
+- 2026-10-30: the cost gate of `INSPIRAL-PLAN.md` ("Gates and
+  fallbacks") fired: one projection costs far more than ten times the
+  wave equation's work on the window's elements (`CODE.md`, "The
+  transfer's cost"). A source evaluation is 2.9 µs, where
+  `INSPIRAL.md`'s estimate assumed a tenth of that. Erik Schnetter chose
+  to measure only in M2: `q` stays `P + 3` everywhere, and neither the
+  plan's first fallback (`q = P + 1` far out) nor tuning the source is
+  done yet.
+- 2026-10-30: found in M2: elements cut by the window's spheres `R₁`
+  and `R₂` carry a quadrature error of `10⁻⁸`–`3·10⁻⁷` relative at
+  `hₑ = d/8`, since the window is only `C^{P+1}` there. It is static,
+  and `INSPIRAL.md`'s tolerance of `10⁻¹²` does not hold on those
+  elements.
+- 2026-10-30: the pairing reads the state on the host, over the support's
+  elements found from `z` (`INSPIRAL-PLAN.md`, "Left to settle later"),
+  measured against the `mesh_fold` it replaces (`CODE.md`, "The
+  transfer's cost").
 
 ## Dependencies
 
