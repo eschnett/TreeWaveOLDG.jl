@@ -32,6 +32,20 @@ How the package got where it is, by topic in `CODE.md`'s order.
   converges at order `P` with energy conserved to the integrator's own loss.
   Global (rotating-seam, partly reflecting or outflow) boundaries remain a
   non-goal.
+- 2026-10-30: Erik Schnetter adopted `INSPIRAL.md`, a design for two
+  inspiralling scalar particles of fixed size `ℓ ≪ h` on this scheme
+  (after arXiv:2606.06487, answering `INSPIRAL-PROMPT.md`), and
+  `INSPIRAL-PLAN.md`, which implements it in milestones with one pull
+  request each. `INSPIRAL.md` stays frozen; what the code settles goes
+  into `CODE.md` and here. Decided with it: Wolfram Language for the
+  symbolic work, with its closed forms generated into a checked-in Julia
+  file; the particle state joined to the field by `ArrayPartition`; long
+  runs on Symmetry's AMD nodes. No sponge or outflow boundary is added:
+  runs stay in a periodic box that is causally clean for their duration.
+  Since a uniform box that stays clean for even one orbit does not fit
+  one node, the binary's warm-up and orbits are deferred until mesh
+  refinement or a better outer boundary (multi-patch, or an outflow
+  boundary) is available.
 
 ## The method
 

@@ -20,13 +20,19 @@ are the way they are. This file is only about mechanics.
 | `CLAUDE.md` | agents; loaded into every session, so kept short | what to read, commands, sharp edges as short rules pointing at `CODE.md`, repository facts |
 | `CODE.md` | anyone changing the code | the current design and its reasons, the tests, current measurements, limitations, extensions, in the present tense, with **(open)** or **(proposed)** on what is not settled |
 | `HISTORY.md` | anyone asking how it got here | who decided what and when, alternatives dropped, superseded measurements, by topic in `CODE.md`'s order |
-| `PLAN.md` | — | does not exist; concrete planned work, with how one knows each step is done, would go there |
+| `INSPIRAL.md` | anyone building the inspiral | the design proposal for two inspiralling scalar particles; frozen, not edited |
+| `INSPIRAL-PROMPT.md` | anyone asking what `INSPIRAL.md` answers | the task it was written for; frozen, not edited |
+| `INSPIRAL-PLAN.md` | anyone building the inspiral | concrete planned work, milestone by milestone, with how one knows each is done; a status line per milestone |
+| `PLAN.md` | — | does not exist; other planned work would go there |
 
 To amend the documents, fix `CODE.md` to describe the current state and
-record in `HISTORY.md` what changed, when and why. Keep each file's
-table of contents current (`##` and `###` in `CODE.md`, `PLAN.md` and
-`HISTORY.md`, `##` in `README.md` and here), and update every reference
-to a heading you rename, in code comments and docstrings too.
+record in `HISTORY.md` what changed, when and why. Where the inspiral
+code departs from `INSPIRAL.md` or settles one of its open items, that
+goes into `CODE.md` and `HISTORY.md` too, never into `INSPIRAL.md`. Keep
+each file's table of contents current (`##` and `###` in `CODE.md`,
+`INSPIRAL-PLAN.md` and `HISTORY.md`, `##` in `README.md` and here), and
+update every reference to a heading you rename, in code comments and
+docstrings too.
 
 ## What this package is
 
@@ -51,6 +57,18 @@ dependency), about 20 seconds; it writes `bin/output/blast_2d.png`:
 
 ```bash
 julia --project=bin bin/visualize2d.jl
+```
+
+From M1 of `INSPIRAL-PLAN.md` on, `src/particle_forms.jl` is generated
+from the Wolfram Language derivations in `derivations/`; do not edit it
+by hand. Regenerate it, and let the suite check that the checked-in
+file matches a fresh one (skipped when the variable is unset, as on
+CI):
+
+```bash
+export TREEWAVEOLDG_WOLFRAMSCRIPT=/Applications/Wolfram.app/Contents/MacOS/wolframscript
+$TREEWAVEOLDG_WOLFRAMSCRIPT -file derivations/generate.wl
+julia --project=. -e 'using Pkg; Pkg.test()'
 ```
 
 ## Sharp edges

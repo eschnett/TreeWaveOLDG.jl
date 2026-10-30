@@ -6,9 +6,10 @@ merged pull request and a green suite. The milestones follow
 knows it is done. Section names of `INSPIRAL.md` and `CODE.md` are used
 below without links.
 
-**Status.** Nothing is implemented. The decisions below were settled
-with the owner on 2026-10-30. A milestone's status line changes here
-when its pull request merges.
+**Status.** M0 is ready for review; nothing else is started. The
+decisions below were settled with the owner on 2026-10-30. A milestone's
+status line changes here when its work starts and when its pull request
+merges.
 
 **Contents**
 
@@ -161,22 +162,24 @@ own branches.
 
 ## M0: Documents and tooling
 
-**Status:** not started.
+**Status:** ready for review on `inspiral-m0-docs`.
 
-- Commit `INSPIRAL.md` (unchanged) and this file.
+- Commit `INSPIRAL.md` (unchanged), the task it answers
+  (`INSPIRAL-PROMPT.md`, unchanged) and this file.
 - `CLAUDE.md`, "Where things go": a row for `INSPIRAL.md` (the design
-  proposal for the inspiral, frozen, for reference) and one for
-  `INSPIRAL-PLAN.md` (the milestones and how each is known to be done).
-  The `PLAN.md` row points at it.
+  proposal for the inspiral, frozen, for reference), one for
+  `INSPIRAL-PROMPT.md`, and one for `INSPIRAL-PLAN.md` (the milestones
+  and how each is known to be done). The `PLAN.md` row points at it.
 - `CLAUDE.md`, "Commands": the generator command (M1), with the
   `wolframscript` path on the owner's machine,
   `/Applications/Wolfram.app/Contents/MacOS/wolframscript`, and the
   environment variable `TREEWAVEOLDG_WOLFRAMSCRIPT` that the test of M1
   reads.
-- Leave `AGENTS.md` and `prompt.md` alone. They are not this plan's.
+- `HISTORY.md`: the adoption of the design and the plan, and the
+  decisions of 2026-10-30.
 
-**Done when** the pull request has merged and the two documents are on
-`main`.
+**Done when** the pull request has merged and the three documents are
+on `main`.
 
 ## M1: The analytic particle
 
