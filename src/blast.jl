@@ -130,7 +130,7 @@ end
 
 """
     uniform_blast(T=Float64; P, E, roots, L=1, σ=2/25, t_end=2/5, cfl=1/2,
-                  alg=RK4, truncate=true, observer=nothing, nsnapshots=21)
+                  alg=RK4(), truncate=true, observer=nothing, nsnapshots=21)
 
 Evolve the blast wave on a uniform `roots × roots` box of `E × E` elements
 of order `P` per block, and return the L∞ and L2 errors at `t_end`
@@ -138,13 +138,15 @@ against [`blast_exact`](@ref), the spacing, the number of nodes, and the
 energy at the start and the end.
 
 Pass `observer` to watch the run: it is called as `observer(p, t, u, ue)`
-at `nsnapshots` times spanning the run, the first and the last included,
-with `p` the [`WaveProblem`](@ref), `u` the state and `ue` the exact
-state at the same nodes. This is what the viewer in `bin/` uses. Leaving
-it `nothing` stores no intermediate state.
+after the steps nearest `nsnapshots` evenly spaced times, the first and
+the last included, with `t` the time actually reached, `p` the
+[`WaveProblem`](@ref), `u` the state and `ue` the exact state at the same
+nodes. The steps are the run's own, so watching it does not change it.
+`u` is the integrator's state, overwritten by the next step: an observer
+that keeps it must copy it. This is what the viewer in `bin/` uses.
 """
 function uniform_blast(::Type{T}=Float64; P::Integer, E::Integer, roots::Integer,
-                       L=one(T), σ=T(2//25), t_end=T(2//5), cfl=T(1//2), alg=RK4,
+                       L=one(T), σ=T(2//25), t_end=T(2//5), cfl=T(1//2), alg=RK4(),
                        truncate::Bool=true, observer=nothing,
                        nsnapshots::Integer=21) where {T}
     forest = wave_forest(T, Val(2), P, E; roots=roots, L=L)
@@ -156,11 +158,7 @@ function uniform_blast(::Type{T}=Float64; P::Integer, E::Integer, roots::Integer
 
     nsteps = ceilint(t_end / oldg_timestep(p; cfl=cfl))
     dt = t_end / nsteps
-    saveat = observer === nothing ? T[] :
-             collect(range(zero(T), t_end; length=nsnapshots))
-    method = alg(; stage_limiter! = truncate_stage!, step_limiter! = truncate_stage!)
-    sol = solve(ODEProblem(wave_rhs!, u0, (zero(T), t_end), p), method;
-                dt=dt, adaptive=false, save_everystep=false, saveat=saveat)
+    integ = wave_integrator(p, u0, zero(T), t_end; dt=dt, alg=alg)
 
     exact = FieldSet{T}(forest, 2; G=1, centering=cellcentered(2))
     function exact_state(t)
@@ -168,13 +166,14 @@ function uniform_blast(::Type{T}=Float64; P::Integer, E::Integer, roots::Integer
         ue = statevector(exact)
         return gather!(ue, exact)
     end
-    if observer !== nothing
-        for (t, u) in zip(sol.t, sol.u)
-            observer(p, t, u, exact_state(t))
-        end
+    snapshots = observer === nothing ? Int[] :
+                round.(Int, range(0, integ.nsteps; length=nsnapshots))
+    for k in 0:integ.nsteps
+        k > 0 && step!(integ)
+        k in snapshots && observer(p, integ.t, integ.u, exact_state(integ.t))
     end
 
-    u = sol.u[end]
+    u = integ.u
     err = u .- exact_state(t_end)
     h = minimum_spacing(forest)
     return (err=quadrature_norm(p.fs, el, err; p=Inf),

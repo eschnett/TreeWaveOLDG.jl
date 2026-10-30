@@ -59,6 +59,14 @@ dependency), about 20 seconds; it writes `bin/output/blast_2d.png`:
 julia --project=bin bin/visualize2d.jl
 ```
 
+The benchmark, in the package environment; on Symmetry,
+`sbatch bin/symmetry/benchmark.sh` from a rsynced checkout runs it at
+1–64 threads ("Threads on Symmetry" in `CODE.md`):
+
+```bash
+julia --project=. -t 4,0 bin/benchmark.jl --scan=4:8
+```
+
 From M1 of `INSPIRAL-PLAN.md` on, `src/particle_forms.jl` is generated
 from the Wolfram Language derivations in `derivations/`; do not edit it
 by hand. Regenerate it, and let the suite check that the checked-in
@@ -87,7 +95,19 @@ Each is the rule; the `CODE.md` section named after it has the reason.
 - **Truncation sets `v`'s top mode to zero in the state, through the
   integrator's limiter hooks, never in the right-hand side.** An
   integrator must be given `truncate_stage!` as its stage and step
-  limiter; `initial_state` truncates the initial `v` ("Truncation").
+  limiter, which `wave_integrator` does; `initial_state` truncates the
+  initial `v` ("Truncation").
+- **Step with `wave_integrator`, IMEXRungeKutta by block owner, not
+  OrdinaryDiffEq**, whose serial stage arithmetic and fifth right-hand
+  side per step cost more than the right-hand side on many threads
+  ("The integrator").
+- **Each `∂_d u` set has ghosts along `d` only, and `v` none.** A kernel
+  that reads `∂_d u` across another dimension's face, or `v` across any,
+  reads past its array; `--check-bounds=yes` catches it ("The
+  right-hand side").
+- **Pass `d` to the gradient and Laplacian kernels as a `Val`, through
+  an `@inline` closure**; a runtime `d` costs 2.5× ("The right-hand
+  side").
 - **The tables are built in `BigFloat` and rounded once.** Do not build
   them in `T` or convert from the `Float64` ones ("Precision").
 - **The time step is `cfl · hₑ/(P+1)²`**, not TreeWave's `cfl · h`
@@ -117,7 +137,9 @@ guards.
   `main` tracks it. Work on a branch; do not push, open a pull request,
   or merge to `main` without being asked.
 - Not registered. TreeAMR comes from the General registry, not from a
-  local checkout.
+  local checkout; IMEXRungeKutta, which is not registered, from its
+  GitHub repository through `[sources]` in `Project.toml` and
+  `test/Project.toml`.
 - CI (`.github/workflows/CI.yml`) runs the suite with
   `--check-bounds=yes` on Linux and macOS, and on four threads on Linux.
   Do not drop its `check_bounds: 'yes'` line ("The right-hand side").

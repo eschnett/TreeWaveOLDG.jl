@@ -5,8 +5,7 @@
 # The reference is the dense global operator of `reference.jl`.
 
 using LinearAlgebra: I, norm, dot
-using OrdinaryDiffEqLowOrderRK: RK4
-using SciMLBase: ODEProblem, solve
+using IMEXRungeKutta: IMEXProblem, RK4, init, solve!, step!
 
 # A smooth periodic test state that is not separable and not a single
 # mode, so that a transposed index or a wrong neighbour shows.
@@ -75,13 +74,32 @@ end
     @test du1 == du2
 end
 
-# RK4 with truncation in its limiter hooks, as `wave_errors` builds it.
-truncating_rk4() = RK4(; stage_limiter! = truncate_stage!, step_limiter! = truncate_stage!)
-
 # The largest change truncation would make to the `v` of state `u`.
 function untruncated(u, p)
     w = truncate_state!(copy(u), p)
     return norm(w .- u, Inf)
+end
+
+@testset "Truncation is the tensor-product projector, applied in place" begin
+    # Guards the per-element kernel: it applies `Π` one dimension at a
+    # time as a rank-one update, so a wrong line, a dimension skipped or an
+    # element read across its face would leave a projection that is not
+    # `Π ⊗ … ⊗ Π`. The dense reference is built from `el.truncate`, the
+    # matrix the kernel does not read.
+    for (D, P, E, roots) in ((1, 3, 2, 2), (2, 2, 2, 2), (2, 4, 2, 1), (3, 3, 1, 2))
+        forest = wave_forest(Float64, Val(D), P, E; roots=roots)
+        el = Element(Float64, P)
+        p = WaveProblem(forest, el; truncate=false)
+        q = WaveProblem(forest, el)
+        u = initial_state(p, testdata(D))
+        w = truncate_state!(copy(u), q)
+        _, Πm, _ = global_operators(el, roots * E, minimum_spacing(forest))
+        Π = reduce(kron, fill(Πm, D))
+        V = vec(global_array(p.fs, u, 2))
+        @test norm(vec(global_array(p.fs, w, 2)) - Π * V, Inf) < 1e-13 * norm(V, Inf)
+        @test global_array(p.fs, w, 1) == global_array(p.fs, u, 1)
+        @test untruncated(w, q) < 1e-14 * norm(V, Inf)
+    end
 end
 
 @testset "Every stage and every step has v truncated" begin
@@ -95,25 +113,59 @@ end
         p = WaveProblem(forest, Element(Float64, P))
         u0 = initial_state(p, testdata(D))
         @test untruncated(u0, p) < 1e-13
-        for (method, truncated) in ((truncating_rk4(), true), (RK4(), false))
+        dt = oldg_timestep(p; cfl=1 // 2)
+        for truncated in (true, false)
             worst = Ref(0.0)
             function rhs!(du, u, p, t)
                 worst[] = max(worst[], untruncated(u, p))
                 wave_rhs!(du, u, p, t)
                 return nothing
             end
-            dt = oldg_timestep(p; cfl=1 // 2)
-            sol = solve(ODEProblem(rhs!, u0, (0.0, 10dt), p), method;
-                        dt=dt, adaptive=false, saveat=dt)
-            steps = maximum(u -> untruncated(u, p), sol.u)
+            limiters = truncated ?
+                       (stage_limiter=truncate_stage!, step_limiter=truncate_stage!) :
+                       (;)
+            integ = init(IMEXProblem(rhs!, nothing, u0, (0.0, 10dt), p), RK4();
+                         dt=dt, limiters...)
+            steps = 0.0
+            while integ.nstep < integ.nsteps
+                step!(integ)
+                steps = max(steps, untruncated(integ.u, p))
+            end
             if truncated
                 @test worst[] < 1e-13
                 @test steps < 1e-13
+                # `wave_integrator` installs exactly these limiters.
+                integ′ = wave_integrator(p, u0, 0.0, 10dt; dt=dt)
+                solve!(integ′)
+                @test integ′.u == integ.u
             else
                 @test worst[] > 1e-6
                 @test steps > 1e-6
             end
         end
+    end
+end
+
+@testset "The stage arithmetic by block owner is bitwise the broadcast" begin
+    # Guards `state_partition`: a partition that missed or doubled an
+    # entry is refused by IMEXRungeKutta, but one that gave a block to the
+    # wrong thread would only be slower; one that combined entries
+    # differently would change the bits. Both paths must agree exactly,
+    # at whatever thread count the suite runs.
+    for (D, P) in ((1, 3), (2, 2), (3, 1))
+        forest = wave_forest(Float64, Val(D), P, 2; roots=3)
+        p = WaveProblem(forest, Element(Float64, P))
+        u0 = initial_state(p, testdata(D))
+        part = state_partition(p.fs, u0)
+        @test length(part) == Threads.nthreads()
+        @test sort(reduce(vcat, collect.(part))) == eachindex(u0)
+        dt = oldg_timestep(p; cfl=1 // 2)
+        owner = wave_integrator(p, u0, 0.0, 5dt; dt=dt)
+        bcast = init(IMEXProblem(wave_rhs!, nothing, u0, (0.0, 5dt), p), RK4(); dt=dt,
+                     stage_limiter=truncate_stage!, step_limiter=truncate_stage!)
+        solve!(owner)
+        solve!(bcast)
+        @test owner.u == bcast.u
     end
 end
 
@@ -131,9 +183,8 @@ end
             p = WaveProblem(forest, Element(Float64, P); truncate=truncate)
             u0 = initial_state(p, testdata(D))
             dt = oldg_timestep(p; cfl=cfl)
-            sol = solve(ODEProblem(wave_rhs!, u0, (0.0, 200dt), p), truncating_rk4();
-                        dt=dt, adaptive=false, save_everystep=false)
-            E0, E1 = wave_energy(p, u0), wave_energy(p, sol.u[end])
+            integ = solve!(wave_integrator(p, u0, 0.0, 200dt; dt=dt))
+            E0, E1 = wave_energy(p, u0), wave_energy(p, integ.u)
             @test E1 <= E0
             (E0 - E1) / E0
         end

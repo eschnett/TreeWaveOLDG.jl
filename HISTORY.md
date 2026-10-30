@@ -6,8 +6,10 @@ How the package got where it is, by topic in `CODE.md`'s order.
 
 - [Scope and non-goals](#scope-and-non-goals)
 - [The method](#the-method)
+- [The right-hand side](#the-right-hand-side)
 - [Truncation](#truncation)
 - [The blast wave and the viewer](#the-blast-wave-and-the-viewer)
+- [Threads and the integrator](#threads-and-the-integrator)
 - [Dependencies](#dependencies)
 
 ## Scope and non-goals
@@ -55,6 +57,29 @@ How the package got where it is, by topic in `CODE.md`'s order.
   to the printed digits for `P = 1 … 6`, and the dense operators became
   `test/reference.jl`.
 
+## The right-hand side
+
+- 2026-10-30: the exchange was cut to what the wide derivative reads,
+  asked for by Erik Schnetter after an investigation of the cost of a
+  threaded step. Before, `u` and `v` were scattered into one field set
+  with `G = 1` and the gradient was one `D`-variable set with `G = 1`,
+  sharing one schedule, two exchanges that filled every face, edge and
+  corner of all five variables in 3D. They took half a right-hand side
+  on the laptop (33 of 65 ms; 3D, `P = 3`, 512 blocks of `16³`). Now
+  `v` is read from the state and never exchanged, `u` has a set of its
+  own, and each `∂_d u` a set with ghosts along `d` only, `1 + D`
+  exchanges of about 2.7 times fewer points. The state set keeps
+  `G = 0`. TreeAMR refuses a ghost-free dimension under point-value
+  operators, so the schedules use conservative order 1, a formality on
+  a uniform forest.
+- 2026-10-30: written with a runtime loop over `d`, the new kernels,
+  which index a tuple of `D` arrays, were 3.5 times slower than the
+  one-set kernels; through a closure over `ntuple`, six times. Passing
+  `d` as a `Val` through an `@inline` closure made both faster than the
+  old ones (gradient pass 6.9 ms against 13.6, laptop, one thread). One
+  launch per dimension was as fast for the gradient but cannot serve
+  the Laplacian, which sums over `d`.
+
 ## Truncation
 
 - 2026-10-26: truncation was first applied to `∂ₜv` rather than to the
@@ -73,6 +98,15 @@ How the package got where it is, by topic in `CODE.md`'s order.
   alike, while the plain scheme gives a smaller and faster-converging
   `u` and an irregular `v` (tables in `CODE.md`, "Convergence").
 
+- 2026-10-30: the truncation kernel applied the full tensor-product
+  matrix, `(P+1)^D` multiply-adds per node, from a copy of `v` made by a
+  serial broadcast, and cost more than half a right-hand side (41 ms on
+  the laptop, as above). It now works in place, one element per work
+  item, as a rank-one update per dimension (`topmode`, `topdual` in
+  `Element`), about `2D` multiply-adds per node: 3 ms. The matrix
+  `truncate` stays in `Element` for the tests. This was the "kernel per
+  element" of "Possible extensions".
+
 ## The blast wave and the viewer
 
 - 2026-10-26: Erik Schnetter asked for a 2D visualization like
@@ -84,6 +118,38 @@ How the package got where it is, by topic in `CODE.md`'s order.
   panel became face nodes against interior nodes. SpecialFunctions
   became a dependency, for `besselj0`.
 
+## Threads and the integrator
+
+- 2026-10-30: Erik Schnetter asked what it would take to run efficiently
+  on many threads on Symmetry's AMD nodes, and whether IMEXRungeKutta,
+  which TreeHydro, TreeGeneralizedHarmonic and TreeGRRMHD use, would
+  help. An investigation on the laptop found three costs: OrdinaryDiffEq's
+  serial stage broadcasts (79% of a 64-thread step in TreeWave) and its
+  serially first-touched cache; with a step limiter, a fifth right-hand
+  side and a fifth truncation per RK4 step, as OrdinaryDiffEq refills
+  its first-same-as-last slot after the limiter changes the result; and
+  the truncation and exchange costs above. He asked for all three
+  fixes, then a benchmark on Symmetry.
+- 2026-10-30: the integrator is now IMEXRungeKutta's `RK4()` through
+  `wave_integrator`, with `truncate_stage!` as both limiters and the
+  stage arithmetic split by block owner (`state_partition`, TreeHydro's
+  helper). `wave_errors` and `uniform_blast` take a tableau as `alg`
+  instead of an OrdinaryDiffEq constructor, and `uniform_blast` calls its
+  observer after the steps nearest the snapshot times instead of at
+  interpolated ones, so that an observed run takes the same steps as an
+  unobserved one. The measured errors agree with the OrdinaryDiffEq runs
+  to roundoff (the last blast-wave L∞ at `P = 2`, 1.2646, had been
+  printed as 1.27 and is now 1.26). On the laptop a step went from 497
+  to 118 ms at one thread and from 155 to 40 ms at six, all three
+  changes together.
+- 2026-10-30: two changes to IMEXRungeKutta were considered and kept as
+  ideas: partitioning an `ArrayPartition` state, which `INSPIRAL-PLAN.md`
+  plans for the inspiral with OrdinaryDiffEq, and a low-storage method.
+  `INSPIRAL-PLAN.md` was left as it is at Erik Schnetter's request, so
+  its `ArrayPartition`/OrdinaryDiffEq state in M3 is now at odds with
+  the package's integrator; "Possible extensions" in `CODE.md` has the
+  two ways out.
+
 ## Dependencies
 
 - 2026-10-26: based on TreeWave's `main` plus its open pull request #8
@@ -92,3 +158,7 @@ How the package got where it is, by topic in `CODE.md`'s order.
   other Tree* packages.
 - 2026-10-26: CI added, TreeWave's test job without its viewer job (there
   is no `bin/`), with TreeWave's Dependabot and Codecov settings.
+- 2026-10-30: IMEXRungeKutta 1.4 replaced OrdinaryDiffEqLowOrderRK and
+  SciMLBase. It is not registered, so `Project.toml` and
+  `test/Project.toml` name its repository under `[sources]`, as
+  TreeHydro's do.

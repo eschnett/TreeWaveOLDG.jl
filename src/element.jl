@@ -39,6 +39,11 @@ can be a kernel argument on any backend.
   nodes and are nonzero only in the first and last row.
 - `truncate[i+1][j+1]`: the projector that removes the `P`-th Legendre
   mode, `Π = I - |L_P⟩⟨L_P|/γ` in the discrete inner product.
+- `topmode[i+1]` and `topdual[j+1]`: the same projector as its rank-one
+  correction, `Π = I - topmode ⊗ topdual`, with `topmode[i+1] = L_P(ξᵢ)`
+  and `topdual[j+1] = ŵⱼ L_P(ξⱼ)/γ`. The truncation kernel applies it
+  this way, one dimension at a time ("Truncation" in `CODE.md`); the
+  matrix is what the tests compare against.
 
 `h` here is TreeAMR's spacing, `block extent / N`, not the element width:
 an element is `P + 1` cells wide, `hₑ = (P+1)h`. Writing the operator per
@@ -51,6 +56,8 @@ struct Element{T,P1,PW}
     offsets::NTuple{P1,T}
     stencil::NTuple{P1,NTuple{PW,T}}
     truncate::NTuple{P1,NTuple{P1,T}}
+    topmode::NTuple{P1,T}
+    topdual::NTuple{P1,T}
 end
 
 order(::Element{T,P1}) where {T,P1} = P1 - 1
@@ -116,7 +123,7 @@ derivative per `h`; the face terms of `-½(b - F)` add `P/2` times the jump
 function Element(::Type{T}, P::Integer; precision::Integer=512) where {T}
     ξ, ŵ = gll_nodes_weights(P; precision=precision)
     P1 = P + 1
-    stencil, trunc = setprecision(BigFloat, precision) do
+    stencil, trunc, mode, dual = setprecision(BigFloat, precision) do
         LP = [legendre_all(P, x)[P + 1] for x in ξ]
         d = zeros(BigFloat, P1, P1)
         for i in 1:P1, j in 1:P1
@@ -138,7 +145,7 @@ function Element(::Type{T}, P::Integer; precision::Integer=512) where {T}
         γ = sum(ŵ .* LP .^ 2)
         Π = [(i == j ? one(BigFloat) : zero(BigFloat)) - LP[i] * ŵ[j] * LP[j] / γ
              for i in 1:P1, j in 1:P1]
-        W, Π
+        W, Π, LP, ŵ .* LP ./ γ
     end
     tup(v) = ntuple(i -> T(v[i]), length(v))
     rows(M) = ntuple(i -> tup(M[i, :]), size(M, 1))
@@ -146,5 +153,6 @@ function Element(::Type{T}, P::Integer; precision::Integer=512) where {T}
         [(P + 1) * (1 + x) / 2 for x in ξ]
     end
     offsets[1], offsets[P1] = 0, P1
-    return Element{T,P1,P1 + 2}(tup(ξ), tup(ŵ), tup(offsets), rows(stencil), rows(trunc))
+    return Element{T,P1,P1 + 2}(tup(ξ), tup(ŵ), tup(offsets), rows(stencil), rows(trunc),
+                                tup(mode), tup(dual))
 end

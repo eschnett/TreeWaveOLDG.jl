@@ -13,8 +13,9 @@ what a refined forest needs.
 
 **Status.** Uniform periodic forests in any number of dimensions, any
 order `P ≥ 1`, two initial conditions (a standing sine mode and a 2D
-radial blast wave) and a viewer for the second, on the CPU. The suite
-passes, also with `--check-bounds=yes` and with four threads.
+radial blast wave) and a viewer for the second, on the CPU, stepped by
+IMEXRungeKutta's RK4 with its stage arithmetic run by block owner. The
+suite passes, also with `--check-bounds=yes` and with four threads.
 
 **Contents**
 
@@ -36,12 +37,14 @@ passes, also with `--check-bounds=yes` and with four threads.
 - [The viewer](#the-viewer)
 - [Precision](#precision)
 - [Threads and devices](#threads-and-devices)
+  - [The integrator](#the-integrator)
 - [File layout](#file-layout)
 - [Tests](#tests)
 - [Measured results](#measured-results)
   - [Convergence](#convergence)
   - [The RK4 limit](#the-rk4-limit)
   - [The blast wave's error](#the-blast-waves-error)
+  - [Threads on Symmetry](#threads-on-symmetry)
 - [What carried over from TreeWave, and what did not](#what-carried-over-from-treewave-and-what-did-not)
 - [Possible extensions](#possible-extensions)
 - [Open questions](#open-questions)
@@ -208,24 +211,57 @@ replacements, in [`src/layout.jl`](src/layout.jl), take the `Element`:
 
 `wave_rhs!` in [`src/evolution.jl`](src/evolution.jl) does
 
-    scatter!(fs, u); fill_ghosts!(fs)      # u's face neighbours
-    gradient pass; fill_ghosts!(grad)      # ∂_d u's face neighbours
-    Laplacian pass                         # du
+    u → ufs; fill_ghosts!(ufs)                  # u's face neighbours
+    gradient pass; fill_ghosts!(grads[d]) ∀d    # ∂_d u's neighbours along d
+    Laplacian pass                              # du, with v from u
 
-`WaveProblem` holds the state field set (`u`, `v`), the gradient field
-set (`D` variables), the one schedule both share (a schedule belongs to
-a layout, and the two have one), the per-block spacings on the kernels'
-backend, the scratch copy truncation projects from, and the element.
-As in TreeWave, `u` is never written and nothing is carried between
-calls; the tests check both. The right-hand side does not truncate; see
+The wide derivative along `d` reads one point past its element along
+`d` and nowhere else, so the exchange carries exactly that, in three
+kinds of field set, all cell-centered:
+
+- `fs`, the state (`u`, `v`), with no ghosts (`G = 0`). It says what the
+  state vector is: its layout, the nodes the initial data are set at
+  (`initial_state` fills it and gathers), and the quadrature. Nothing
+  exchanges it.
+- `ufs`, `u` alone with `G = 1`, filled from the state by a copy kernel
+  and then exchanged. `v` is never read across a face, so it is never
+  scattered: the Laplacian pass reads it from the state.
+- `grads`, one set per dimension: the `d`-th holds `∂_d u` with a ghost
+  plane along `d` only (`G = e_d`), since the Laplacian reads it along
+  `d` only. Its exchange fills the two faces normal to `d`, and no edges
+  or corners.
+
+Each set has its own schedule, since a schedule belongs to a layout. The
+schedules' operators are conservative of order 1, a formality on a
+uniform forest, and the one family TreeAMR accepts for a ghost-free
+dimension. So a right-hand side makes `1 + D` exchanges. In 3D at
+`N = 16` they fill `1736 + 3 · 512` ghost points per block, where one
+exchange of `u, v` and one of a `D`-variable gradient set with `G = 1`
+filled `5 · 1736`, and `v` is no longer copied. Measured on the
+laptop (3D, `P = 3`, 512 blocks of `16³`, one thread) the two
+exchanges took 33 ms of a 65 ms right-hand side, and the `1 + D` take
+7–12 ms of 26 (the laptop was not idle, and runs differ that much).
+
+`WaveProblem` holds the three kinds of set, their schedules, the
+per-block spacings on the kernels' backend and the element. As in
+TreeWave, `u` is never written and nothing is carried between calls; the
+tests check both. The right-hand side does not truncate; see
 [Truncation](#truncation).
 
-The gradient pass writes into the gradient field set's working array,
-from which the exchange fills its ghosts. The window of a node in the
-first or last element of a block reaches exactly one ghost plane, which
-is what the kernels' `@inbounds` asserts; a run with
-`--check-bounds=yes` re-checks it (TreeWave's `CODE.md`, "What bounds
-checking costs", has why the annotation is worth having).
+The window of a node in the first or last element of a block reaches
+exactly one ghost plane along the dimension it differentiates, which is
+the ghost plane its set has and what the kernels' `@inbounds` asserts; a
+run with `--check-bounds=yes` re-checks it (TreeWave's `CODE.md`, "What
+bounds checking costs", has why the annotation is worth having).
+
+The gradient and Laplacian kernels take `d` as a `Val`, through an
+`@inline` closure over `ntuple(…, Val(D))`, so that each dimension's
+index arithmetic is compiled with `d` a constant. A runtime loop over
+`d` made them about 2.5 times slower than that on the laptop, and the same
+closure without `@inline`, which the compiler did not inline, six times.
+With `d` constant both are faster than the one-set kernels were (6.9 ms
+against 13.6 for the gradient pass at one thread), although they now
+write and read `D` separate arrays.
 
 ## Reflecting walls
 
@@ -273,26 +309,28 @@ Legendre mode of `v` is set to zero. That is done here literally, in
 the state, through the integrator's limiter hooks: the API an integrator
 offers for putting a state back into its valid region, which TreeHydro
 uses to reset its atmosphere. `truncate_stage!` is the limiter, and
-`truncate_state!` the projection it applies:
+`truncate_state!` the projection it applies. `wave_integrator` installs
+it as both of IMEXRungeKutta's hooks:
 
-    RK4(stage_limiter! = truncate_stage!, step_limiter! = truncate_stage!)
+    init(prob, RK4(); dt, stage_limiter = truncate_stage!,
+         step_limiter = truncate_stage!, partition = state_partition(fs, u0))
 
-RK4 calls the stage limiter on its three intermediate stage values and
-on the step's result, before evaluating the right-hand side there, so
-every state the right-hand side sees and every step's result has `v`
-truncated. The step limiter repeats the last projection for RK4, which
-changes nothing beyond roundoff; it is installed so that a method that
-does not limit its result still truncates it. The limiters do not reach
-the state the integrator starts from, so `initial_state` truncates the
-initial `v` itself. `wave_errors` takes the algorithm as a constructor
-and installs the limiters, so a run cannot leave them out by passing an
-algorithm without them.
+IMEXRungeKutta calls the stage limiter on every stage value the
+right-hand side reads except the first, which is the step's starting
+state `uⁿ`, and the step limiter on the step's result, which is the next
+step's `uⁿ`. The limiters do not reach the state the integrator starts
+from, so `initial_state` truncates the initial `v` itself. So every state
+the right-hand side sees and every step's result has `v` truncated, at
+one truncation per right-hand side: four of each per RK4 step. The
+drivers (`wave_errors`, `uniform_blast`) go through `wave_integrator`, so
+a run cannot leave the limiters out.
 
 The right-hand side computes `∂ₜv = ∇²u` without projecting it, and the
 scheme does not rely on the stages' linearity to keep `v` truncated: the
 mode is set to zero wherever it is evaluated.
 `evolution_tests.jl` checks every stage and every step, and checks that
-plain `RK4()` leaves the mode in, so it is the limiter that removes it.
+RK4 without the limiters leaves the mode in, so it is the limiter that
+removes it.
 
 The one-dimensional projector is `Π = I - |L_P⟩⟨L_P|/γ` in the
 quadrature inner product, where Legendre modes of different degree are
@@ -300,6 +338,20 @@ discretely orthogonal. In several dimensions the projector is the tensor
 product `Π ⊗ … ⊗ Π`, which removes every mode whose degree is `P` in
 *any* dimension, so `v` lives in `Q_{P-1}`. The paper's text describes
 one dimension only.
+
+The kernel applies it in place, one work item per element, one
+dimension at a time, and as a rank-one update:
+`Π = I - topmode ⊗ topdual`, with `topmode = L_P(ξᵢ)` and
+`topdual = ŵⱼ L_P(ξⱼ)/γ` (both in `Element`, from `BigFloat`). Along
+each line of the element that is a dot product and an update, about
+`2D` multiply-adds per node, where the tensor product as a matrix costs
+`(P+1)^D` (64 at `P = 3` in 3D) and needed a copy of `v` to read from.
+The dimensions commute and run in a fixed order, so the result does not
+depend on the thread count, and it equals the matrix form to roundoff
+(a test). On the laptop (3D, `P = 3`, 512 blocks of `16³`, one thread)
+a truncation took 41 ms before, more than half a right-hand side, and
+takes 3 ms. The copy it replaced was a serial broadcast, and the first
+write to its scratch array, which so lay on one NUMA domain.
 
 `truncate=false` gives the plain scheme with both variables at degree
 `P`. What each costs is under [Convergence](#convergence). In short,
@@ -310,7 +362,9 @@ irregularly and more slowly. The default is the paper's scheme.
 ## Time step
 
 `oldg_timestep(p; cfl)` is `cfl · hₑ/(P+1)²`, the paper's DG step
-(eq. 64), which is `cfl · h/(P+1)` in the mesh's spacing. Measured, RK4
+(eq. 64), which is `cfl · h/(P+1)` in the mesh's spacing. The integrator
+takes `⌈(t1 - t0)/dt⌉` equal steps, so the step it takes is at most
+this. Measured, RK4
 is stable up to `cfl ≈ 5` in one dimension for every `P` from 1 to 6,
 and the limit falls as `1/√D` (the Laplacian's spectral radius adds over
 dimensions); see [The RK4 limit](#the-rk4-limit). The drivers default to
@@ -391,17 +445,67 @@ sine mode needs `sin` and `cos`, as in TreeWave.
 
 ## Threads and devices
 
-Every kernel writes one output point per work item and reads only the
-state, so the answer does not depend on the thread count. The folds are
-TreeAMR's, which are bit-identical across thread counts on the CPU. The
-suite passes with `--threads=4`; there is no subprocess test comparing
-thread counts bit for bit, as TreeWave has **(open)**.
+Every kernel writes one output point per work item, or one element per
+work item in place for truncation, and reads only what no other work
+item writes, so the answer does not depend on the thread count. The
+folds are TreeAMR's, which are bit-identical across thread counts on the
+CPU, and so is the integrator's stage arithmetic (below). The suite
+passes with `--threads=4`; there is no subprocess test comparing thread
+counts bit for bit, as TreeWave has **(open)**.
 
-The element is a tuple of tuples and so travels as a kernel argument.
-The spacings and origins follow the field sets' backend (`to_backend`).
-Nothing has been run on a device yet **(open)**. The truncation kernel
-reads its element through runtime tuple indices, which a GPU may spill
-to local memory.
+Every pass over the mesh runs each block on the thread that owns it,
+TreeAMR's `threadchunks` partition: the kernels through `map_blocks!`,
+the truncation through `TreeAMR.launch_by_owner!` (internal, the launch
+`map_blocks!` uses, with an element-shaped `ndrange` whose last axis is
+still the block), the exchanges by TreeAMR's own ownership rule, and the
+stage arithmetic through `state_partition`. Each array's pages are first
+written by the same partition, so with the threads pinned
+(`JULIA_EXCLUSIVE=1`) they lie on the NUMA domain of the core that uses
+them. No pass is serial any more: the scratch copy of `v` that truncation
+used to fill by a broadcast is gone.
+
+The element is a tuple of tuples and so travels as a kernel argument,
+and the gradient sets' arrays as a tuple. The spacings and origins
+follow the field sets' backend (`to_backend`). Nothing has been run on a
+device yet **(open)**. The truncation kernel reads its element through
+runtime tuple indices, which a GPU may spill to local memory.
+
+### The integrator
+
+The time integrator is IMEXRungeKutta's explicit `RK4()`, through
+`wave_integrator` in [`src/stepping.jl`](src/stepping.jl), with the
+limiters of [Truncation](#truncation) and the partition
+`state_partition(fs, u0)`. That is TreeHydro's helper: thread `c` owns
+the state entries of the blocks in chunk `c` of `threadchunks(nblocks)`,
+which is one range, since a block's `u` and `v` are contiguous. On a
+device array it is `nothing`, IMEXRungeKutta's broadcast path. By owner
+and broadcast give the same bits (a test), whatever the thread count.
+
+It replaced OrdinaryDiffEq's `RK4`, for three reasons:
+
+- OrdinaryDiffEq forms its stage vectors with serial broadcasts, which
+  were 79% of a 64-thread step in TreeWave ("What it buys, and what caps
+  it" there). IMEXRungeKutta forms each combination in one pass, each
+  block's entries on its owner's thread.
+- OrdinaryDiffEq allocates and first-writes its cache serially, so its
+  pages lie on one NUMA domain; IMEXRungeKutta first-touches its scratch
+  through the partition.
+- With a step limiter, OrdinaryDiffEq's RK4 evaluates the right-hand
+  side once more after the limiter has changed the result, to refill
+  its first-same-as-last slot: five right-hand sides and five
+  truncations per step. IMEXRungeKutta's makes four of each.
+
+On the laptop (3D, `P = 3`, 512 blocks of `16³`) the switch alone took
+a step from 497 to 385 ms at one thread and from 155 to 120 ms at six,
+nearly all of it the fifth evaluation; the stage arithmetic is 5–6 ms
+there, since one M3 core already streams most of its memory bandwidth.
+Symmetry's numbers are under [Threads on
+Symmetry](#threads-on-symmetry).
+
+The drivers step one integrator: `wave_errors` with `solve!`, and
+`uniform_blast` with `step!`, calling its observer after the steps
+nearest the snapshot times, so that watching a run does not change its
+steps.
 
 ## File layout
 
@@ -410,7 +514,9 @@ to local memory.
 - `src/layout.jl`: `check_layout`, node positions, `fill_at_nodes!`,
   `quadrature_norm`.
 - `src/evolution.jl`: the kernels, `WaveProblem`, `wave_rhs!`,
-  `initial_state`, `wave_energy`, `oldg_timestep`, `convergence_rate`.
+  `truncate_state!`, `truncate_stage!`, `initial_state`, `wave_energy`,
+  `oldg_timestep`, `convergence_rate`.
+- `src/stepping.jl`: `state_partition` and `wave_integrator`.
 - `src/sinewave.jl`: the standing sine mode and its driver `wave_errors`.
 - `src/blast.jl`: the radial blast wave, its exact solution, and its
   driver `uniform_blast`.
@@ -418,12 +524,19 @@ to local memory.
   `tofloat64` and `to_backend`, taken from TreeWave.
 - `bin/visualize2d.jl`, `bin/Project.toml`: the viewer and its
   environment; `bin/output/` is gitignored.
+- `bin/benchmark.jl`: the cost of a step and its parts, one
+  tab-separated row per phase, run in the package environment;
+  `bin/symmetry/benchmark.sh` runs it at several thread counts on a
+  Symmetry AMD node, with `bin/symmetry/simwatch.sh` reporting its
+  stages to SimWatch.
 - `test/reference.jl`: dense global operators built from the element's
   tables, and the state rearranged into global arrays, which the kernels
   are checked against.
 
 `Project.toml` requires TreeAMR 0.2.6 (for `mesh_fold`) and Julia 1.13,
-as TreeWave does. `.github/workflows/CI.yml` is TreeWave's test job:
+as TreeWave does, and IMEXRungeKutta 1.4 (for `reuse`), which is not
+registered and comes from its repository through `[sources]`, as in
+TreeHydro; `test/Project.toml` names it the same way. `.github/workflows/CI.yml` is TreeWave's test job:
 Julia 1.13 on Linux and macOS with `--check-bounds=yes`, plus a
 four-thread cell on Linux, with coverage to Codecov, and a viewer job
 that renders both blast-wave figures and uploads them, as TreeWave's
@@ -444,10 +557,12 @@ does.
   represents, and a layout OLDG cannot run on is refused.
 - `evolution_tests.jl`: the right-hand side equals the dense global
   operator in 1D, 2D and 3D, and `initial_state` truncates the initial
-  `v` exactly when asked; every stage and every step of a truncating
-  run has `v` truncated, and plain `RK4()` does not; the right-hand
-  side neither
-  writes `u` nor remembers a call; the energy never grows and its loss
+  `v` exactly when asked; the in-place truncation is `Π ⊗ … ⊗ Π` in 1D,
+  2D and 3D, leaves `u` alone and is idempotent; every stage and every
+  step of a truncating run has `v` truncated, RK4 without the limiters
+  does not, and `wave_integrator` is that truncating run; the stage
+  arithmetic by owner is bitwise the broadcast; the right-hand side
+  neither writes `u` nor remembers a call; the energy never grows and its loss
   falls at RK4's rate as the step shrinks; RK4's limit is `cfl ≈ 5/√D`
   for `P = 1, 2, 4`, found by power iteration through `wave_rhs!`.
 - `sinewave_tests.jl`: order `P` with truncation for `P = 2, 3, 4` in 1D
@@ -545,7 +660,7 @@ about a second per run at the finest.
 
 | P | truncate | L∞ errors | L2 errors | L2 rate |
 |---|---|---|---|---|
-| 2 | yes | 3.61 2.44 1.27 | 6.25e-1 5.65e-1 2.62e-1 | 0.63 |
+| 2 | yes | 3.61 2.44 1.26 | 6.25e-1 5.65e-1 2.62e-1 | 0.63 |
 | 2 | no | 4.67 2.60 6.29e-1 | 8.24e-1 5.75e-1 6.12e-2 | 1.88 |
 | 3 | yes | 3.22 6.92e-1 2.06e-2 | 5.29e-1 9.02e-2 3.16e-3 | 3.69 |
 | 3 | no | 1.75 1.83e-1 2.24e-2 | 3.45e-1 2.12e-2 2.02e-3 | 3.71 |
@@ -562,19 +677,22 @@ nodes across `σ`, so the rates are rough. In the viewer's default run
 Carried over: the equation and its variables, the periodic box, the sine
 mode and the blast wave with their exact solutions, the 2D viewer of the
 blast wave without its refinement panels, `WaveProblem` and the `scatter!` →
-`fill_ghosts!` → `map_blocks!` pattern, the pure right-hand side, the
+`fill_ghosts!` → `map_blocks!` pattern (with `u` copied by a kernel of
+its own rather than `scatter!`), the pure right-hand side, the
 generic element type, the backend keyword, `ceilint` and `to_backend`,
 `convergence_rate`, and the conventions in `CLAUDE.md`.
 
 Changed: the ghost width is 1 whatever the order, and the centering is
-always cell; there are two exchanges per right-hand side rather than
-one; positions, initial data and norms are this package's rather than
-TreeAMR's; the time step scales as `hₑ/(P+1)²` rather than `h`.
+always cell; there are `1 + D` exchanges per right-hand side rather than
+one, each of one variable; positions, initial data and norms are this
+package's rather than TreeAMR's; the time step scales as `hₑ/(P+1)²`
+rather than `h`; the integrator is IMEXRungeKutta's rather than
+OrdinaryDiffEq's.
 
 Not carried over: everything about refinement (the Löhner indicator,
 `regrid!`, the tracking drivers), the travelling pulse, the 1D viewer,
-the benchmark, the vertex centering, and the device and threading test
-files. Löhner's indicator would also fire at every
+TreeWave's benchmark (this package has its own), the vertex centering,
+and the device and threading test files. Löhner's indicator would also fire at every
 element face, where the solution jumps; a refinement criterion for this
 layout would be modal (the decay of the top Legendre coefficients)
 **(proposed)**.
@@ -586,9 +704,17 @@ layout would be modal (the decay of the top Legendre coefficients)
 - The paper's modal filter (eq. 76), as a term in the right-hand side.
 - A comparison with TreeWave's finite differences at equal cost: same
   number of points and same wall clock.
-- A kernel per element rather than per node, which would apply the
-  tensor-product projector dimension by dimension at `(P+1)` per node
-  per dimension rather than `(P+1)^D`.
+- **(proposed)** Two changes to IMEXRungeKutta, for the inspiral:
+  - Its by-owner path takes a plain `Array` only, and `INSPIRAL-PLAN.md`
+    plans the inspiral's state as `ArrayPartition(field, particles)` for
+    OrdinaryDiffEq. Either the 12 particle values go at the end of the
+    field's state vector, owned by thread 1 in the partition, which
+    needs no change there, or IMEXRungeKutta learns to partition an
+    `ArrayPartition`.
+  - A low-storage (2N) explicit Runge–Kutta method. Its RK4 keeps the
+    state and five scratch arrays, OrdinaryDiffEq's about nine; a 2N
+    scheme keeps two in all, which matters where memory sets the box
+    size, as in `INSPIRAL-PLAN.md`'s table.
 - The paper's averaging post-processing (its eq. 98–100), which makes
   the interpolated solution continuous for plotting.
 - A 1D viewer, a device run, and a subprocess thread-count test, as in

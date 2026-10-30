@@ -6,8 +6,7 @@
 # which vanishes in no normal derivative and so is the reflection of the
 # periodic box's sine mode.
 
-using OrdinaryDiffEqLowOrderRK: RK4
-using SciMLBase: ODEProblem, solve
+using IMEXRungeKutta: solve!
 
 # Convergence of the reflected standing mode, over the same root counts as
 # `sine_rates`.
@@ -41,10 +40,8 @@ end
                         Element(Float64, P))
         u0 = initial_state(p, reflect_exact(D, 1.0, 1, 0.0))
         dt = oldg_timestep(p; cfl=1 // 2)
-        method = RK4(; stage_limiter! = truncate_stage!, step_limiter! = truncate_stage!)
-        sol = solve(ODEProblem(wave_rhs!, u0, (0.0, 50dt), p), method;
-                    dt=dt, adaptive=false, save_everystep=false)
-        E0, E1 = wave_energy(p, u0), wave_energy(p, sol.u[end])
+        integ = solve!(wave_integrator(p, u0, 0.0, 50dt; dt=dt))
+        E0, E1 = wave_energy(p, u0), wave_energy(p, integ.u)
         @test E1 <= E0
         @test isapprox(E1, E0; rtol=1e-6)
     end
@@ -63,8 +60,9 @@ end
     p = WaveProblem(forest, Element(Float64, 2))
     # u and v are even scalars; the gradient's d-th component is odd in d.
     @test all(all(q === EvenParity for q in qs) for qs in p.fs.parity)
-    @test all(p.grad.parity[j][j] === OddParity for j in 1:2)
-    @test all(p.grad.parity[j][mod1(j + 1, 2)] === EvenParity for j in 1:2)
+    @test all(p.ufs.parity[1][d] === EvenParity for d in 1:2)
+    @test all(p.grads[j].parity[1][j] === OddParity for j in 1:2)
+    @test all(p.grads[j].parity[1][mod1(j + 1, 2)] === EvenParity for j in 1:2)
 end
 
 @testset "Float32 reflecting runs and agrees at coarse resolution" begin
