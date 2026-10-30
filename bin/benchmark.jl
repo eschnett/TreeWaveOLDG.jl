@@ -29,9 +29,13 @@
 # `bin/symmetry/benchmark.sh` runs it at several thread counts on a
 # Symmetry node. "Threads on Symmetry" in `CODE.md` has the tables.
 
-using TreeWaveOLDG, TreeAMR
-using TreeWaveOLDG: scatter_u_kernel!, gradient_kernel!, laplacian_kernel!
-using IMEXRungeKutta: IMEXProblem, RK4, init, step!
+# Everything through TreeWaveOLDG, which has TreeAMR's and IMEXRungeKutta's
+# names in scope, so that an environment that only `develop`s the package
+# can run this.
+using TreeWaveOLDG
+using TreeWaveOLDG: scatter_u_kernel!, gradient_kernel!, laplacian_kernel!,
+                    map_blocks!, fill_ghosts!, statearray, nblocks,
+                    IMEXProblem, RK4, init, step!
 
 function option(name, default)
     for a in ARGS

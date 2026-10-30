@@ -19,7 +19,9 @@
 # (two nominally identical nodes have measured 20% apart), set
 # `TREEWAVEOLDG_BASELINE_REPO` to its checkout and
 # `TREEWAVEOLDG_BASELINE_SCRIPT` to a script that prints the same rows
-# there; it runs first, at the same thread counts and sizes.
+# there; it runs first, at the same thread counts and sizes. Packages
+# that script loads by name besides the package go in
+# `TREEWAVEOLDG_BASELINE_PACKAGES`, separated by spaces, for `setup`.
 #
 # Threads are pinned by Julia (`JULIA_EXCLUSIVE=1` with
 # `srun --cpu-bind=none`, and `-t N,0` so that no interactive thread is
@@ -49,17 +51,24 @@ OUTDIR="${TREEWAVEOLDG_OUT:-$SCRATCH/treewaveoldg-bench-${SLURM_JOB_ID:-local}}"
 SCAN="${TREEWAVEOLDG_SCAN:-4:16,8:8}"
 THREADS="${TREEWAVEOLDG_THREADS:-1 8 16 32 64}"
 
-setup() {  # setup <envdir> <checkout>
-    mkdir -p "$1"
-    JULIA_PKG_PRECOMPILE_AUTO=0 julia --project="$1" -e "
+setup() {  # setup <envdir> <checkout> [<package>…]
+    local env=$1 repo=$2; shift 2
+    local pkgs=""
+    for p in "$@"; do pkgs="$pkgs\"$p\", "; done
+    mkdir -p "$env"
+    JULIA_PKG_PRECOMPILE_AUTO=0 julia --project="$env" -e "
         using Pkg
         Pkg.Registry.update()
-        Pkg.develop(path = \"$2\")
+        Pkg.develop(path = \"$repo\")
+        isempty([$pkgs]) || Pkg.add([$pkgs])
         Pkg.instantiate()"
 }
 if [ "${1:-}" = setup ]; then
     setup "$ENVDIR" "$REPO"
-    [ -n "$BASE_REPO" ] && setup "$BASE_ENVDIR" "$BASE_REPO"
+    if [ -n "$BASE_REPO" ]; then
+        # shellcheck disable=SC2086
+        setup "$BASE_ENVDIR" "$BASE_REPO" ${TREEWAVEOLDG_BASELINE_PACKAGES:-}
+    fi
     exit 0
 fi
 mkdir -p "$OUTDIR"
