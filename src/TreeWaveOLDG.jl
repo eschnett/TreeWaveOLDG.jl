@@ -23,17 +23,22 @@ The reference element is in `element.jl`, the node layout and quadrature
 in `layout.jl`, the right-hand side in `evolution.jl`, the time integrator
 in `stepping.jl`, and the two initial
 conditions, a standing sine mode and a radial blast wave, in `sinewave.jl`
-and `blast.jl`. See `CODE.md` in the
+and `blast.jl`. The analytic particle of the inspiral (`INSPIRAL.md`) is
+in `particle.jl`, on top of the closed forms that `derivations/` generates
+into `particle_forms.jl`. See `CODE.md` in the
 package root for the design and the measurements.
 """
 module TreeWaveOLDG
 
 using TreeAMR
 
+import ForwardDiff
 using IMEXRungeKutta: IMEXProblem, RK4, init, solve!, step!
 using KernelAbstractions: @kernel, @index, @Const, Backend, CPU, get_backend,
                           allocate, synchronize
+using LinearAlgebra: dot
 using SpecialFunctions: besselj0
+using StaticArrays: SVector
 
 # The reference element
 export Element, gll_nodes_weights
@@ -56,6 +61,11 @@ export wave_omega, wave_exact, wave_forest, wave_errors, reflect_omega,
 export blast_initial, blast_reference, blast_radial_table, blast_exact,
        uniform_blast
 
+# The analytic particle
+export ParticleModel, Trajectory, trajectory_at, self_inertia, particle_density,
+       boosted_static, near_field, particle_field, particle_rate, source_bracket,
+       Window, window_terms, particle_source
+
 include("precision.jl")
 include("device.jl")
 include("element.jl")
@@ -64,5 +74,7 @@ include("evolution.jl")
 include("stepping.jl")
 include("sinewave.jl")
 include("blast.jl")
+include("particle_forms.jl")
+include("particle.jl")
 
 end

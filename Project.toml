@@ -4,19 +4,23 @@ version = "0.1.0"
 authors = ["Erik Schnetter <schnetter@gmail.com>"]
 
 [deps]
+ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 IMEXRungeKutta = "6f46d5f7-e15e-41aa-a098-eed9d1a63ad8"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 TreeAMR = "91bc416d-811c-44c1-9bc4-b9c8bbdbbd08"
 
-# IMEXRungeKutta is not in the General registry, so a clean clone finds it
-# here, as in TreeHydro.
 [sources]
 IMEXRungeKutta = {rev = "main", url = "https://github.com/eschnett/IMEXRungeKutta.jl"}
 
 [compat]
+ForwardDiff = "1"
 IMEXRungeKutta = "1.4"
 KernelAbstractions = "0.9.42"
+LinearAlgebra = "1"
 SpecialFunctions = "2"
+StaticArrays = "1.9"
 TreeAMR = "0.2.6"
 julia = "1.13"

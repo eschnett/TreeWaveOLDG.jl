@@ -120,6 +120,10 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   them into the field sets' ghosts (`u`, `v` even, `∂_d u` odd in
   `d`). Do not build the faces by hand and forget the parity, and do not
   try to add a boundary hook (see "Reflecting walls").
+- **The source bracket is never formed by subtracting the large terms.**
+  `ρ` cancels against `□_vΦ_C` analytically, the acceleration part of
+  `𝒟²Φ_C` is a derivative in a deformation parameter, and near-field
+  Laplacians are generated closed forms ("The split").
 - **The asserted rates are measurements.** If one moves, re-measure and
   update "Measured results" rather than widen a tolerance.
 

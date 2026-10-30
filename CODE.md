@@ -15,7 +15,11 @@ what a refined forest needs.
 order `P ≥ 1`, two initial conditions (a standing sine mode and a 2D
 radial blast wave) and a viewer for the second, on the CPU, stepped by
 IMEXRungeKutta's RK4 with its stage arithmetic run by block owner. The
-suite passes, also with `--check-bounds=yes` and with four threads.
+first part of `INSPIRAL.md`'s inspiral exists: the analytic particle
+(`INSPIRAL-PLAN.md`'s M1), its field, the field's time derivative, the
+effective source and the window, not yet coupled to the mesh; see
+[Particles](#particles). The suite passes, also with
+`--check-bounds=yes` and with four threads.
 
 **Contents**
 
@@ -31,6 +35,7 @@ suite passes, also with `--check-bounds=yes` and with four threads.
 - [The layout](#the-layout)
   - [Positions and quadrature](#positions-and-quadrature)
 - [The right-hand side](#the-right-hand-side)
+- [Reflecting walls](#reflecting-walls)
 - [Truncation](#truncation)
 - [Time step](#time-step)
 - [The blast wave](#the-blast-wave)
@@ -38,13 +43,20 @@ suite passes, also with `--check-bounds=yes` and with four threads.
 - [Precision](#precision)
 - [Threads and devices](#threads-and-devices)
   - [The integrator](#the-integrator)
+- [Particles](#particles)
+  - [The particle](#the-particle)
+  - [The near field](#the-near-field)
+  - [The split](#the-split)
+  - [The window](#the-window)
 - [File layout](#file-layout)
 - [Tests](#tests)
 - [Measured results](#measured-results)
   - [Convergence](#convergence)
+  - [Reflecting walls](#reflecting-walls-1)
   - [The RK4 limit](#the-rk4-limit)
   - [The blast wave's error](#the-blast-waves-error)
   - [Threads on Symmetry](#threads-on-symmetry)
+  - [The source bracket](#the-source-bracket)
 - [What carried over from TreeWave, and what did not](#what-carried-over-from-treewave-and-what-did-not)
 - [Possible extensions](#possible-extensions)
 - [Open questions](#open-questions)
@@ -507,6 +519,198 @@ The drivers step one integrator: `wave_errors` with `solve!`, and
 nearest the snapshot times, so that watching a run does not change its
 steps.
 
+## Particles
+
+`INSPIRAL.md` designs two inspiralling scalar particles of fixed size
+`ℓ ≪ h` on this scheme, and `INSPIRAL-PLAN.md` builds it in milestones.
+What exists is M1, the analytic particle: everything about a particle
+that needs no mesh. The transfer to and from the grid (M2) and the
+coupled problem (M3) do not exist yet, so nothing here touches a
+`WaveProblem`. Sections of `INSPIRAL.md` are named below without links.
+
+The closed forms are derived in the Wolfram Language and generated into
+Julia:
+
+- `derivations/profile.wl`, `nearfield.wl` and `selfforce.wl` derive the
+  profile's potentials, the near field and its self-force, and assert
+  every identity they rely on, so that a wrong derivation stops the
+  script (`check` in `derivations/common.wl` exits with status 1).
+- `derivations/generate.wl` writes `src/particle_forms.jl`, which is not
+  edited by hand. Each radial function is a scale times a Horner
+  polynomial, `ℓ^p` times a polynomial in `σ² = q/ℓ²` inside the
+  particle and `r^p` times one in `ℓ²/q` outside, with `q = |y|²` and a
+  branch on `σ < 1`. Inside, the generator takes `1 - σ²` as the
+  variable instead where that is better conditioned on `[0, 1]`, which
+  is the case for `ρ₀ = c(1 - σ²)⁴` alone (condition 1 against `10¹²`
+  near the edge). Coefficients are exact rationals, `_q(T, n, d)`,
+  rounded once to the model's type, and `π` is `T(π)`, the rule of
+  [Precision](#precision). Everything else is generic in its argument
+  types, so dual numbers pass through.
+- `src/particle.jl` is written by hand on top: the particle's state, the
+  boost, and the time derivatives, which are ForwardDiff dual numbers.
+
+The suite regenerates the file and compares it byte for byte when
+`TREEWAVEOLDG_WOLFRAMSCRIPT` names a `wolframscript` (CLAUDE.md,
+"Commands"), and skips that test otherwise, as on CI.
+
+### The particle
+
+`ParticleModel(; Q, ℓ, M)` is `INSPIRAL.md`'s particle: the profile
+
+    ρ₀(r) = (3465 Q / 512π ℓ³) (1 - σ²)⁴,   σ = r/ℓ < 1
+
+(`C³` at `σ = 1`), its static field `Φ₀` (`∇²Φ₀ = ρ₀`, `-Q/4πr`
+outside), and the physical mass `M`. The bare mass `M₀ = M - δm` must
+be positive, `δm = 693Q²/4199πℓ ≈ 0.0525 Q²/ℓ`, and the constructor
+refuses a particle below that classical radius with the reason.
+
+The radial potentials `B_k = ∫ ρ₀(x′) |x - x′|^k d³x′` for
+`k = -1, 1, 3, 5` (`B₋₁ = -4πΦ₀`) are derived from the shell average of
+`|x - x′|^k` and asserted to satisfy `∇²B_k = k(k+1)B_{k-2}`, to match
+`INSPIRAL.md`'s exterior forms and `B₁′`, and to be even polynomials
+inside. Inside the particle, with `σ = r/ℓ`,
+
+    B₃/Q = ℓ³ (33/256 + 231σ²/256 + 693σ⁴/1280 - 33σ⁶/256 + 11σ⁸/256
+               - 3σ¹⁰/256 + 7σ¹²/3328 - 3σ¹⁴/16640)
+    B₅/Q = ℓ⁵ (99/2048 + 165σ²/256 + 693σ⁴/512 + 99σ⁶/256 - 55σ⁸/1024
+               + 3σ¹⁰/256 - 15σ¹²/6656 + σ¹⁴/3328 - 9σ¹⁶/452608)
+
+At `σ = 1` the interior and exterior forms of `B_k` agree to `k + 6`
+derivatives (`B₋₁` is `C⁵`, `B₅` is `C¹¹`), two more for each step in
+`k`, since `∇²B_k ∝ B_{k-2}`. The moments are `INSPIRAL.md`'s,
+`⟨s²⟩ = 3ℓ²/13`, `⟨s⁴⟩ = ℓ⁴/13`, `⟨s⁶⟩ = 7ℓ⁶/221`, and so are
+`δm = (1/12π)∬ρρ′/|x - x′|` and `∬ρρ′|x - x′| = 60984Q²ℓ/96577`.
+
+A moving particle carries its rest-frame profile, a Lorentz scalar:
+`particle_density(m, x, z, v)` is `ρ₀(|y|)` with `y = Λ(v)(x - z)`, and
+`boosted_static` is `Φ_C = Φ₀(|y|)`, which solves
+`∇²Φ_C - (v·∇)²Φ_C = ρ` exactly. The boost is written
+`Λ(v)r = r + γ²/(γ+1) (v·r) v`, which needs no `v̂` at rest.
+
+`Trajectory(; z, v, a, ȧ, ä, a⃛)` is a particle's state with the first
+derivatives of its acceleration, as `SVector{3}`s and `isbits`. It is
+the Taylor polynomial in `t` that time derivatives act on:
+`trajectory_at(traj, t)` evaluates it, and its derivatives, at a time
+that may be a dual number. Holding `a⃛` lets `𝒟Ψ` see the time
+derivative of the order-3 term's `ä`; nothing holds `d⁴a/dt⁴`, so the
+bracket omits `d⁴a·∂_äΦ⁽³⁾`, which is of order 5.
+
+### The near field
+
+`nearfield.wl` derives orders 1–3 from the retardation series of the
+extended particle, by the three steps of `INSPIRAL.md`'s "How the terms
+are computed", without using its results: `ρ(t, x′) = ρ₀(s + δ(t))`
+expanded in `δ` and in `t` with the orders counted by a bookkeeping
+parameter, every integral reduced by the identities
+`∫R^k ∂^αρ₀ = ∂^αB_k` and `∫R^k sᵢF = rᵢ∫R^kF - ∂ᵢ∫R^{k+2}F/(k+2)`, and
+the `B_k` kept as abstract functions of `q = |r|²` until the end. The
+result equals `INSPIRAL.md`'s orders 1–3 inside and outside the
+particle, which is the independent check its **(open)** item asked for.
+Also asserted: each order's Laplacian is `∂ₜ²` of the lower terms (the
+hierarchy `∇²Φₙ = ∂ₜ²Φₙ₋₂`); orders 1–3 hold no `ȧ`; their point limits
+are `INSPIRAL.md`'s; and they are the terms `k = 1, 2, 3` of the
+hyperbolic-motion field.
+
+Each order is generated as a sum over rotation invariants times radial
+functions, `(a·y)` at order 1, `a²` and `(a·y)²` at order 2, `(ä·y)`,
+`a²(a·y)` and `(a·y)³` at order 3, together with its Laplacian in the
+same form, taken from the hierarchy (`near_field_term`,
+`near_field_laplacian`).
+
+**The self-force** of the particle's own terms (`selfforce.wl`), the
+force `-∫ρ₀∇Φ⁽ᴺ⁾` and the potential average `(1/Q)∫ρ₀Φ⁽ᴺ⁾` on a
+particle at rest:
+
+| order | force | potential average |
+|---|---|---|
+| 1 | `-δm a`, `δm = 693Q²/4199πℓ` | 0 |
+| 2 | 0 | `(2541/193154π) Qℓ a² ≈ 0.00419 Qℓ a²` |
+| 3 | `-(2541/96577π) Q²ℓ ä - (15246/482885π) Q²ℓ a² a` | 0 |
+
+The `ä` coefficient, `≈ -0.00837 Q²ℓ`, is `INSPIRAL.md`'s
+`-(1/24π)∬ρρ′|x - x′|`. The `a² a` coefficient, `≈ -0.01005 Q²ℓ`, was
+**(open)** there; it is exactly 6/5 of the `ä` one. On a circular orbit,
+where `ä = -Ω²a` and `a² = v²Ω²`, the two together are
+`(2541/96577π) Q²ℓ Ω² (1 - 6v²/5) a`. Order 2's potential average,
+which `INSPIRAL.md` does not mention, enters the mass
+`m = M₀ + QΦ̄ₑ` of "Equations of motion"; it is `ℓa²` small. The
+generated `self_inertia`, `self_force_addot`, `self_force_a2a` and
+`self_potential_a2` hold these coefficients for M6.
+
+**Moving particles.** Until the lab-slice re-expansion (M5),
+`near_field(m, Val(N), x, traj)` is the rest-frame term at the
+rest-frame position `y = Λ(v)(x - z)`, with the proper acceleration
+`α′ = γ²Λ(v)a` for `a` and with `ä` as given. At rest it is the
+time-symmetric field order by order. Moving, it lacks the re-expansion,
+whose part `≈ δm v² a` does not converge, as `INSPIRAL.md` says.
+
+It also lacks something at rest, which `INSPIRAL.md` does not say. The
+bracket of [The split](#the-split) takes `∂ₜ²`, which sees the field at
+neighbouring times, where `v ≠ 0`. The re-expansion's `t′²` term,
+`½(v·r)²(-a·∇Φ₀)`, vanishes at rest, but its second time derivative does
+not. So along a trajectory through rest the bracket with orders 1–3
+carried keeps `(a·r)²(a·∇Φ₀)` at order 3, which outside the particle is
+`(Q/4π)(a·n̂)³` plus terms in `(ℓ/r)²` (`nearfield.wl` asserts the
+point form, `particle_tests.jl` the bracket's). It behaves like `r⁰`,
+as the whole order-3 residual does with only orders 1–2 carried. Until
+M5, carrying order 3 therefore removes only the `ä` part of that
+residual. On a circle `a³` is `v²` times `ä`, so at small `v` that part
+is suppressed, as `INSPIRAL.md` assumes; in hyperbolic motion at
+`t = 0` it is not (see [Open questions](#open-questions)).
+
+### The split
+
+The particle field and its time derivative, `INSPIRAL.md`'s "The
+particle field":
+
+- `particle_field(m, x, traj; order)` is `Ψ = Φ_C + Σ_{N ≤ order} Φ⁽ᴺ⁾`,
+  `order` from 0 (the particle paper's `Φ_C` alone) to 3, so that M4
+  can measure what each order buys.
+- `particle_rate(m, x, traj; order)` is `𝒟Ψ`, a dual-number derivative
+  in `t` of `Ψ` along the trajectory's Taylor polynomial.
+
+`source_bracket(m, x, traj; order)` is one particle's `𝒟²Ψ - ∇²Ψ + ρ`.
+Near the particle `∇²Ψ`, `(v·∇)²Ψ` and `ρ` are each of size `Q/ℓ³`, and
+the bracket is assembled without subtracting them:
+
+- `ρ` cancels against `□_vΦ_C` analytically. What is left of `Φ_C` is
+  `A = 𝒟²Φ_C - (v·∂_z)²Φ_C`, the part of its second time derivative the
+  acceleration causes. Along the motion with every derivative of the
+  velocity scaled by `s` (`deform`), `∂ₜ²Φ_C` at `t = 0` is quadratic in
+  `s`, and `A` is its first `s`-derivative plus half its second at
+  `s = 0`, by nested dual numbers.
+- Each near-field term contributes `𝒟²Φ⁽ᴺ⁾ - ∇²Φ⁽ᴺ⁾`, with
+  `∇²_x = ∇²_y + γ²(v·∇_y)²`: `∇²_y` from the generated closed form, and
+  the directional second derivative by dual numbers.
+
+The cancellations left are between terms of size `Qa/ℓ²`, and cost
+little (see [The source bracket](#the-source-bracket)).
+`particle_source(models, w, x, trajs; order)` is the effective source
+for several particles,
+
+    S = W Σₐ [𝒟²Ψₐ - ∇²Ψₐ + ρₐ] - 2∇W·∇Ψ̂ - Ψ̂ ∇²W,
+
+with `∇Ψ̂` by dual numbers, and zero beyond the window. A bracket costs
+about 30 µs in `Float64` on the laptop, with a few small allocations
+from the nested closures; nothing is tuned yet, since how often it is
+evaluated is M2's to measure.
+
+### The window
+
+`Window(centre, R₁, R₂; continuity = m)` is one inside `R₁`, zero
+beyond `R₂`, and `1 - S_m((r - R₁)/(R₂ - R₁))` between, with `S_m` the
+polynomial step of degree `2m + 1` whose first `m` derivatives vanish at
+both ends,
+
+    S_m(ξ) = ξ^{m+1} Σₖ₌₀^m C(m+k, k)(1 - ξ)^k,   S_m′ = (2m+1)C(2m, m) ξ^m (1 - ξ)^m.
+
+So `W` is `C^m` and no smoother. `INSPIRAL.md` asks for `C^{P+1}` or
+better, and `m = P + 1` is the choice: degree `2P + 3`, `9` at `P = 3`.
+A larger `m` steepens the step's middle, whose slope grows like `√m`,
+and costs resolution for smoothness the scheme of order `P` cannot use.
+`window_terms(w, x)` gives `W`, `∇W` and `∇²W` in closed form; `W = 1`
+holds exactly where the particles are, so the split is exact there.
+
 ## File layout
 
 - `src/TreeWaveOLDG.jl`: the module and its exports.
@@ -522,6 +726,15 @@ steps.
   driver `uniform_blast`.
 - `src/precision.jl`, `src/device.jl`: `ceilint`, `floorint`, `wrap`,
   `tofloat64` and `to_backend`, taken from TreeWave.
+- `src/particle_forms.jl`: generated by `derivations/generate.wl`, not
+  edited by hand; the profile's radial functions, the near-field terms
+  and their Laplacians, and the self-force coefficients.
+- `src/particle.jl`: `ParticleModel`, `Trajectory`, the boost, `Ψ`,
+  `𝒟Ψ`, the source bracket, `Window` and the source.
+- `derivations/`: the Wolfram Language derivations (`profile.wl`,
+  `nearfield.wl`, `selfforce.wl`), each runnable alone with
+  `wolframscript -file` and asserting its identities, the generator
+  `generate.wl`, and `common.wl`, which they load.
 - `bin/visualize2d.jl`, `bin/Project.toml`: the viewer and its
   environment; `bin/output/` is gitignored.
 - `bin/benchmark.jl`: the cost of a step and its parts, one
@@ -536,7 +749,9 @@ steps.
 `Project.toml` requires TreeAMR 0.2.6 (for `mesh_fold`) and Julia 1.13,
 as TreeWave does, and IMEXRungeKutta 1.4 (for `reuse`), which is not
 registered and comes from its repository through `[sources]`, as in
-TreeHydro; `test/Project.toml` names it the same way. `.github/workflows/CI.yml` is TreeWave's test job:
+TreeHydro; `test/Project.toml` names it the same way. The particle needs
+ForwardDiff 1 (time and space derivatives by dual numbers), StaticArrays
+1.9 (`isbits` 3-vectors) and LinearAlgebra. `.github/workflows/CI.yml` is TreeWave's test job:
 Julia 1.13 on Linux and macOS with `--check-bounds=yes`, plus a
 four-thread cell on Linux, with coverage to Codecov, and a viewer job
 that renders both blast-wave figures and uploads them, as TreeWave's
@@ -544,7 +759,8 @@ does.
 
 ## Tests
 
-`julia --project=. -e 'using Pkg; Pkg.test()'`, about a minute.
+`julia --project=. -e 'using Pkg; Pkg.test()'`, a little over a
+minute, of which the particle takes half.
 
 - `element_tests.jl`: the nodes integrate to degree `2P-1`, and no
   further; the wide derivative is the paper's matrix for `P = 2, 3, 4`
@@ -576,6 +792,23 @@ does.
 - `blast_tests.jl`: the exact blast solution at `t = 0` is the initial
   data to `1e-5`; from 8 to 16 blocks per dimension at `P = 3` the L2
   error falls by more than `2³` and the energy lost stays below `1e-6`.
+- `particle_tests.jl`: the generated `Φ₀`, `ρ₀` and `B_k`, inside and
+  outside, equal `BigFloat` quadrature of their definitions to `1e-14`
+  in `Float64`, and so do `δm` and `∬ρρ′|x - x′|`; a particle below
+  its classical radius is refused; `□_vΦ_C = ρ` at `v = 0.2` in several
+  directions; each order's generated Laplacian is its nested-dual
+  Laplacian; along a motion through rest the bracket is `∇²Φ⁽ᴺ⁺¹⁾` at
+  the first order not carried, for orders 0 and 1, order 3 enters
+  through `-∇²Φ⁽³⁾`, and a point particle keeps `(a·r)²(a·∇Φ₀)`; the
+  point limits are the hyperbolic-motion terms and leave a residual
+  falling as `r³`; `𝒟Ψ` and the bracket equal `BigFloat` finite
+  differences in `t` and `x`; the `Float64` bracket equals the naive
+  difference in `BigFloat` to `1e-12` at `v = 0.2`, and vanishes to
+  `1e-15 Q/ℓ³` without acceleration; the window's step is exactly
+  `C^m`, and its closed-form derivatives are its dual-number ones; the
+  source equals `∂ₜ²(WΨ̂) - ∇²(WΨ̂) + Σρ` evaluated naively in
+  `BigFloat`; and, where `wolframscript` is available, regenerating
+  `particle_forms.jl` reproduces it byte for byte.
 
 ## Measured results
 
@@ -732,6 +965,27 @@ What it says:
   so only the 64-thread column compares like with like across sizes;
   before and after compare at every count.
 
+### The source bracket
+
+`source_bracket` with orders 1–3 carried, against the naive difference
+`∂ₜ²Ψ - ∇²Ψ + ρ` evaluated in `BigFloat`: the largest relative error
+over twelve points at `σ = 0.3, 0.9, 1.5, 4` in three directions, for
+`Q = 0.07`, `ℓ = 10⁻³` and a particle moving perpendicular to its
+acceleration, with `|ä| = 4va`.
+
+| `v` | `a` | cancellation-free, `Float64` | naive, `Float64` |
+|---|---|---|---|
+| 0.2 | 0.08 | `1.7e-14` | `4.0e-5` |
+| 0.05 | 0.0025 | `5.0e-13` | `1.0` |
+
+The naive difference loses eleven digits at the first run's speed and
+all of them at `v = 0.05`, the speed of `INSPIRAL.md`'s first tests.
+`INSPIRAL-PLAN.md`'s estimate of three digits, `log₁₀(v²/aℓ)`, compared
+the large terms with `A`, but the bracket is smaller still: `A`'s
+order-1 part cancels against `∇²Φ⁽¹⁾`. The cancellation-free bracket
+loses about three digits, in that remaining cancellation between terms
+of size `Qa/ℓ²`.
+
 ## What carried over from TreeWave, and what did not
 
 Carried over: the equation and its variables, the periodic box, the sine
@@ -781,6 +1035,11 @@ layout would be modal (the decay of the top Legendre coefficients)
   the interpolated solution continuous for plotting.
 - A 1D viewer, a device run, and a subprocess thread-count test, as in
   TreeWave.
+- **(proposed)** The `t′²` term of the lab-slice re-expansion of `Φ_C`,
+  `½γ²(v·r)²(-α′·∇Φ₀)`, in the particle field ahead of M5, which would
+  make the bracket at rest the first order not carried at order 3 too
+  (see [The near field](#the-near-field)). Its finite-size part, the
+  `(ℓ/r)²` terms, would need the full re-expansion.
 
 ## Open questions
 
@@ -789,3 +1048,10 @@ layout would be modal (the decay of the top Legendre coefficients)
 - Whether truncation should stay the default for a linear problem,
   where it costs accuracy in `u` and buys no stability (both schemes are
   linearly stable).
+- Whether M4's hyperbolic-motion test should expect second order with
+  orders 1–3 carried. Until the lab-slice re-expansion, the bracket at
+  rest keeps `(a·r)²(a·∇Φ₀)`, which behaves like `r⁰` and so would limit
+  the force to first order where `a³` is not small against `ä`, as in
+  hyperbolic motion (see [The near field](#the-near-field)).
+- Which `ä` the order-3 term should take for a moving particle. M1 takes
+  the lab one; the rest-frame proper-time derivative is M5's.

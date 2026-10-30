@@ -6,7 +6,8 @@ merged pull request and a green suite. The milestones follow
 knows it is done. Section names of `INSPIRAL.md` and `CODE.md` are used
 below without links.
 
-**Status.** M0 is ready for review; nothing else is started. The
+**Status.** M0 is done; M1 is implemented on its branch and not yet
+merged; nothing else is started. The
 decisions below were settled with the owner on 2026-10-30. A milestone's
 status line changes here when its work starts and when its pull request
 merges.
@@ -162,7 +163,7 @@ own branches.
 
 ## M0: Documents and tooling
 
-**Status:** ready for review on `inspiral-m0-docs`.
+**Status:** done; its documents are on `main`.
 
 - Commit `INSPIRAL.md` (unchanged), the task it answers
   (`INSPIRAL-PROMPT.md`, unchanged) and this file.
@@ -183,7 +184,8 @@ on `main`.
 
 ## M1: The analytic particle
 
-**Status:** not started. `INSPIRAL.md`: "The particle profile", "The
+**Status:** implemented on `inspiral-m1-particle`, not yet merged.
+`INSPIRAL.md`: "The particle profile", "The
 near field of an accelerated particle", "The particle field", "The
 remainder equations", "The window"; validation step 1.
 

@@ -10,6 +10,7 @@ How the package got where it is, by topic in `CODE.md`'s order.
 - [Truncation](#truncation)
 - [The blast wave and the viewer](#the-blast-wave-and-the-viewer)
 - [Threads and the integrator](#threads-and-the-integrator)
+- [Particles](#particles)
 - [Dependencies](#dependencies)
 
 ## Scope and non-goals
@@ -157,6 +158,48 @@ How the package got where it is, by topic in `CODE.md`'s order.
   the package's integrator; "Possible extensions" in `CODE.md` has the
   two ways out.
 
+## Particles
+
+- 2026-10-30: M1 of `INSPIRAL-PLAN.md`, the analytic particle, on branch
+  `inspiral-m1-particle`: the derivations in `derivations/`, the
+  generated `src/particle_forms.jl`, `src/particle.jl`, and
+  `test/particle_tests.jl`. It settles these **(open)** items of
+  `INSPIRAL.md`:
+  - The interiors of `B₃` and `B₅` are derived (in `CODE.md`, "The
+    particle").
+  - The near field of orders 1–3, derived again from the retardation
+    series without using `INSPIRAL.md`'s results, equals them inside
+    and outside the particle. Its interior pieces are confirmed.
+  - The `a² a` part of the order-3 self-force is
+    `-(15246/482885π) Q²ℓ a² a ≈ -0.01005 Q²ℓ a² a`, 6/5 of the `ä`
+    coefficient.
+  - The window's step is the polynomial of degree `2m + 1` with `m`
+    vanishing derivatives at both ends, `m = P + 1` (`INSPIRAL-PLAN.md`,
+    "Left to settle later").
+- 2026-10-30: found in M1, and not in `INSPIRAL.md`: order 2 has a
+  nonzero potential average, `(2541/193154π) Qℓ a²`, which enters the
+  mass `M₀ + QΦ̄ₑ`.
+- 2026-10-30: found in M1, and at odds with `INSPIRAL.md`'s "Moving
+  particles and the lab slice", which expects the missing lab-slice
+  re-expansion to cost only terms suppressed by powers of `v`. The
+  bracket takes `∂ₜ²`, which turns the re-expansion's `t′²` term,
+  `½(v·r)²(-a·∇Φ₀)`, into `(a·r)²(a·∇Φ₀)` at rest. So until M5 the
+  order-3 residual keeps an `a³` part that behaves like `r⁰`, plus
+  finite-size terms in `(ℓ/r)²`, and carrying order 3 removes only its
+  `ä` part. On a circle that part is `v²` smaller and the expectation
+  holds at small `v`; for hyperbolic motion at `t = 0` (M4) it does not.
+  This is a gate of `INSPIRAL-PLAN.md` ("Gates and fallbacks") and goes
+  to Erik Schnetter before M4; `CODE.md` keeps it under "Open
+  questions".
+- 2026-10-30: the bracket is assembled without cancellation, as the plan
+  asks. Measured, the naive difference loses more than the plan's
+  estimate of three digits: eleven at `v = 0.2` and all of them at
+  `v = 0.05` (`CODE.md`, "The source bracket"), because `A`'s order-1
+  part also cancels against `∇²Φ⁽¹⁾`.
+- 2026-10-30: the generator writes each interior polynomial in `σ²`, or
+  in `1 - σ²` where that is better conditioned. Written in `σ²`, `ρ₀`
+  lost 12 digits near the particle's edge.
+
 ## Dependencies
 
 - 2026-10-26: based on TreeWave's `main` plus its open pull request #8
@@ -169,3 +212,8 @@ How the package got where it is, by topic in `CODE.md`'s order.
   SciMLBase. It is not registered, so `Project.toml` and
   `test/Project.toml` name its repository under `[sources]`, as
   TreeHydro's do.
+- 2026-10-30: ForwardDiff 1, StaticArrays 1.9 and LinearAlgebra added
+  for the particle (M1): ForwardDiff and StaticArrays as
+  `INSPIRAL-PLAN.md` decided, LinearAlgebra for `dot`. The tests use
+  ForwardDiff and StaticArrays directly, so `test/Project.toml` names
+  them too.
