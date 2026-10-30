@@ -499,8 +499,8 @@ On the laptop (3D, `P = 3`, 512 blocks of `16³`) the switch alone took
 a step from 497 to 385 ms at one thread and from 155 to 120 ms at six,
 nearly all of it the fifth evaluation; the stage arithmetic is 5–6 ms
 there, since one M3 core already streams most of its memory bandwidth.
-Symmetry's numbers are under [Threads on
-Symmetry](#threads-on-symmetry).
+On Symmetry's 64 cores the stage arithmetic was 234 ms of a 714 ms step
+and is 17 of 72; see [Threads on Symmetry](#threads-on-symmetry).
 
 The drivers step one integrator: `wave_errors` with `solve!`, and
 `uniform_blast` with `step!`, calling its observer after the steps
@@ -672,6 +672,66 @@ nodes across `σ`, so the rates are rough. In the viewer's default run
 (`P = 4`, 16 × 16 blocks) the error of `u` alone at `t = 0.4` is
 `1.8e-4` in L∞ and `1.5e-5` in L2, and the energy lost is `4.7e-10`.
 
+### Threads on Symmetry
+
+`bin/symmetry/benchmark.sh`, job 586013 on `cn085`, 2026-10-30: a
+dual-socket AMD EPYC 7532 (Zen 2, 64 cores, 8 NUMA domains), Julia
+1.13.3, threads pinned (`JULIA_EXCLUSIVE=1`, `-t N,0`), pages placed by
+first touch. 3D, `P = 3`, the standing sine mode on 16.8M nodes, in two
+block sizes: 4096 blocks of `16³` (`E = 4`) and 512 of `32³` (`E = 8`).
+Each time is the least of five. The "before" columns are the package
+before the changes of [The right-hand side](#the-right-hand-side),
+[Truncation](#truncation) and [The integrator](#the-integrator)
+(`main` at 939be39, OrdinaryDiffEq's RK4 with both limiters), run in the
+same job on the same node.
+
+At 64 threads, ms:
+
+| phase | `16³`, before | `16³`, after | `32³`, before | `32³`, after |
+|---|---|---|---|---|
+| RK4 step | 714 | **72.1** | 688 | **63.5** |
+| right-hand side | 24.1 | 12.3 | 17.1 | 10.6 |
+|   copy of `u`, and its exchange | — | 0.35 + 1.44 | — | 0.34 + 0.74 |
+|   gradient pass, and its exchanges | — | 2.73 + 1.42 | — | 2.45 + 0.96 |
+|   Laplacian pass | — | 3.84 | — | 3.63 |
+| truncation | 80.2 | 0.73 | 78.2 | 0.70 |
+| stage arithmetic (empty RHS) | 234 | 17.1 | 234 | 16.9 |
+
+The step over one thread at the same size:
+
+| threads | 1 | 8 | 16 | 32 | 64 |
+|---|---|---|---|---|---|
+| `16³`, before, s | 10.04 | 1.98 | 1.21 | 0.869 | 0.714 (14.1×) |
+| `16³`, after, s | 2.35 | 0.595 | 0.294 | 0.142 | 0.072 (32.6×) |
+| `32³`, before, s | 8.21 | 1.57 | 1.06 | 0.809 | 0.688 (11.9×) |
+| `32³`, after, s | 1.93 | 0.478 | 0.240 | 0.122 | 0.064 (30.4×) |
+
+What it says:
+
+- **A step is 10–11 times faster at 64 threads**, and 4.3 times faster
+  at one: 3.8 ns per node and step at `32³`. Before, the serial stage
+  broadcasts (234 ms, flat from 1 to 64 threads), the truncation with
+  its serial copy (80 ms, 9× over one thread) and the fifth right-hand
+  side made up most of a 64-thread step; the five right-hand sides were
+  12–17% of it.
+- **Now the right-hand sides are two thirds of a step** (4 × 10.6 of
+  63.5 ms), the stage arithmetic a quarter (16.9 ms, 9.9× over one
+  thread: RK4's 15 passes over a 268 MB state stream about 240 GB/s),
+  and the truncations 4%. Every phase scales; the stage arithmetic least,
+  since it is bandwidth-bound and pinned runs below 64 threads fill one
+  NUMA domain at a time.
+- **The right-hand side is 1.6–2.0 times faster** than before at 64
+  threads, and 2.1–2.4 times at one: the exchanges are about a third of
+  what they were in points, and the kernels faster with `d` constant.
+  It moves about 100 bytes per node, so at `32³` it streams roughly
+  160 GB/s, below the node's 410 GB/s nominal bandwidth.
+- **`32³` blocks beat `16³`** by 13% on the step at 64 threads, most of
+  it in the exchanges, whose points per node halve. At 8 blocks
+  per thread there are still enough to balance.
+- Pinned runs below 64 threads fill the NUMA domains one after another,
+  so only the 64-thread column compares like with like across sizes;
+  before and after compare at every count.
+
 ## What carried over from TreeWave, and what did not
 
 Carried over: the equation and its variables, the periodic box, the sine
@@ -714,7 +774,9 @@ layout would be modal (the decay of the top Legendre coefficients)
   - A low-storage (2N) explicit Runge–Kutta method. Its RK4 keeps the
     state and five scratch arrays, OrdinaryDiffEq's about nine; a 2N
     scheme keeps two in all, which matters where memory sets the box
-    size, as in `INSPIRAL-PLAN.md`'s table.
+    size, as in `INSPIRAL-PLAN.md`'s table. It would also cut the stage
+    arithmetic, a quarter of a 64-thread step ([Threads on
+    Symmetry](#threads-on-symmetry)), by about half.
 - The paper's averaging post-processing (its eq. 98–100), which makes
   the interpolated solution continuous for plotting.
 - A 1D viewer, a device run, and a subprocess thread-count test, as in

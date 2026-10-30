@@ -142,6 +142,13 @@ How the package got where it is, by topic in `CODE.md`'s order.
   printed as 1.27 and is now 1.26). On the laptop a step went from 497
   to 118 ms at one thread and from 155 to 40 ms at six, all three
   changes together.
+- 2026-10-30: measured on Symmetry (job 586013, cn085, EPYC 7532, 64
+  pinned threads; 3D, `P = 3`, 16.8M nodes), against `main` in the same
+  job: a step went from 714 to 72 ms with `16³` blocks and from 688 to
+  64 ms with `32³`, and its speedup over one thread from 12–14× to
+  30–33×. Tables in `CODE.md`, "Threads on Symmetry". A first
+  submission (job 586012) failed at once, because the scripts loaded
+  TreeAMR by name from an environment that only developed the package.
 - 2026-10-30: two changes to IMEXRungeKutta were considered and kept as
   ideas: partitioning an `ArrayPartition` state, which `INSPIRAL-PLAN.md`
   plans for the inspiral with OrdinaryDiffEq, and a low-storage method.
