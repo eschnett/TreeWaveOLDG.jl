@@ -12,6 +12,7 @@
 
 using LinearAlgebra: norm
 using StaticArrays
+using IMEXRungeKutta: solve!
 
 const TWR = TreeWaveOLDG
 
@@ -298,19 +299,146 @@ end
         statevector(wave.fs), wave, t, x -> 0.0, (s,); ball=(c, 1.0))
 end
 
-@testset "The standing mode on a two-level forest lies between the uniform runs" begin
-    # A smoke check of the whole run on a refined forest, periodic with
-    # the middle refined and reflecting with a corner at two walls
-    # refined: the error is between the uniform coarse forest's and the
-    # uniform fine one's, and the energy lost is RK4's, small. The rates
-    # and the RK4 limit on such forests are measured, not asserted here.
-    for reflecting in (false, true)
-        run(roots, refined) = wave_errors(Float64, Val(2); P=3, E=2, roots=roots,
-                                          reflecting=reflecting, refined=refined)
-        region = reflecting ? ((0.0, 0.5), (0.0, 0.5)) : true
-        coarse, mixed, fine = run(4, false), run(4, region), run(8, false)
-        @test fine.l2 < mixed.l2 < coarse.l2
-        @test mixed.h == fine.h
-        @test 0 <= (mixed.energy0 - mixed.energy) / mixed.energy0 < 1e-8
+# The standing mode to a quarter period at `cfl = 1/2`, as `wave_errors`
+# runs it, on `roots` root blocks of `E = 2` elements, with the error's
+# quadrature norms over the box and over a ball: the one of radius 1/4
+# about the box's centre on a periodic box, which the middle half refined
+# by `refined = true` holds, and about `(1/4, …)` on a reflecting one,
+# which the corner `(0, 1/2)^D` holds. In 1D the ball is that interval.
+function standing_errors(D, P; roots, refined=false, reflecting=false)
+    forest = wave_forest(Float64, Val(D), P, 2; roots=roots, reflecting=reflecting,
+                         refined=refined)
+    el = Element(Float64, P)
+    p = WaveProblem(forest, el)
+    mode, omega = reflecting ? (reflect_exact, reflect_omega) : (wave_exact, wave_omega)
+    u0 = initial_state(p, mode(D, 1.0, 1, 0.0))
+    t_end = 2π / omega(D, 1.0, 1) / 4
+    dt = t_end / ceil(Int, t_end / oldg_timestep(p; cfl=1 / 2))
+    u = solve!(wave_integrator(p, u0, 0.0, t_end; dt=dt)).u
+    # The state set is nothing's working space once the run is done.
+    fill_at_nodes!(mode(D, 1.0, 1, t_end), p.fs, el)
+    ue = statevector(p.fs)
+    gather!(ue, p.fs)
+    err = u .- ue
+    centre = ntuple(_ -> reflecting ? 0.25 : 0.5, D)
+    return (l2=quadrature_norm(p.fs, el, err),
+            ball_l2=ball_norm(p, err, centre, 0.25),
+            ball_linf=ball_norm(p, err, centre, 0.25; p=Inf),
+            loss=(wave_energy(p, u0) - wave_energy(p, u)) / wave_energy(p, u0))
+end
+
+@testset "The standing mode converges at order P on a two-level forest" begin
+    # Guards the coupling's accuracy: a ghost from the wrong nodes, a
+    # restriction that is not consistent, or a weight on the wrong level
+    # would cost the rate an order or more. Doubling every level at once
+    # (`roots = 4` to 8, the middle half refined), the L2 error over the
+    # box falls at the uniform forest's order `P`, as measured in
+    # "Refined forests" in `CODE.md`. And inside the refined region,
+    # where the norm sees only fine elements, the error lies between the
+    # uniform coarse and fine runs'; over the box it cannot, since the
+    # coarse three quarters (in 2D) set it. In 1D the L∞ error there is
+    # bracketed too; in 2D it is not asserted, since the coarse ghost's
+    # degree loss shows in it (**(open)** in `CODE.md`).
+    for D in (1, 2), P in 2:4
+        c, f = standing_errors(D, P; roots=4), standing_errors(D, P; roots=8)
+        m4 = standing_errors(D, P; roots=4, refined=true)
+        m8 = standing_errors(D, P; roots=8, refined=true)
+        @test P - 0.25 < log2(m4.l2 / m8.l2) < P + 0.2
+        @test f.l2 < m4.l2 < c.l2
+        @test f.ball_l2 < m4.ball_l2 < c.ball_l2
+        D == 1 && @test f.ball_linf < m4.ball_linf < c.ball_linf
     end
+end
+
+@testset "The energy on a refined forest is lost only to RK4, at its rate" begin
+    # The semi-discrete energy is an exact invariant on a refined forest
+    # too, so a run loses only RK4's share: never a gain, and a loss
+    # that falls by `2^6` per halving of the step over the same number
+    # of steps, as on a uniform forest. A coupling that was not
+    # summation by parts would leave a change that does not go away.
+    for (D, P, truncate, reflecting) in ((1, 3, true, false), (2, 2, true, false),
+                                         (2, 3, false, false), (2, 3, true, true))
+        forest = refined_forest(D, P; reflecting=reflecting)
+        p = WaveProblem(forest, Element(Float64, P); truncate=truncate)
+        u0 = initial_state(p, (x, v) -> sum(d -> sinpi(2d * x[d] + v / 3) *
+                                                cospi(2x[mod1(d + 1, D)]), 1:D))
+        E0 = wave_energy(p, u0)
+        losses = map((1, 1 // 2)) do cfl
+            dt = oldg_timestep(p; cfl=cfl)
+            (E0 - wave_energy(p, solve!(wave_integrator(p, u0, 0.0, 200dt; dt=dt)).u)) / E0
+        end
+        @test 0 < losses[2] < losses[1]
+        @test losses[1] / losses[2] > 2^5
+    end
+end
+
+@testset "RK4's limit on a two-level forest is the uniform one at the finest spacing" begin
+    # Guards the time step on a refined forest: `oldg_timestep` takes the
+    # finest spacing, and that is safe only if the coarse-fine faces add
+    # no mode stiffer than a uniform fine forest has. The largest
+    # eigenvalue of the truncated semi-discrete Laplacian, by power
+    # iteration as in `evolution_tests.jl`, puts the limit within a few
+    # per cent above the uniform forest's `cfl ≈ 5/√D`; a coupling that
+    # was not summation by parts could put an eigenvalue off the
+    # imaginary axis or above the uniform spectrum.
+    function cflmax(forest, P)
+        p = WaveProblem(forest, Element(Float64, P))
+        D = length(p.fs.G)
+        x = initial_state(p, (x, v) -> v == 1 ? sinpi(37 * sum(x) + 0.1) : 0.0)
+        y = similar(x)
+        u = selectdim(statearray(x, p.fs), D + 1, 1)
+        lap = selectdim(statearray(y, p.fs), D + 1, 2)
+        λ = 0.0
+        for _ in 1:300
+            wave_rhs!(y, x, p, 0.0)
+            truncate_state!(y, p)
+            λ = norm(lap) / norm(u)
+            u .= lap ./ norm(lap)
+        end
+        return 2 * sqrt(2) / sqrt(λ) / oldg_timestep(p; cfl=1)
+    end
+    for (D, P) in ((1, 1), (1, 2), (1, 4), (2, 1), (2, 2), (2, 4), (3, 1))
+        uniform = cflmax(wave_forest(Float64, Val(D), P, 2; roots=D == 3 ? 3 : 4), P)
+        twolevel = cflmax(refined_forest(D, P), P)
+        @test 0.99 < twolevel / uniform < 1.1
+        @test 4.8 < twolevel * sqrt(D) < 6.2
+    end
+end
+
+@testset "A reflecting box refined at its walls keeps order P and its energy" begin
+    # Guards the walls of a refined forest: a coarse-fine face that meets
+    # a wall, where the mirrored ghosts and the element-local ones meet.
+    # With the corner `(0, 1/2)^D` refined the Neumann mode converges at
+    # order `P`, the error in the refined corner lies between the uniform
+    # runs', and the energy lost is RK4's, small. (The mode `cos(πx)`
+    # vanishes on the coarse-fine faces at `x_d = 1/2`, so this case does
+    # not show the coarse ghost's degree loss that "Refined forests" in
+    # `CODE.md` records.)
+    for D in (1, 2), P in 2:3
+        errs(roots, refined) = standing_errors(D, P; roots=roots, reflecting=true,
+                                              refined=refined ?
+                                                      ntuple(_ -> (0.0, 0.5), D) :
+                                                      false)
+        c, f, m4, m8 = errs(4, false), errs(8, false), errs(4, true), errs(8, true)
+        @test P - 0.25 < log2(m4.l2 / m8.l2) < P + 0.2
+        @test f.l2 < m4.l2 < c.l2
+        @test f.ball_l2 < m4.ball_l2 < c.ball_l2
+        @test 0 <= m4.loss < 1e-8
+    end
+end
+
+@testset "In 2D the coarse ghost's degree loss costs the L∞ error part of an order" begin
+    # Records a measured shortfall, the **(open)** item of "Refined
+    # forests" in `CODE.md`, not a goal. The coarse ghost is the adjoint
+    # restriction, exact to degree `P - 1` tangentially; in 2D at `P = 3`
+    # the L∞ error in the refined middle falls by 2^1.77 from `roots = 8`
+    # to 16, where the exact L² projection in its place (which loses the
+    # energy invariant) gives 2^3.52 in the same runs. If this fails
+    # because the rate rose to `P`, the coarse ghost changed upstream:
+    # re-measure, and update "Refined forests" and "Measured results".
+    P = 3
+    m8 = standing_errors(2, P; roots=8, refined=true)
+    m16 = standing_errors(2, P; roots=16, refined=true)
+    @test log2(m8.ball_linf / m16.ball_linf) < P - 0.5
+    @test P - 0.25 < log2(m8.l2 / m16.l2) < P + 0.2
 end
