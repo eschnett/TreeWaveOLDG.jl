@@ -124,12 +124,15 @@ end
 
 """
     WaveProblem(forest, el::Element; truncate=true, backend=CPU())
+    WaveProblem(fs::FieldSet, el::Element; truncate=true, backend)
 
 Everything the right-hand side and the truncation need, built once:
 
 - `fs`, the state field set (`u`, `v`), which says what the state vector
   is: its layout, the nodes the initial data are set at, and the
-  quadrature. It has no ghosts (`G = 0`); nothing exchanges it.
+  quadrature. It has no ghosts (`G = 0`); nothing exchanges it, but
+  `schedule`, its own empty ghost schedule with the element-local
+  operators, is what TreeAMR's `regrid!` moves it with.
 - `ufs`, `u` alone with one ghost plane on every side (`G = 1`), the
   input of the gradient pass, and its ghost schedule.
 - `grads`, one field set per dimension: the `d`-th holds `∂_d u` with a
@@ -159,6 +162,15 @@ others. TreeAMR's exchange fills the wall ghosts with these parities,
 which is what makes `∂_n u = 0` (a Neumann or solid wall) hold discretely;
 see "Reflecting walls" in `CODE.md`.
 
+The first form builds the state set over `forest`. The second takes an
+existing one, so that a problem can be rebuilt after `regrid!` has
+replaced the set's storage on a new mesh: the state set and its data are
+kept, and `ufs`, `grads`, their schedules and the spacings are built
+afresh for the forest as it now is. The set must hold the two variables
+of an element-centered set at the element's order, and `backend` is its
+own, which is the default. [`adaptive_blast`](@ref) rebuilds its problem
+this way after every regrid that changes the mesh.
+
 `truncate` selects the paper's scheme (`true`: `v` held at degree `P - 1`)
 or the plain one (`false`: both at degree `P`). The default is the paper.
 It takes effect through [`initial_state`](@ref) and through
@@ -166,8 +178,9 @@ It takes effect through [`initial_state`](@ref) and through
 limiter; [`wave_integrator`](@ref) installs it. "Truncation" in `CODE.md`
 has why, and what each scheme costs.
 """
-struct WaveProblem{T,D,F,U,GS,US,GSS,V,EL}
+struct WaveProblem{T,D,F,S,U,GS,US,GSS,V,EL}
     fs::F
+    schedule::S                  # the state set's, for `regrid!`'s transfer
     ufs::U
     grads::GS                    # NTuple{D}: `∂_d u`, ghosts along `d` only
     uschedule::US
@@ -204,24 +217,43 @@ end
 function WaveProblem(forest::Forest{D}, el::Element{T}; truncate::Bool=true,
                      backend::Backend=CPU()) where {D,T}
     check_layout(forest, el)
-    P = order(el)
-    fs = wave_fieldset(T, forest, 2, ntuple(_ -> 0, D), state_statesparity(Val(D)), P,
-                       backend)
+    fs = wave_fieldset(T, forest, 2, ntuple(_ -> 0, D), state_statesparity(Val(D)),
+                       order(el), backend)
+    return WaveProblem(fs, el; truncate=truncate, backend=backend)
+end
+
+function WaveProblem(fs::FieldSet{T,D}, el::Element{T}; truncate::Bool=true,
+                     backend::Backend=get_backend(fs.work)) where {T,D}
+    forest = fs.forest
+    check_layout(forest, el)
     check_element_set(fs, el)
+    fs.nvars == 2 || throw(ArgumentError(
+        "the state set holds $(fs.nvars) variables, and the wave equation's state is " *
+        "two, u and v: build it with nvars = 2"))
+    typeof(backend) == typeof(get_backend(fs.work)) || throw(ArgumentError(
+        "the state set lives on $(get_backend(fs.work)), and the problem was asked " *
+        "for $backend: the kernels read the state set's layout and the problem's " *
+        "own sets together, so they must share a backend; omit `backend` to take " *
+        "the set's"))
+    P = order(el)
     ufs = wave_fieldset(T, forest, 1, ntuple(_ -> 1, D), [EvenParity], P, backend)
     grads = ntuple(d -> wave_fieldset(T, forest, 1, ntuple(k -> Int(k == d), D),
                                       state_gradparity(Val(D), d), P, backend), Val(D))
     # Every operator of an element set follows from its `P`: injection
     # normal to a face, and tangentially the coarse element's polynomial
-    # for a fine ghost and its adjoint restriction for a coarse one.
+    # for a fine ghost and its adjoint restriction for a coarse one. The
+    # state set has no ghosts, so its schedule fills nothing; `regrid!`
+    # takes its operators for the transfer, which refines by the same
+    # polynomial and coarsens by the exact `L²` projection.
     ops = Operators(family=ElementLocal)
+    schedule = GhostSchedule(fs, ops)
     uschedule = GhostSchedule(ufs, ops)
     gradschedules = map(g -> GhostSchedule(g, ops), grads)
     spacings = to_backend(backend, block_spacings(forest, T))
-    return WaveProblem{T,D,typeof(fs),typeof(ufs),typeof(grads),typeof(uschedule),
-                       typeof(gradschedules),typeof(spacings),
-                       typeof(el)}(fs, ufs, grads, uschedule, gradschedules, spacings,
-                                   el, truncate, Val(D))
+    return WaveProblem{T,D,typeof(fs),typeof(schedule),typeof(ufs),typeof(grads),
+                       typeof(uschedule),typeof(gradschedules),typeof(spacings),
+                       typeof(el)}(fs, schedule, ufs, grads, uschedule, gradschedules,
+                                   spacings, el, truncate, Val(D))
 end
 
 # `u`'s exchange, pass 1 and the gradients' exchanges, shared by the RHS
