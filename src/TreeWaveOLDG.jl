@@ -16,12 +16,13 @@ twice.
 
 It runs on TreeAMR's element-centered field sets, whose points are the
 elements' Gauss–Lobatto nodes, with TreeAMR's element-local operators
-across coarse-fine faces, so the forest may be refined. The particle
-transfer of the inspiral still needs a uniform one.
+across coarse-fine faces, so the forest may be refined, statically or
+following the solution. The particle transfer of the inspiral still needs
+a uniform one.
 
 The reference element is in `element.jl`, the node layout and quadrature
 in `layout.jl`, the right-hand side in `evolution.jl`, the time integrator
-in `stepping.jl`, and the two initial
+in `stepping.jl`, the refinement criterion in `refinement.jl`, and the two initial
 conditions, a standing sine mode and a radial blast wave, in `sinewave.jl`
 and `blast.jl`. The analytic particle of the inspiral (`INSPIRAL.md`) is
 in `particle.jl`, on top of the closed forms that `derivations/` generates
@@ -59,6 +60,9 @@ export state_partition, wave_integrator
 export wave_omega, wave_exact, wave_forest, wave_errors, reflect_omega,
        reflect_exact, reflect_errors
 
+# Adaptive refinement
+export modal_indicator, refine_mark, refine_flags, refinement_buffer
+
 # Initial condition: radial blast wave
 export blast_initial, blast_reference, blast_radial_table, blast_exact,
        uniform_blast
@@ -84,6 +88,7 @@ include("element.jl")
 include("layout.jl")
 include("evolution.jl")
 include("stepping.jl")
+include("refinement.jl")
 include("sinewave.jl")
 include("blast.jl")
 include("particle_forms.jl")

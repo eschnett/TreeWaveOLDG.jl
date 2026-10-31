@@ -44,6 +44,11 @@ can be a kernel argument on any backend.
   and `topdual[j+1] = ŵⱼ L_P(ξⱼ)/γ`. The truncation kernel applies it
   this way, one dimension at a time ("Truncation" in `CODE.md`); the
   matrix is what the tests compare against.
+- `duals[k+1][j+1]`: the dual of every Legendre mode `k = 0 … P`,
+  `ŵⱼ L_k(ξⱼ)/γ_k` with `γ_k = Σⱼ ŵⱼ L_k(ξⱼ)²`, so that the coefficient of
+  `L_k` in the element's polynomial through values `u` is `Σⱼ duals[k+1][j+1]
+  uⱼ`; `duals[P+1] == topdual`. The refinement indicator reads a mode's
+  coefficient with it ([`modal_indicator`](@ref)).
 
 `h` here is TreeAMR's spacing, `block extent / N`, not the element width:
 an element is `P + 1` cells wide, `hₑ = (P+1)h`. Writing the operator per
@@ -58,6 +63,7 @@ struct Element{T,P1,PW}
     truncate::NTuple{P1,NTuple{P1,T}}
     topmode::NTuple{P1,T}
     topdual::NTuple{P1,T}
+    duals::NTuple{P1,NTuple{P1,T}}
 end
 
 order(::Element{T,P1}) where {T,P1} = P1 - 1
@@ -123,8 +129,9 @@ derivative per `h`; the face terms of `-½(b - F)` add `P/2` times the jump
 function Element(::Type{T}, P::Integer; precision::Integer=512) where {T}
     ξ, ŵ = gll_nodes_weights(P; precision=precision)
     P1 = P + 1
-    stencil, trunc, mode, dual = setprecision(BigFloat, precision) do
-        LP = [legendre_all(P, x)[P + 1] for x in ξ]
+    stencil, trunc, mode, dual, duals = setprecision(BigFloat, precision) do
+        Lall = [legendre_all(P, x) for x in ξ]
+        LP = [L[P + 1] for L in Lall]
         d = zeros(BigFloat, P1, P1)
         for i in 1:P1, j in 1:P1
             i == j && continue
@@ -145,7 +152,12 @@ function Element(::Type{T}, P::Integer; precision::Integer=512) where {T}
         γ = sum(ŵ .* LP .^ 2)
         Π = [(i == j ? one(BigFloat) : zero(BigFloat)) - LP[i] * ŵ[j] * LP[j] / γ
              for i in 1:P1, j in 1:P1]
-        W, Π, LP, ŵ .* LP ./ γ
+        # Row `k + 1` is mode `k`'s dual, and the last row is `topdual`
+        # itself, so the two agree bit for bit.
+        Λ = [ŵ[j] * Lall[j][k + 1] / sum(ŵ[i] * Lall[i][k + 1]^2 for i in 1:P1)
+             for k in 0:P, j in 1:P1]
+        Λ[P1, :] .= ŵ .* LP ./ γ
+        W, Π, LP, Λ[P1, :], Λ
     end
     tup(v) = ntuple(i -> T(v[i]), length(v))
     rows(M) = ntuple(i -> tup(M[i, :]), size(M, 1))
@@ -154,5 +166,5 @@ function Element(::Type{T}, P::Integer; precision::Integer=512) where {T}
     end
     offsets[1], offsets[P1] = 0, P1
     return Element{T,P1,P1 + 2}(tup(ξ), tup(ŵ), tup(offsets), rows(stencil), rows(trunc),
-                                tup(mode), tup(dual))
+                                tup(mode), tup(dual), rows(duals))
 end
