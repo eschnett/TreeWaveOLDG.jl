@@ -65,7 +65,7 @@ export modal_indicator, refine_mark, refine_flags, refinement_buffer
 
 # Initial condition: radial blast wave
 export blast_initial, blast_reference, blast_radial_table, blast_exact,
-       uniform_blast
+       uniform_blast, adaptive_blast
 
 # The analytic particle
 export ParticleModel, Trajectory, trajectory_at, self_inertia, particle_density,
