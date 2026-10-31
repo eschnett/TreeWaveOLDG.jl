@@ -5,30 +5,35 @@ operator-based local discontinuous Galerkin method of Miller and
 Schnetter (OLDG, [arXiv:1604.00075](https://arxiv.org/abs/1604.00075);
 "the paper" below), on a [TreeAMR](https://github.com/eschnett/TreeAMR.jl)
 mesh. It is [TreeWave](https://github.com/eschnett/TreeWave.jl) with the
-finite-difference stencil replaced by the OLDG one, and it is the
-*unrefined prototype* that TreeAMR's `CODE.md` proposes under
-"Element-local DG stencils": it runs OLDG on a uniform forest with the
-mesh as it is, to judge the method on its equations before TreeAMR grows
-what a refined forest needs.
+finite-difference stencil replaced by the OLDG one. It began as the
+*unrefined prototype* that TreeAMR's `CODE.md` proposed under
+"Element-local DG stencils", to judge the method on a uniform forest
+before TreeAMR grew what a refined forest needs. TreeAMR 0.2.7 has it,
+the element centering (its milestone M16), and the field now runs on
+static refined forests too; see [Refined forests](#refined-forests).
 
-**Status.** Uniform periodic forests in any number of dimensions, any
-order `P ≥ 1`, two initial conditions (a standing sine mode and a 2D
-radial blast wave) and a viewer for the second, on the CPU, stepped by
-IMEXRungeKutta's RK4 with its stage arithmetic run by block owner. The
+**Status.** Periodic or reflecting boxes, uniform or with a static
+two-level refinement, in any number of dimensions, any order `P ≥ 1`,
+two initial conditions (a standing sine mode and a 2D radial blast wave)
+and a viewer for the second, on the CPU, stepped by IMEXRungeKutta's RK4
+with its stage arithmetic run by block owner. On a refined forest the
+discrete energy stays an exact invariant and the L2 error converges at
+order `P`; in `D ≥ 2` the L∞ error loses part of an order at the
+coarse-fine faces **(open)**. The
 first parts of `INSPIRAL.md`'s inspiral exist: the analytic particle
 (`INSPIRAL-PLAN.md`'s M1), its field, the field's time derivative, the
 effective source and the window, the transfer between particles and
 grid (M2), the projection of a source onto the nodes and its adjoint, and
 the coupled right-hand side for particles on a prescribed path (M3), in
 which a particle at rest or in uniform motion keeps its remainder; see
-[Particles](#particles). The suite passes, also with
+[Particles](#particles). The particles run on uniform forests only. The
+suite passes, also with
 `--check-bounds=yes` and with four threads.
 
 **Contents**
 
 - [Goals](#goals)
 - [Scope and non-goals](#scope-and-non-goals)
-  - [What a refined forest needs](#what-a-refined-forest-needs)
 - [The equation](#the-equation)
 - [The method](#the-method)
   - [The reference element](#the-reference-element)
@@ -39,6 +44,11 @@ which a particle at rest or in uniform motion keeps its remainder; see
   - [Positions and quadrature](#positions-and-quadrature)
 - [The right-hand side](#the-right-hand-side)
 - [Reflecting walls](#reflecting-walls)
+- [Refined forests](#refined-forests)
+  - [The coupling](#the-coupling)
+  - [The energy](#the-energy)
+  - [Accuracy](#accuracy)
+  - [What a refined forest does not run](#what-a-refined-forest-does-not-run)
 - [Truncation](#truncation)
 - [Time step](#time-step)
 - [The blast wave](#the-blast-wave)
@@ -59,6 +69,7 @@ which a particle at rest or in uniform motion keeps its remainder; see
 - [Measured results](#measured-results)
   - [Convergence](#convergence)
   - [Reflecting walls](#reflecting-walls-1)
+  - [Refined forests](#refined-forests-1)
   - [The RK4 limit](#the-rk4-limit)
   - [The blast wave's error](#the-blast-waves-error)
   - [Threads on Symmetry](#threads-on-symmetry)
@@ -82,49 +93,37 @@ which a particle at rest or in uniform motion keeps its remainder; see
 
 ## Scope and non-goals
 
-- **Uniform forests only.** `check_layout` refuses a refined forest.
-  TreeAMR fills a coarse-fine ghost by interpolating equally spaced cell
-  centres, and Gauss–Lobatto nodes are not that; see [What a refined
-  forest needs](#what-a-refined-forest-needs).
+- **Static refined forests, for the field.** A forest may be uniform or
+  refined: `wave_forest(…; refined)` makes a static two-level one, and
+  the kernels, the exchange and the norms take any forest TreeAMR's
+  element centering accepts. Nothing regrids during a run. Adaptive
+  refinement is the next step, decided but not built: a modal indicator
+  (the top Legendre coefficients), a regrid driver and an adaptive blast
+  wave **(proposed)**. See [Refined forests](#refined-forests).
+- **Particles on uniform forests only.** `InspiralProblem` and
+  `project_source!` refuse a refined forest, because the transfer
+  measures its distances in the finest element width; see [What a
+  refined forest does not run](#what-a-refined-forest-does-not-run).
 - **Periodic or reflecting boxes.** Every driver builds a fully periodic
   forest by default, and passes no boundary hook to `fill_ghosts!`. A
   box with `reflecting=true` puts a solid (Neumann) wall on every face
   as a TreeAMR reflection symmetry, which the exchange implements by parity-
   signed mirrored transfers rather than a boundary hook; see [Reflecting
-  walls](#reflecting-walls). An *outflow* or partly reflecting box would
-  need the paper's boundary treatment (its `Ω₀` and `Ω_{K+1}`
-  singleton elements), which is not implemented.
-- **Two initial conditions**, the standing sine mode and the 2D radial
-  blast wave, both on a uniform forest. TreeWave's travelling pulse
-  existed to exercise a moving refined region, which is out of scope, and
-  the blast wave here keeps only what does not need refinement.
+  walls](#reflecting-walls). Refinement may touch a wall. An *outflow* or
+  partly reflecting box would need the paper's boundary treatment (its
+  `Ω₀` and `Ω_{K+1}` singleton elements), which is not implemented.
+- **Two initial conditions**, the standing sine mode, on a uniform or
+  refined forest, and the 2D radial blast wave, on a uniform one.
+  TreeWave's travelling pulse existed to exercise a moving refined
+  region, which waits for adaptive refinement, and the blast wave here
+  keeps only what does not need refinement.
 - **One `P` per run**, the same in every element. `P` adaptivity is out
-  of scope in TreeAMR too (`N` is the forest's).
+  of scope in TreeAMR too (`P` is the field set's, `N` the forest's).
+- **No mesh machinery here.** The element centering, its positions and
+  quadrature weights, and the coarse-fine operators are TreeAMR's; a
+  change to them belongs upstream.
 - **No filter.** The paper's tunable modal filter (its eq. 76) is not
   implemented; its tests ran without it, with truncation only.
-
-### What a refined forest needs
-
-All of it is TreeAMR's, and is listed in TreeAMR's `CODE.md` under
-"Element-local DG stencils (proposed)":
-
-- a per-dimension Gauss–Lobatto centering beside `:cell` and `:vertex`,
-  with `P` a field-set property, so that `coordinates`,
-  `fill_by_coordinates!`, `boundary_by_coordinates` and
-  `volume_weighted_norm` work at the nodes (this package's
-  [Positions and quadrature](#positions-and-quadrature) are the stand-ins);
-- an element-local operator family: prolongation that evaluates the
-  coarse element's polynomial at the fine nodes, and restriction by `L²`
-  projection, since a coarse node is not a fine one;
-- a change in the ghost schedule builder, because an OLDG ghost sits
-  *at* the face, on the other side of the jump, so which side's value it
-  takes has to become part of how a ghost names its source;
-- the invariant that a fine block covers whole parent elements, `N`
-  divisible by `2(P+1)`.
-
-Whether interpolated ghosts at a coarse-fine face keep the energy
-estimate is **(open)**; mortar projections that satisfy the
-summation-by-parts compatibility condition are the known remedy.
 
 ## The equation
 
@@ -191,41 +190,63 @@ With the quadrature weights `w` (the element weights scaled by
 is an exact invariant of the semi-discrete system, with or without
 truncation, because the projector is self-adjoint in the same inner
 product. What a run loses is the time integrator's. `wave_energy`
-computes it.
+computes it. On a refined forest the same holds, with each block's
+weights scaled by its own spacing, because the coarse-fine coupling is
+built to keep `wD` skew; see [The energy](#the-energy).
 
 ## The layout
 
-The node-duplicated layout fits TreeAMR's **cell-centered** field set
-with `G = 1` and no change to the mesh. A block of `N = E(P+1)` points
-per dimension holds `E` elements and owns all `N`, both face nodes of
-every element, so the state layout is the usual `N^D` per variable. At
-`G = 1` the same-level exchange puts the neighbouring block's first
-owned node, its low face node, into the high ghost plane, and its last
-owned node into the low one: exactly the outside value the wide
-derivative reads. Faces between elements inside a block need no
-exchange. The operators a `GhostSchedule` requires are a formality: a
-uniform forest has no coarse-fine ghost to fill.
+The node-duplicated layout is TreeAMR's **element-centered** field set,
+`centering = elementcentered(D)` with `P` the element's order, and
+`G = 1`. A block of `N = E(P+1)` points per dimension holds `E` elements
+and owns all `N`, both face nodes of every element, so the state layout
+is the usual `N^D` per variable. At `G = 1` the same-level exchange puts
+the neighbouring block's first owned node, its low face node, into the
+high ghost plane, and its last owned node into the low one: exactly the
+outside value the wide derivative reads. Faces between elements inside a
+block need no exchange. Across a coarse-fine face the ghost is still the
+neighbour's face-adjacent plane along the face's normal, and TreeAMR's
+element-local operators (`Operators(family = ElementLocal)`) map it
+across the face; see [The coupling](#the-coupling). TreeAMR fills an
+element set's faces only, never an edge or corner ghost, which OLDG
+does not read.
 
-`N` must be a whole number of elements and, for TreeAMR, even; for even
-`P` that makes `E` even. `check_layout` and `wave_forest` refuse
-anything else with the reason.
+`E` must be even, so `N` is a multiple of `2(P+1)`: a block of a refined
+forest covers half its parent, and has to cover whole elements of it,
+which every coarse-fine operator reads. TreeAMR's element centering
+requires it of every forest, uniform or not. `check_layout` and
+`wave_forest` refuse anything else with the reason, and `WaveProblem`
+also refuses a field set whose `P` is not the element's.
 
 ### Positions and quadrature
 
-TreeAMR's `coordinates`, `fill_by_coordinates!` and
-`volume_weighted_norm` assume equally spaced cell centres. The
-replacements, in [`src/layout.jl`](src/layout.jl), take the `Element`:
+The positions and the quadrature are TreeAMR's: for an element set,
+`coordinates` and `fill_by_coordinates!` place each point at its
+Gauss–Lobatto node, and `volume_weighted_norm` and the folds weight it
+by the element's tensor quadrature. Element `q = (I-1) ÷ (P+1)` and node
+`i = (I-1) % (P+1)` of owned point `I` sit at
+`origin + h·(q(P+1) + offsets[i])`, with the block's own origin and
+spacing, and the offsets of the two face nodes are the integers `0` and
+`P+1`, so the two face nodes at one position get bit-identical
+coordinates. TreeAMR builds the offsets in `BigFloat` as `Element` does,
+so its positions are this package's bit for bit (a test).
 
-- `node_coordinates(fs, el, b, I)`: the node of owned point `I` (over
-  `1:N`, not a stored index). Element `q = (I-1) ÷ (P+1)` and node
-  `i = (I-1) % (P+1)` sit at `origin + h·(q(P+1) + offsets[i])`, and the
-  offsets of the two face nodes are the integers `0` and `P+1`, so the
-  two face nodes at one position get bit-identical coordinates.
-- `fill_at_nodes!(f, fs, el)`: `fill_by_coordinates!` at the nodes, a
-  kernel through `map_blocks!`.
-- `quadrature_norm(fs, el, u; p)`: the `p`-norm under the tensor-product
-  quadrature, normalized by the volume, through TreeAMR's `mesh_fold`.
-  Equal weights would over-count the nodes clustered near faces.
+The functions in [`src/layout.jl`](src/layout.jl) keep this package's
+names, take the `Element`, and refuse a set that is not element-centered
+at its order:
+
+- `node_coordinates(fs, el, b, I)`: TreeAMR's `coordinates` at owned
+  point `I` (over `1:N`, not a stored index).
+- `fill_at_nodes!(f, fs, el)`: TreeAMR's `fill_by_coordinates!`.
+- `quadrature_norm(fs, el, u; p, vars)`: the `p`-norm under the
+  tensor-product quadrature, each block's weights scaled by its own
+  spacing, normalized by the volume. Over all variables it is
+  `volume_weighted_norm` to rounding; it keeps a fold of its own, through
+  TreeAMR's `mesh_fold`, because it selects variables. Equal weights
+  would over-count the nodes clustered near faces.
+
+`wave_energy` sums through the same fold, and `ball_norm` reads each
+node's position from it.
 
 ## The right-hand side
 
@@ -237,7 +258,7 @@ replacements, in [`src/layout.jl`](src/layout.jl), take the `Element`:
 
 The wide derivative along `d` reads one point past its element along
 `d` and nowhere else, so the exchange carries exactly that, in three
-kinds of field set, all cell-centered:
+kinds of field set, all element-centered at the element's order:
 
 - `fs`, the state (`u`, `v`), with no ghosts (`G = 0`). It says what the
   state vector is: its layout, the nodes the initial data are set at
@@ -252,15 +273,18 @@ kinds of field set, all cell-centered:
   or corners.
 
 Each set has its own schedule, since a schedule belongs to a layout. The
-schedules' operators are conservative of order 1, a formality on a
-uniform forest, and the one family TreeAMR accepts for a ghost-free
-dimension. So a right-hand side makes `1 + D` exchanges. In 3D at
-`N = 16` they fill `1736 + 3 · 512` ghost points per block, where one
-exchange of `u, v` and one of a `D`-variable gradient set with `G = 1`
-filled `5 · 1736`, and `v` is no longer copied. Measured on the
+schedules' operators are `Operators(family = ElementLocal)`, which take
+everything from the set's `P` ([The coupling](#the-coupling)). So a
+right-hand side makes `1 + D` exchanges, each of one stage. In 3D at
+`N = 16` they fill `1536 + 3 · 512` ghost points per block, faces only,
+where one exchange of `u, v` and one of a `D`-variable gradient set with
+`G = 1` filled every face, edge and corner, `5 · 1736`, and `v` is no
+longer copied. Measured on the
 laptop (3D, `P = 3`, 512 blocks of `16³`, one thread) the two
-exchanges took 33 ms of a 65 ms right-hand side, and the `1 + D` take
-7–12 ms of 26 (the laptop was not idle, and runs differ that much).
+exchanges took 33 ms of a 65 ms right-hand side, and the `1 + D` took
+7–12 ms of 26 (the laptop was not idle, and runs differ that much),
+measured with cell-centered sets, when `u`'s exchange also filled its
+edges and corners, `1736` points.
 
 `WaveProblem` holds the three kinds of set, their schedules, the
 per-block spacings on the kernels' backend and the element. As in
@@ -320,6 +344,184 @@ conserved to the integrator's own loss exactly as on the periodic box. The
 reflected mode is the `sin` mode of a periodic box of side `2L` folded
 in half, so `reflect_omega` is the same `mπ√D/L` with `m` the mode
 count across the full box.
+
+## Refined forests
+
+`wave_forest(T, Val(D), P, E; refined)` makes the static two-level
+forest TreeWave's `sinewave.jl` makes: the blocks whose centres lie in a
+region are refined once, and the forest is balanced. `refined = true`
+takes the middle half of the box, `(L/4, 3L/4)^D`, which holds a block
+centre from `roots = 3` on; a tuple of `D` intervals gives any region,
+so that refinement can reach a wall of a reflecting box. `wave_errors`
+and `reflect_errors` pass it through. Nothing else is particular to a
+refined forest: the kernels read each block's own spacing, TreeAMR's
+element-local operators fill the coarse-fine ghosts, the quadrature
+weights each block by its own spacing, and the time step is the finest
+level's ([Time step](#time-step)).
+
+The design was settled with TreeAMR's element centering, its milestone
+M16; TreeAMR's `CODE.md` ("Centerings", "Operators") has the operators
+and the argument for them from the mesh's side.
+
+### The coupling
+
+`D_d = d - ½(b - F)` per element, and `F` reads the neighbour's face node
+across each element face, at a block face the ghost. Across a
+coarse-fine face normal to `d`, with `M_c` and `M_f` the face
+quadratures (the tensor Gauss–Lobatto weights of the tangential
+dimensions, each side's own), TreeAMR's `ElementLocal` operators make
+the ghost:
+
+- **normal to the face**, for every kind, the neighbour's face-adjacent
+  owned plane: injection. The ghost sits at the face, on the other
+  side, and so does that plane;
+- **tangentially, a fine ghost from coarse**: `I`, the coarse element's
+  degree-`P` polynomial at the fine nodes, exact to degree `P`;
+- **tangentially, a coarse ghost from fine**: `R = M_c⁻¹ Iᵀ M_f`, over the
+  `2(P+1)` fine nodes that cover a coarse element. It conserves `Σ w u`,
+  and it is exact to degree `P - 1`, not `P`.
+
+In 1D the face is a point and all three are injection, so a 1D
+two-level forest is the uniform scheme on a non-uniform element mesh.
+The same `I` and `R` serve `u`'s exchange and each gradient's, under a
+mirror too. TreeAMR fills an element set's faces only, in one stage;
+the right-hand side reads no edge or corner ghost, which a test checks
+by poisoning them with `NaN`. So `D_d` is exact on data of degree `P`
+along `d` and `P - 1` across it everywhere, and of degree `P` across it
+at the fine nodes but not at the coarse ones (a test).
+
+### The energy
+
+The discrete energy `E = ½ Σ w (v² + Σ_d (D_d u)²)` is an exact
+invariant of the semi-discrete system on a refined forest, as on a
+uniform one, with or without truncation. The uniform prototype left
+this open; the coarse ghost was chosen to make it so:
+
+- The own-element part `W(d - ½b)` is skew by the Gauss–Lobatto
+  summation-by-parts property, element by element, whatever the
+  element's width.
+- What is left are the coupling blocks across faces, and `WD` is skew
+  exactly when, across every face, the block by which the coarse side
+  reads the fine values is minus the transpose of the block by which
+  the fine side reads the coarse ones: `W_c D_cf = -(W_f D_fc)ᵀ`.
+- Normal to the face, a face node's weight `hₑŵ₀/2 = h/P` times the face
+  term's coefficient `P/(2h)` is `½` on either side, whatever `h`, so the
+  condition reduces to the tangential one, `M_c R = Iᵀ M_f`. That is how
+  `R` is defined: the coarse ghost is the adjoint of the fine one in the
+  quadrature.
+
+Then `⟨g, D_d u⟩_w = -⟨D_d g, u⟩_w` for any `u` and `g` on the whole
+forest, the Laplacian `Σ_d D_d D_d` is self-adjoint and negative
+semi-definite in the same inner product, and `dE/dt = 0`; the truncation
+projector is self-adjoint per element and changes nothing. Measured, the
+skew-adjointness residual is about `1e-18` relative to its terms in 1D
+to 3D, periodic and reflecting, and over a run the energy is lost to RK4
+only, at its rate ([Refined forests](#refined-forests-1) under
+"Measured results").
+
+Any other coarse ghost breaks this. The exact `L²` projection in `R`'s
+place, which keeps degree `P`, gives a relative rate `(dE/dt)/E` of
+`3e-7` to `1e-6` on a rough state in 2D at `P = 3`, and the standing mode
+then *gains* energy, `3e-5` of it over a quarter period at `P = 2`
+(`roots = 8`); this was measured by an experimental TreeAMR, not in the
+package.
+
+### Accuracy
+
+Over the box, the standing mode's L2 error converges at order `P` on a
+two-level forest, as on a uniform one, in 1D and 2D for `P = 2, 3, 4`,
+and lies between the uniform coarse and fine runs'. That bracket says
+little, since the coarse part of the box sets the norm: with the middle
+half refined, a 2D error is `0.86–0.92` of the coarse run's, where the
+coarse three quarters alone would give `√(3/4) = 0.87`. The claim that
+refinement helps is the error *inside* the refined region, which lies
+between the uniform runs' there in L2, in 1D and 2D, and in L∞ in 1D.
+Tables under [Refined forests](#refined-forests-1).
+
+A uniform forest is not always the upper bound. At a full period the
+uniform runs at `P = 3` converge faster than order `P`, by a
+cancellation a two-level forest does not keep. In 1D, where the coupling
+is plain injection, the two-level error then still converges at order
+`P` or better, `3.66` and `3.83`, but is `1.2` to `4` times the uniform
+coarse run's, at one and four periods and `roots = 4` to `16`.
+
+**A larger error in the coarse part (1D).** At `P = 2` the L∞ error of
+the two-level forest can exceed the uniform coarse run's, `0.310`
+against `0.275` at `roots = 4`. It is in the coarse part, in `v`, and it
+is not a degree loss, which 1D cannot have. The coarse part's L2 error
+is `1.11`, `1.15` and `1.13` times the uniform coarse run's there at
+`roots = 4, 8, 16`: a fixed fraction, converging at order `P` with the
+rest, and the L∞ ratio over the box is `1.13`, `1.04`, `0.96` and `1.21`
+at `roots = 4` to `32`. The standing mode is not an eigenmode of the
+two-level operator; the coarse-fine faces scatter the mismatch between
+the two levels' discrete solutions back into the coarse part, and that
+mismatch is the size of the coarse error. At `P = 3` and `4` the
+fraction is between `0.91` and `1.01`. The L∞ norm, being local, follows
+the coarse part. Refining the middle half does what it should, where it
+should: inside it the L2 error is close to the uniform fine run's.
+
+**The coarse ghost's degree loss in `D ≥ 2` (open).** `R` is exact to
+degree `P - 1` tangentially, and in 2D that costs the L∞ error part of
+an order, while the L2 error over the box keeps order `P` at a quarter
+period:
+
+- With the middle half refined, the L∞ error converges at `2.3–2.7`
+  instead of 3 at `P = 3` and at `3.5–3.8` at `P = 4` from `roots = 8`
+  on, and at `1.3–1.8` at `P = 2` from `roots = 16` on. Its maximum
+  moves into the refined region, at fine nodes, and there it leaves the
+  bracket: `9.6e-4` against the uniform coarse run's `5.8e-4` at
+  `P = 3`, `roots = 16`.
+- A refined stripe, with coarse-fine faces but no corners of the
+  refined region, shows the same, so it is the faces.
+- With the exact `L²` projection in `R`'s place (the experimental TreeAMR
+  above) the same runs converge at order `P` in L∞ too, `2.03`, `3.06`
+  and `3.90` in the stripe's fine part at the finest pair; the energy is
+  then not conserved.
+- Where the regular error is small, it shows in L2 too. At a full
+  period, where the uniform run at `P = 3` converges faster than order
+  `P` (4.1 and 5.1 at the finer pairs), the two-level forest's L2 error
+  converges at `2.92, 2.65, 2.55` and is 45 times the uniform coarse
+  run's at `roots = 32`; with the exact projection it converges at
+  `3.7` and is 5 times. After four periods, at `P = 3` and `roots = 8`
+  with a refined stripe, the L2 error is `2.0e-4` against the uniform
+  coarse run's `9.5e-5` (the exact projection's: `9.3e-5`).
+
+So the energy-compatible ghost buys an exact invariant and costs, in
+`D ≥ 2`, about half an order of the local error at the coarse-fine
+faces, which then travels. TreeAMR's `CODE.md` names the remedy, a
+degree-preserving compatible operator through a finer mortar
+("Open questions" there); it would be upstream, and whether to build it
+is the owner's decision. In 1D nothing of it shows, nor for the
+reflecting box's `m = 1` mode below.
+
+**Walls.** On a reflecting box with the corner `(0, L/2)^D` refined, so
+that coarse-fine faces meet the walls, the Neumann mode converges at
+order `P` in L2, and in 2D in L∞ too, the L2 error in the refined
+corner lies between the uniform runs', and the energy is lost to RK4
+only. That mode, `cos(πx_d)`, vanishes on the coarse-fine faces at
+`x_d = 1/2`, which hides the degree loss; with `m = 2` the L∞ error at
+`P = 3` converges at `2.38` and `2.34`, as in the periodic box.
+
+**Time step.** RK4's limit on a two-level forest, at the finest spacing,
+is the uniform forest's to within 2% in 1D and 2D and 7% above it in 3D
+at `P = 1` ([The RK4 limit](#the-rk4-limit)): the coarse-fine faces add
+no stiffer mode, and `oldg_timestep`'s finest-level step is safe.
+
+### What a refined forest does not run
+
+- **The particles.** `InspiralProblem` and `project_source!` refuse a
+  refined forest. The transfer's distances (`rnear`, `rfar`, the graded
+  bands) are in units of the finest element width, its near and graded
+  elements are classified in it, and `project_near!` divides by its
+  weights, so on a coarser element every one of them would be off by
+  the ratio of the spacings, and the quadrature silently too coarse.
+- **The blast wave**, whose driver `uniform_blast` builds a uniform
+  forest; a refined ring waits for adaptive refinement.
+- **Point interpolation.** TreeAMR's `interpolate` refuses an element
+  set, which needs a basis that maps a position to its element's
+  polynomial (**(open)** in TreeAMR); nothing here uses it.
+- **`test/reference.jl`'s global arrays**, which are uniform-only; the
+  refined tests use quadrature inner products instead.
 
 ## Truncation
 
@@ -388,7 +590,8 @@ this. Measured, RK4
 is stable up to `cfl ≈ 5` in one dimension for every `P` from 1 to 6,
 and the limit falls as `1/√D` (the Laplacian's spectral radius adds over
 dimensions); see [The RK4 limit](#the-rk4-limit). The drivers default to
-`cfl = 1/2`.
+`cfl = 1/2`. On a refined forest `hₑ` is the finest level's, and the
+limit there is the uniform forest's at that spacing, to a few per cent.
 
 RK4's error is fourth order in `dt ∝ h`, so beyond `P = 4` it eventually
 dominates the spatial error. A convergence study at higher order needs a
@@ -1028,7 +1231,8 @@ arrives and how large it is.
   `truncate_state!`, `truncate_stage!`, `initial_state`, `wave_energy`,
   `oldg_timestep`, `convergence_rate`.
 - `src/stepping.jl`: `state_partition` and `wave_integrator`.
-- `src/sinewave.jl`: the standing sine mode and its driver `wave_errors`.
+- `src/sinewave.jl`: `wave_forest`, uniform or two-level, the standing
+  sine mode and its driver `wave_errors`.
 - `src/blast.jl`: the radial blast wave, its exact solution, and its
   driver `uniform_blast`.
 - `src/precision.jl`, `src/device.jl`: `ceilint`, `floorint`, `wrap`,
@@ -1074,10 +1278,14 @@ arrives and how large it is.
   tables, and the state rearranged into global arrays, which the kernels
   are checked against.
 
-`Project.toml` requires TreeAMR 0.2.6 (for `mesh_fold`) and Julia 1.13,
-as TreeWave does, and IMEXRungeKutta 1.4 (for `reuse`), which is not
-registered and comes from its repository through `[sources]`, as in
-TreeHydro; `test/Project.toml` names it the same way. The particle needs
+`Project.toml` requires TreeAMR 0.2.7 (for the element centering) and
+Julia 1.13, as TreeWave does, and IMEXRungeKutta 1.4 (for `reuse`), which
+is not registered and comes from its repository through `[sources]`, as
+in TreeHydro; `test/Project.toml` names it the same way. TreeAMR 0.2.7
+is not registered yet either: until it is, `Project.toml`,
+`test/Project.toml` and `bin/Project.toml` take it from the branch of
+its release pull request (eschnett/TreeAMR.jl#32) through `[sources]`,
+and those entries go once it is. The particle needs
 ForwardDiff 1 (time and space derivatives by dual numbers), StaticArrays
 1.9 (`isbits` 3-vectors) and LinearAlgebra. `.github/workflows/CI.yml` is TreeWave's test job:
 Julia 1.13 on Linux and macOS with `--check-bounds=yes`, plus a
@@ -1088,9 +1296,10 @@ does.
 ## Tests
 
 `julia --project=. -e 'using Pkg; Pkg.test()'`, about three and a
-half minutes on the laptop, of which the particle, the transfer and the
-inspiral take about four fifths; the inspiral's coarse 3D runs about
-50 s of it on four threads.
+half minutes on the laptop at one thread and two and a half at four, of
+which the particle, the transfer and the inspiral take about four
+fifths; the inspiral's coarse 3D runs about 50 s of it on four threads,
+and the refined forests' tests about 40 s on one.
 
 - `element_tests.jl`: the nodes integrate to degree `2P-1`, and no
   further; the wide derivative is the paper's matrix for `P = 2, 3, 4`
@@ -1114,6 +1323,20 @@ inspiral take about four fifths; the inspiral's coarse 3D runs about
 - `sinewave_tests.jl`: order `P` with truncation for `P = 2, 3, 4` in 1D
   and 2D; without it, `u` is more accurate; `P = 1` is first order;
   `Float32` agrees with `Float64`.
+- `refined_tests.jl`: on two-level forests in 1D to 3D, periodic with
+  the middle refined and reflecting with a corner at the walls refined,
+  `⟨g, D_d u⟩_w + ⟨D_d g, u⟩_w = 0` to roundoff; `dE/dt` from
+  `wave_rhs!` vanishes, with and without truncation; the right-hand side
+  reads no edge or corner ghost; `D_d` is exact to the operators'
+  degrees across a coarse-fine face, and not beyond them at coarse
+  nodes; positions are TreeAMR's bit for bit and `quadrature_norm` its
+  `volume_weighted_norm`; what a refined forest cannot run is refused;
+  the standing mode converges at order `P` for `P = 2, 3, 4` in 1D and
+  2D, its error in the refined middle between the uniform runs'; the
+  energy is lost to RK4 only, at its rate; RK4's limit is the uniform
+  forest's at the finest spacing; a reflecting box refined at its walls
+  keeps order `P` and its energy; and, as a measured shortfall, the 2D
+  L∞ rate at `P = 3` is below `P - ½` (**(open)**).
 - `reflect_tests.jl`: the reflecting box — the Neumann `cos` mode converges
   at order `P` in 1D and 2D, the wall is an exact discrete symmetry
   (energy conserved to the integrator's loss), the parities the wall imposes
@@ -1232,6 +1455,117 @@ The order is `P` again, in 1D and 2D, and the wall is an exact
 discrete symmetry: the energy is conserved to the integrator's own loss
 (`E₁/E₀ = 1.0`), as on the periodic box.
 
+### Refined forests
+
+The standing sine mode (`m = 1`, unit box) to a quarter period, as in
+[Convergence](#convergence), on two-level forests with the middle half
+refined, `E = 2`, `roots = 4, 8, 16, 32` root blocks per dimension (so
+the fine level has the spacing of the uniform forest at twice that), RK4
+at `cfl = 1/2` at the finest spacing, with truncation. L2 errors of `u`
+and `v` together over the box, with the rate between neighbouring
+resolutions, beside the uniform forests at the same `roots`:
+
+| D | P | two-level L2 | rates | uniform L2 | rates |
+|---|---|---|---|---|---|
+| 1 | 2 | 1.12e-01 3.26e-02 9.12e-03 1.95e-03 | 1.78 1.84 2.23 | 1.34e-01 3.88e-02 1.13e-02 2.22e-03 | 1.79 1.79 2.34 |
+| 1 | 3 | 5.66e-03 6.75e-04 8.32e-05 1.04e-05 | 3.07 3.02 3.01 | 8.20e-03 9.27e-04 1.16e-04 1.45e-05 | 3.15 3.00 3.00 |
+| 1 | 4 | 3.70e-04 2.37e-05 1.64e-06 8.38e-08 | 3.96 3.85 4.29 | 5.70e-04 3.50e-05 2.34e-06 1.19e-07 | 4.03 3.90 4.30 |
+| 2 | 2 | 1.67e-01 4.70e-02 1.09e-02 2.97e-03 | 1.83 2.10 1.88 | 1.83e-01 5.21e-02 1.19e-02 3.26e-03 | 1.82 2.13 1.87 |
+| 2 | 3 | 9.63e-03 1.17e-03 1.45e-04 1.86e-05 | 3.04 3.01 2.97 | 1.11e-02 1.33e-03 1.63e-04 2.04e-05 | 3.05 3.03 3.00 |
+| 2 | 4 | 5.68e-04 3.97e-05 2.58e-06 1.60e-07 | 3.84 3.94 4.01 | 6.62e-04 4.54e-05 2.91e-06 1.77e-07 | 3.87 3.96 4.04 |
+
+The L2 order is `P`, as on a uniform forest. The same runs' L∞ errors:
+
+| D | P | two-level L∞ | rates | uniform L∞ | rates |
+|---|---|---|---|---|---|
+| 1 | 2 | 3.10e-01 8.52e-02 2.64e-02 6.07e-03 | 1.86 1.69 2.12 | 2.75e-01 8.21e-02 2.75e-02 5.01e-03 | 1.75 1.58 2.46 |
+| 1 | 3 | 2.83e-02 3.06e-03 3.93e-04 4.98e-05 | 3.21 2.96 2.98 | 2.94e-02 3.04e-03 3.93e-04 4.96e-05 | 3.27 2.95 2.99 |
+| 1 | 4 | 2.31e-03 7.52e-05 8.22e-06 2.90e-07 | 4.94 3.19 4.83 | 2.23e-03 8.43e-05 8.15e-06 2.93e-07 | 4.72 3.37 4.80 |
+| 2 | 2 | 6.81e-01 1.97e-01 4.73e-02 1.32e-02 | 1.79 2.06 1.84 | 6.59e-01 2.05e-01 4.62e-02 1.31e-02 | 1.69 2.15 1.82 |
+| 2 | 3 | 4.83e-02 4.94e-03 9.65e-04 1.90e-04 | 3.29 2.36 2.34 | 4.28e-02 5.02e-03 5.84e-04 7.18e-05 | 3.09 3.10 3.03 |
+| 2 | 4 | 3.58e-03 4.40e-04 3.15e-05 2.77e-06 | 3.02 3.80 3.51 | 2.31e-03 2.14e-04 1.30e-05 8.65e-07 | 3.43 4.04 3.91 |
+
+In 1D the L∞ error is the uniform coarse run's, within `0.89–1.21`; in
+2D it falls short of order `P`, which is the coarse ghost's degree loss
+([Accuracy](#accuracy), **(open)**). At `roots = 64` the 2D rates are
+`1.28` at `P = 2` and `2.73` at `P = 3`, while the L2 rates are `2.02`
+and `2.94`.
+
+Inside the refined region `(1/4, 3/4)^D`, the uniform coarse run, the
+two-level forest and the uniform fine run (`2 roots`):
+
+| D | P | roots | L2 coarse, two-level, fine | L∞ coarse, two-level, fine |
+|---|---|---|---|---|
+| 1 | 2 | 8 | 3.93e-02 1.25e-02 1.13e-02 | 8.21e-02 5.03e-02 2.75e-02 |
+| 1 | 2 | 16 | 1.13e-02 2.51e-03 2.23e-03 | 2.75e-02 8.64e-03 5.01e-03 |
+| 1 | 3 | 8 | 9.36e-04 2.10e-04 1.16e-04 | 3.04e-03 1.14e-03 3.93e-04 |
+| 1 | 3 | 16 | 1.16e-04 1.96e-05 1.45e-05 | 3.93e-04 1.28e-04 4.96e-05 |
+| 1 | 4 | 8 | 3.52e-05 4.68e-06 2.35e-06 | 8.43e-05 1.53e-05 8.15e-06 |
+| 1 | 4 | 16 | 2.35e-06 2.12e-07 1.19e-07 | 8.15e-06 8.94e-07 2.93e-07 |
+| 2 | 2 | 8 | 5.21e-02 1.51e-02 1.19e-02 | 2.05e-01 1.38e-01 4.62e-02 |
+| 2 | 2 | 16 | 1.19e-02 4.24e-03 3.25e-03 | 4.62e-02 4.00e-02 1.31e-02 |
+| 2 | 3 | 8 | 1.33e-03 3.69e-04 1.63e-04 | 5.02e-03 3.42e-03 5.84e-04 |
+| 2 | 3 | 16 | 1.63e-04 6.67e-05 2.04e-05 | 5.84e-04 9.65e-04 7.18e-05 |
+| 2 | 4 | 8 | 4.53e-05 1.39e-05 2.91e-06 | 2.14e-04 1.98e-04 1.30e-05 |
+| 2 | 4 | 16 | 2.91e-06 1.15e-06 1.77e-07 | 1.30e-05 1.42e-05 8.65e-07 |
+
+In L2 the two-level error lies between the uniform runs', close to the
+fine one in 1D; in 2D it is 1.3 to 6.5 times the fine one, since the
+coarse part's error reaches the middle within a quarter period. In L∞
+the 2D error leaves the bracket at `P = 3` and `4` at `roots = 16`.
+`refined_tests.jl` asserts the L2 rates from `roots = 4` to 8, the
+brackets at `roots = 4` in the ball of radius `1/4` about the centre
+(L2, and L∞ in 1D), and, as a measured shortfall, the 2D L∞ rate at
+`P = 3` from `roots = 8` to 16 in that ball (`1.77`, below `P - ½`).
+
+The degree loss, isolated. A refined stripe `(1/4, 3/4) × (0, 1)` has
+coarse-fine faces but no corners of the refined region. Its fine part's
+L∞ error, with the energy-compatible `R` and with the exact `L²`
+projection in its place (an experimental TreeAMR, not the package):
+
+| P | roots | `R`: fine L∞ | rates | exact projection: fine L∞ | rates |
+|---|---|---|---|---|---|
+| 2 | 4–64 | 4.34e-01 9.15e-02 3.24e-02 8.83e-03 3.86e-03 | 2.25 1.50 1.88 1.19 | 3.83e-01 8.24e-02 2.33e-02 5.29e-03 1.29e-03 | 2.22 1.82 2.14 2.03 |
+| 3 | 4–64 | 1.89e-02 2.61e-03 5.58e-04 1.17e-04 2.01e-05 | 2.86 2.22 2.26 2.54 | 1.46e-02 1.62e-03 1.84e-04 2.41e-05 2.89e-06 | 3.17 3.14 2.93 3.06 |
+| 4 | 4–32 | 1.13e-03 2.05e-04 1.86e-05 1.54e-06 | 2.47 3.47 3.59 | 1.25e-03 9.82e-05 5.76e-06 3.86e-07 | 3.67 4.09 3.90 |
+
+At `P = 2` and `roots = 128` the `R` run's rate is `1.64`. The L2 error
+over the box differs by at most 13% between the two at a quarter period.
+At a full period (2D, middle half refined, `roots = 4, 8, 16, 32`):
+
+| P | uniform L2 | two-level, `R` | two-level, exact projection |
+|---|---|---|---|
+| 3 | 6.85e-04 7.22e-05 4.22e-06 1.23e-07 | 1.54e-03 2.05e-04 3.25e-05 5.55e-06 | 1.32e-03 1.05e-04 7.67e-06 6.08e-07 |
+| rates | 3.25 4.10 5.10 | 2.92 2.65 2.55 | 3.66 3.77 3.66 |
+
+At `P = 2` and `4` the full period shows nothing of it: the two-level
+L2 error is `0.81–0.82` and `0.83–1.03` of the uniform coarse run's,
+with either coarse ghost.
+
+Energy. From a non-separable state over 200 steps at `cfl = 1` and
+`1/2` and `1/4` (finest spacing), the relative energy lost falls by
+`61.6–63.9` per halving of the step, RK4's `2^6`, on two-level forests
+in 1D to 3D, periodic and reflecting, with and without truncation: for
+example `1.64e-5`, `2.65e-7`, `4.15e-9` in 2D at `P = 2`. The standing
+mode's runs above lose between `2e-8` and `2e-16` of their energy.
+
+Walls. The Neumann mode on a reflecting box with the corner `(0, 1/2)^D`
+refined, `roots = 4, 8, 16`:
+
+| D | P | two-level L2 | rates | L∞ rates | `E₁/E₀ - 1` at `roots = 4` |
+|---|---|---|---|---|---|
+| 1 | 2 | 1.43e-02 3.93e-03 8.77e-04 | 1.86 2.17 | 1.27 2.73 | -3.1e-09 |
+| 1 | 3 | 3.57e-04 4.36e-05 5.40e-06 | 3.03 3.01 | 2.85 2.97 | -2.1e-13 |
+| 1 | 4 | 1.22e-05 8.16e-07 4.44e-08 | 3.90 4.20 | 3.02 5.06 | -2.2e-14 |
+| 2 | 2 | 2.27e-02 5.33e-03 1.44e-03 | 2.09 1.89 | 2.19 1.83 | -1.4e-09 |
+| 2 | 3 | 5.95e-04 7.25e-05 9.03e-06 | 3.04 3.00 | 3.11 2.99 | -1.1e-12 |
+| 2 | 4 | 1.98e-05 1.28e-06 7.78e-08 | 3.95 4.04 | 4.04 3.91 | -1.2e-13 |
+
+The L2 error in the refined corner lies between the uniform runs' in
+every row. With `m = 2`, whose `cos(2πx_d)` does not vanish on the coarse-fine
+faces, the 2D L∞ rates at `P = 3` are `3.27, 2.38, 2.34` (to
+`roots = 32`), against `3.19, 3.10, 3.01` with the exact projection.
+
 ### The RK4 limit
 
 The largest `cfl` (in `dt = cfl · hₑ/(P+1)²`) at which RK4 is stable on
@@ -1245,6 +1579,30 @@ Laplacian, `|λ dt| ≤ 2√2`:
 
 The step therefore scales as `hₑ/(P+1)²` with a constant near 5, and in
 `D` dimensions as `5/√D`, which `evolution_tests.jl` checks.
+
+On a two-level forest, the middle half refined (`roots = 4`, 3 in 3D,
+`E = 2`), the same power iteration through `wave_rhs!` with truncation
+gives, as `cfl` at the finest spacing times `√D`, against the uniform
+forest at the same `roots`:
+
+| D | P | uniform | two-level | reflecting, corner refined |
+|---|---|---|---|---|
+| 1 | 1 | 5.66 | 5.75 | 5.76 |
+| 1 | 2 | 5.20 | 5.21 | 5.21 |
+| 1 | 3 | 5.24 | 5.24 | 5.24 |
+| 1 | 4 | 5.17 | 5.18 | 5.18 |
+| 2 | 1 | 5.66 | 5.76 | 5.76 |
+| 2 | 2 | 5.20 | 5.22 | 5.21 |
+| 2 | 3 | 5.24 | 5.27 | 5.24 |
+| 2 | 4 | 5.17 | 5.18 | 5.18 |
+| 3 | 1 | 5.66 | 6.04 | 6.08 |
+| 3 | 2 | 5.20 | 5.29 | 5.28 |
+
+The coarse-fine faces add no mode stiffer than the uniform fine
+forest's: the limit is within 2% above the uniform one in 1D and 2D, and
+up to 7% above it in 3D, where the fine region is a single refined root
+block. `refined_tests.jl` checks the ratio for `D = 1, 2` at
+`P = 1, 2, 4` and for `D = 3` at `P = 1`.
 
 ### The blast wave's error
 
@@ -1525,17 +1883,19 @@ blast wave without its refinement panels, `WaveProblem` and the `scatter!` →
 `fill_ghosts!` → `map_blocks!` pattern (with `u` copied by a kernel of
 its own rather than `scatter!`), the pure right-hand side, the
 generic element type, the backend keyword, `ceilint` and `to_backend`,
-`convergence_rate`, and the conventions in `CLAUDE.md`.
+`convergence_rate`, the static two-level forest of `wave_forest`, and the
+conventions in `CLAUDE.md`.
 
 Changed: the ghost width is 1 whatever the order, and the centering is
-always cell; there are `1 + D` exchanges per right-hand side rather than
-one, each of one variable; positions, initial data and norms are this
-package's rather than TreeAMR's; the time step scales as `hₑ/(P+1)²`
+TreeAMR's element centering, with the element-local operators; there
+are `1 + D` exchanges per right-hand side rather than one, each of one
+variable; positions, initial data and norms are at the Gauss–Lobatto
+nodes under their quadrature; the time step scales as `hₑ/(P+1)²`
 rather than `h`; the integrator is IMEXRungeKutta's rather than
 OrdinaryDiffEq's.
 
-Not carried over: everything about refinement (the Löhner indicator,
-`regrid!`, the tracking drivers), the travelling pulse, the 1D viewer,
+Not carried over: adaptive refinement (the Löhner indicator, `regrid!`,
+the tracking drivers), the travelling pulse, the 1D viewer,
 TreeWave's benchmark (this package has its own), the vertex centering,
 and the device and threading test files. Löhner's indicator would also fire at every
 element face, where the solution jumps; a refinement criterion for this
@@ -1544,8 +1904,13 @@ layout would be modal (the decay of the top Legendre coefficients)
 
 ## Possible extensions
 
-- A refined forest, once TreeAMR has [what a refined forest
-  needs](#what-a-refined-forest-needs).
+- **(proposed)** Adaptive refinement: a modal indicator (the amplitude
+  of `u`'s top Legendre mode per element), a regrid driver run in
+  chunks, and an adaptive blast wave, on TreeAMR's `regrid!` of element
+  sets, which coarsens by the exact `L²` projection.
+- The particle transfer on a refined forest ([What a refined forest
+  does not run](#what-a-refined-forest-does-not-run)), which the
+  inspiral's far zone needs.
 - The paper's modal filter (eq. 76), as a term in the right-hand side.
 - A comparison with TreeWave's finite differences at equal cost: same
   number of points and same wall clock.
@@ -1578,8 +1943,13 @@ layout would be modal (the decay of the top Legendre coefficients)
 
 ## Open questions
 
-- Whether interpolated coarse-fine ghosts keep the energy estimate; see
-  [What a refined forest needs](#what-a-refined-forest-needs).
+- Whether the coarse ghost's degree loss should be removed. The
+  energy-compatible `R` keeps the energy an exact invariant on a refined
+  forest, and in `D ≥ 2` costs the L∞ error part of an order at the
+  coarse-fine faces, and the L2 error too where the regular error is
+  small, as at a full period at `P = 3` (see [Accuracy](#accuracy)). The
+  remedy is a degree-preserving compatible operator through a finer
+  mortar, upstream in TreeAMR, and the decision is the owner's.
 - Whether truncation should stay the default for a linear problem,
   where it costs accuracy in `u` and buys no stability (both schemes are
   linearly stable).

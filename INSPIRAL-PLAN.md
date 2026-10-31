@@ -543,8 +543,12 @@ step 6's flux balance, `ḋ` and phase convergence; "Expected accuracy".
 
 One of these, after which this section becomes milestones of its own:
 
-- **Refined forests** in TreeAMR (`CODE.md`, "What a refined forest
-  needs"), so that the far zone can be coarse.
+- **Refined forests**, so that the far zone can be coarse. The field
+  side exists: TreeAMR 0.2.7's element centering, and static refined
+  forests for the wave equation (`CODE.md`, "Refined forests"). What
+  remains is the particle transfer, which refuses a refined forest
+  because its distances are in the finest element width (`CODE.md`,
+  "What a refined forest does not run").
 - **A multi-patch outer region**, for example spherical shells whose
   radial spacing grows outward around the Cartesian core. This is mesh
   machinery, so it belongs upstream ("Scope and non-goals"), and OLDG

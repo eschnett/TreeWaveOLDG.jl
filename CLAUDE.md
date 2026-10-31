@@ -37,9 +37,10 @@ docstrings too.
 ## What this package is
 
 TreeWave with the finite-difference stencil replaced by the OLDG one
-(arXiv:1604.00075), as the unrefined prototype TreeAMR's `CODE.md`
-proposes. TreeAMR is the mesh; anything about trees, ghosts or
-interpolation belongs upstream ("Scope and non-goals").
+(arXiv:1604.00075), on uniform or static refined forests through
+TreeAMR's element centering. TreeAMR is the mesh; anything about trees,
+ghosts, coarse-fine operators or interpolation belongs upstream ("Scope
+and non-goals").
 
 ## Commands
 
@@ -49,8 +50,9 @@ julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--check-bounds=yes"])
 julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--threads=4"])'
 ```
 
-Each takes under two minutes. The kernels are `@inbounds`, so run the
-second one too after touching a kernel or the layout.
+The first takes about 3m25 on the laptop, the third about 2m30. The
+kernels are `@inbounds`, so run the second one too after touching a
+kernel or the layout.
 
 The viewer, in its own environment (CairoMakie is not a package
 dependency), about 20 seconds; it writes `bin/output/blast_2d.png`:
@@ -99,15 +101,25 @@ julia --project=. -e 'using Pkg; Pkg.test()'
 
 Each is the rule; the `CODE.md` section named after it has the reason.
 
-- **Uniform forests only.** Do not relax `check_layout` to let a refined
-  forest through: TreeAMR's coarse-fine ghosts would be wrong ("What a
-  refined forest needs").
-- **Positions, initial data and norms come from this package, not
-  TreeAMR.** Use `node_coordinates`, `fill_at_nodes!` and
-  `quadrature_norm`; `coordinates`, `fill_by_coordinates!` and
-  `volume_weighted_norm` assume equally spaced cell centres ("Positions
-  and quadrature").
-- **`N = E(P+1)`, and `N` even** ("The layout").
+- **The field runs on refined forests; the particles do not.**
+  `WaveProblem` accepts any forest TreeAMR's element centering does, and
+  `InspiralProblem` and `project_source!` refuse a refined one, because
+  the transfer measures its distances in the finest element width. Do
+  not lift that refusal without making the transfer level-aware ("What
+  a refined forest does not run").
+- **Every field set is element-centered at the element's order, with
+  `Operators(family = ElementLocal)`.** The coarse ghost is the energy-
+  compatible restriction, exact to degree `P - 1` tangentially; do not
+  swap in another operator here: the coupling is TreeAMR's, and any
+  other one breaks the energy invariant ("The coupling", "The energy").
+  An element set's edge and corner ghosts are never written.
+- **Positions, initial data and norms are TreeAMR's, at the nodes.**
+  Use `node_coordinates`, `fill_at_nodes!` and `quadrature_norm`, which
+  are TreeAMR's `coordinates`, `fill_by_coordinates!` and
+  `volume_weighted_norm` for element sets and refuse any other set
+  ("Positions and quadrature").
+- **`N = E(P+1)`, and `E` even**, so that a fine block covers whole
+  elements of its parent ("The layout").
 - **Truncation sets `v`'s top mode to zero in the state, through the
   integrator's limiter hooks, never in the right-hand side.** An
   integrator must be given `truncate_stage!` as its stage and step
@@ -172,10 +184,14 @@ guards.
 - `origin` is `https://github.com/eschnett/TreeWaveOLDG.jl.git`, and
   `main` tracks it. Work on a branch; do not push, open a pull request,
   or merge to `main` without being asked.
-- Not registered. TreeAMR comes from the General registry, not from a
-  local checkout; IMEXRungeKutta, which is not registered, from its
+- Not registered. TreeAMR comes from the General registry (but see the
+  next item), not from a local checkout; IMEXRungeKutta, which is not registered, from its
   GitHub repository through `[sources]` in `Project.toml` and
   `test/Project.toml`.
+- TreeAMR 0.2.7, the element centering, is not registered yet, so
+  `Project.toml`, `test/Project.toml` and `bin/Project.toml` take it from
+  the branch of eschnett/TreeAMR.jl#32 through `[sources]`. Remove those
+  three entries once 0.2.7 is registered, and update both Manifests.
 - CI (`.github/workflows/CI.yml`) runs the suite with
   `--check-bounds=yes` on Linux and macOS, and on four threads on Linux.
   Do not drop its `check_bounds: 'yes'` line ("The right-hand side").

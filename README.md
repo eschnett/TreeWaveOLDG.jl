@@ -55,10 +55,22 @@ r = reflect_errors(Val(1); P=3, E=2, roots=4)
 r.l2, r.linf, r.energy / r.energy0   # error, and energy is conserved
 ```
 
+A static two-level forest refines the middle half of the box once
+(`refined=true`), or any region given as one interval per dimension:
+
+```julia
+r = wave_errors(Val(2); P=3, E=2, roots=8, refined=true)
+r.l2, r.energy / r.energy0           # the error, and energy is conserved
+```
+
+`E` must be even, so that a fine block covers whole elements of its
+parent.
+
 ## Status
 
-A prototype. It runs on a uniform periodic or reflecting forest, in any
-number of dimensions, at any order `P ≥ 1`, and converges at order `P`. Two
+A prototype. It runs on a periodic or reflecting forest, uniform or with
+a static refined region, in any number of dimensions, at any order
+`P ≥ 1`, and converges at order `P`. Two
 initial conditions are provided, a standing sine mode and a 2D radial blast
 wave, and a viewer draws the second:
 
@@ -68,8 +80,16 @@ julia --project=bin bin/visualize2d.jl
 
 On a reflecting box the wall is a Neumann (solid, `∂ₙu = 0`) boundary,
 an exact discrete symmetry whose energy is conserved to the integrator's own
-loss. Mesh refinement, partly reflecting or outflow boundaries, and a device
-run are not there yet.
+loss.
+
+Mesh refinement is static for now: the mesh is TreeAMR's, with its
+element centering (TreeAMR 0.2.7), and across a coarse-fine face the
+coupling keeps the discrete energy an exact invariant. The L2 error
+converges at order `P` on a refined forest; in two and more dimensions
+the largest pointwise error loses part of an order at the coarse-fine
+faces, an open question recorded in [CODE.md](CODE.md). Adaptive
+refinement, partly reflecting or outflow boundaries, and a device run
+are not there yet.
 
 The first parts of [two inspiralling scalar particles](INSPIRAL.md) exist
 ([INSPIRAL-PLAN.md](INSPIRAL-PLAN.md) has the milestones): a scalar
@@ -85,7 +105,8 @@ the particle in uniform motion is
 julia --project=. -t 4,0 bin/uniform_motion.jl --hdiv=4 --tend=0.125
 ```
 
-The particles do not yet move under their forces.
+The particles do not yet move under their forces, and run on uniform
+forests only.
 
 ## Design
 

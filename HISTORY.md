@@ -7,6 +7,7 @@ How the package got where it is, by topic in `CODE.md`'s order.
 - [Scope and non-goals](#scope-and-non-goals)
 - [The method](#the-method)
 - [The right-hand side](#the-right-hand-side)
+- [Refined forests](#refined-forests)
 - [Truncation](#truncation)
 - [The blast wave and the viewer](#the-blast-wave-and-the-viewer)
 - [Threads and the integrator](#threads-and-the-integrator)
@@ -80,6 +81,69 @@ How the package got where it is, by topic in `CODE.md`'s order.
   old ones (gradient pass 6.9 ms against 13.6, laptop, one thread). One
   launch per dimension was as fast for the gradient but cannot serve
   the Laplacian, which sums over `d`.
+
+## Refined forests
+
+- 2026-10-30: decided with Erik Schnetter, after the prototype had run
+  on uniform forests: the mesh machinery a refined forest needs goes
+  upstream as an **element centering** in TreeAMR (its milestone M16),
+  with `P` a property of the field set, rather than an element-local
+  operator family on cell-centered sets, which would have left
+  positions and norms at cell centres; the coarse side's ghost is the
+  **energy-compatible** restriction `R = M_c⁻¹ Iᵀ M_f`, the adjoint of
+  the fine ghost in the quadrature, so that the discrete energy stays an
+  exact invariant across coarse-fine faces, at the price of one degree
+  tangentially, rather than an interpolation or the exact `L²`
+  projection, which keep degree `P` and break the energy argument;
+  refinement comes **static first, then adaptive** (a modal indicator, a
+  regrid driver and an adaptive blast wave); and the particle code
+  **keeps refusing refined forests**. A regrid coarsens by the exact
+  projection, since energy is not conserved across a regrid anyway.
+  Whether the degree loss costs accuracy in `D ≥ 2` was left to be
+  measured here.
+- 2026-10-31: built on TreeAMR 0.2.7 (eschnett/TreeAMR.jl#32): every
+  field set element-centered with `Operators(family = ElementLocal)`;
+  `node_coordinates` and `fill_at_nodes!` became TreeAMR's
+  `coordinates` and `fill_by_coordinates!`, and `ball_norm` reads the
+  node position from TreeAMR's fold, so the package's own position code
+  went; `check_layout` dropped its refusal of a refined forest and
+  requires `E` even, which is stricter than before (`P = 3`, `N = 12`
+  had been legal), so the tests with one element per block now use two;
+  `wave_forest(…; refined)` makes a static two-level forest as TreeWave
+  does; `InspiralProblem` and `project_source!` refuse a refined forest.
+  The energy question the prototype had left **(open)** is answered:
+  the energy is an exact invariant, the skew-adjointness residual about
+  `1e-18` relative to its terms in 1D to 3D.
+- 2026-10-31: a first smoke run looked wrong: in 2D at `P = 3` the
+  two-level forest's L2 error over the box was barely below the uniform
+  coarse run's (`0.0096` against `0.0111`, fine `0.0013`), and in 1D at
+  `P = 2` its L∞ error exceeded it (`0.310` against `0.275`). Measured
+  out, the first is norm locality (the coarse three quarters of the box
+  set the norm, `√(3/4)` of the coarse error), and inside the refined
+  region the error lies between the uniform runs'. The second is not a
+  degree loss, which 1D, where every transfer is injection, cannot have:
+  the coarse part's error is a fixed `1.11–1.15` times the uniform coarse
+  run's at every resolution, what the coarse-fine faces scatter back into
+  it, converging at order `P` with the rest.
+- 2026-10-31: measured, with the tables in `CODE.md` ("Refined forests"
+  under "Measured results", and "The RK4 limit"): the L2 error over the
+  box converges at order `P` for `P = 2, 3, 4` in 1D and 2D; RK4's limit
+  at the finest spacing is the uniform one, within 2% in 1D and 2D and
+  7% in 3D; the energy is lost to RK4 only, falling by `2^6` per halving
+  of the step; a reflecting box refined at its walls keeps order `P` and
+  its energy. In 2D the L∞ error falls short of order `P` (`2.3–2.7` at
+  `P = 3`), with its maximum at fine nodes in the refined region, outside
+  the coarse–fine bracket from `roots = 16` on, and so does the L2 error
+  at a full period at `P = 3` (`2.55` at the finest pair, 45 times the
+  uniform coarse run's, which converges faster than order `P` there). A
+  refined stripe without corners shows the same. To isolate the cause,
+  a scratch copy of TreeAMR with the exact `L²` projection in `R`'s place
+  (not kept) ran the same cases: order `P` in L∞ (`3.06` at `P = 3`), and
+  energy no longer conserved, gaining up to `3e-5` of it in a quarter
+  period. So the coarse ghost's degree loss is the cause. The scheme was
+  left as decided, and the item is **(open)** in `CODE.md`: a
+  degree-preserving compatible operator through a finer mortar would be
+  upstream, and the owner's decision.
 
 ## Truncation
 
@@ -372,3 +436,9 @@ How the package got where it is, by topic in `CODE.md`'s order.
   `INSPIRAL-PLAN.md` decided, LinearAlgebra for `dot`. The tests use
   ForwardDiff and StaticArrays directly, so `test/Project.toml` names
   them too.
+- 2026-10-31: TreeAMR 0.2.7 required, for the element centering. It is
+  not registered yet, so `Project.toml`, `test/Project.toml` and
+  `bin/Project.toml` take it from the branch of its release pull request
+  (eschnett/TreeAMR.jl#32) through `[sources]`, until it is; the
+  viewer's environment needs its own entry, since its direct TreeAMR
+  dependency would otherwise resolve from the registry.
