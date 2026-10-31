@@ -488,11 +488,12 @@ period:
 
 So the energy-compatible ghost buys an exact invariant and costs, in
 `D ≥ 2`, about half an order of the local error at the coarse-fine
-faces, which then travels. TreeAMR's `CODE.md` names the remedy, a
-degree-preserving compatible operator through a finer mortar
-("Open questions" there); it would be upstream, and whether to build it
-is the owner's decision. In 1D nothing of it shows, nor for the
-reflecting box's `m = 1` mode below.
+faces, which then travels. Erik decided on 2026-10-31 to keep `R` for
+the invariant. The two alternatives, the exact projection (order back,
+energy growing) and an order-preserving pair through a finer mortar,
+are recorded in TreeAMR's `CODE.md` ("What the element centering leaves
+open"), where either would be built. In 1D nothing of it shows, nor for
+the reflecting box's `m = 1` mode below.
 
 **Walls.** On a reflecting box with the corner `(0, L/2)^D` refined, so
 that coarse-fine faces meet the walls, the Neumann mode converges at
