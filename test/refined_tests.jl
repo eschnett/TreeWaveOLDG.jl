@@ -433,12 +433,12 @@ end
     # restriction, exact to degree `P - 1` tangentially; in 2D at `P = 3`
     # the L∞ error in the refined middle falls by 2^1.77 from `roots = 8`
     # to 16, where the exact L² projection in its place (which loses the
-    # energy invariant) gives 2^3.52 in the same runs. If this fails
-    # because the rate rose to `P`, the coarse ghost changed upstream:
-    # re-measure, and update "Refined forests" and "Measured results".
+    # energy invariant) gives 2^3.52 in the same runs. If the broken test
+    # passes unexpectedly, the coarse ghost changed upstream: re-measure,
+    # and update "Refined forests" and "Measured results".
     P = 3
     m8 = standing_errors(2, P; roots=8, refined=true)
     m16 = standing_errors(2, P; roots=16, refined=true)
-    @test log2(m8.ball_linf / m16.ball_linf) < P - 0.5
+    @test_broken log2(m8.ball_linf / m16.ball_linf) ≥ P - 0.5
     @test P - 0.25 < log2(m8.l2 / m16.l2) < P + 0.2
 end
