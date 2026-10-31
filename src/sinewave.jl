@@ -77,8 +77,9 @@ end
     wave_forest(T, Val(D), P, E; roots=4, L=1, reflecting=false)
 
 A uniform box of `roots^D` blocks, each holding `E^D` elements of order
-`P`, so `N = E(P+1)` points per dimension. TreeAMR needs `N` even, so
-for even `P` the number of elements per block has to be even too.
+`P`, so `N = E(P+1)` points per dimension. `E` has to be even, so that a
+block of a refined forest covers whole elements of its parent; see
+[`check_layout`](@ref TreeWaveOLDG.check_layout).
 
 The box is periodic by default. With `reflecting=true` every face is a
 solid (Neumann, `∂_n u = 0`) wall, declared to TreeAMR as a
@@ -86,16 +87,15 @@ reflection symmetry: each face is `reflecting` on the forest, and
 [`WaveProblem`](@ref) derives the per-variable parities the wall imposes
 (`u` and `v` even, `∂_d u` odd in `d`) for the field sets' ghosts.
 Periodic remains the default; see "Reflecting walls" in `CODE.md`.
-
-Uniform, because that is what OLDG can run on today; see "Scope and
-non-goals" in `CODE.md`.
 """
 function wave_forest(::Type{T}, ::Val{D}, P::Integer, E::Integer; roots=4,
                      L=one(T), reflecting::Bool=false) where {T,D}
     N = E * (P + 1)
-    iseven(N) || throw(ArgumentError(
-        "E = $E elements of order P = $P make N = $N points per block, and " *
-        "TreeAMR needs N even: use an even E when P is even"))
+    iseven(E) || throw(ArgumentError(
+        "E = $E elements of order P = $P per block is odd, and E must be even: a " *
+        "block of a refined forest covers half of its parent and has to cover " *
+        "whole elements of it, so TreeAMR's element centering needs N = $N to be a " *
+        "multiple of 2(P+1) = $(2(P + 1))"))
     periodic = ntuple(_ -> !reflecting, D)
     if reflecting
         return Forest{T}(ntuple(_ -> roots, D); N=N, periodic=periodic,
@@ -150,12 +150,8 @@ function wave_errors(::Type{T}, ::Val{D}; P::Integer, E::Integer, roots=4, L=one
     solve!(integ)
     u = integ.u
 
-    exact = if reflecting
-        FieldSet{T}(forest, 2; G=1, centering=cellcentered(D),
-                    parity=state_statesparity(Val(D)), backend=backend)
-    else
-        FieldSet{T}(forest, 2; G=1, centering=cellcentered(D), backend=backend)
-    end
+    exact = wave_fieldset(T, forest, 2, ntuple(_ -> 0, D), state_statesparity(Val(D)),
+                          P, backend)
     fill_at_nodes!(exact_mode(D, L, m, t_end), exact, el)
     uexact = statevector(exact)
     gather!(uexact, exact)

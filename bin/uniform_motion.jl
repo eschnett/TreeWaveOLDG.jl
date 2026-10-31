@@ -61,7 +61,7 @@ function problem(hdiv, L, v, order)
     P = 3
     hₑ = 1 / hdiv
     # Blocks of `E` elements, as many as fit the box.
-    E = first(e for e in (4, 3, 2, 1) if isinteger(L / (e * hₑ)) && iseven(e * (P + 1)))
+    E = first(e for e in (4, 2) if isinteger(L / (e * hₑ)))
     roots = round(Int, L / (E * hₑ))
     forest = wave_forest(Float64, Val(3), P, E; roots=roots, L=L)
     wave = WaveProblem(forest, Element(Float64, P))

@@ -160,7 +160,7 @@ function uniform_blast(::Type{T}=Float64; P::Integer, E::Integer, roots::Integer
     dt = t_end / nsteps
     integ = wave_integrator(p, u0, zero(T), t_end; dt=dt, alg=alg)
 
-    exact = FieldSet{T}(forest, 2; G=1, centering=cellcentered(2))
+    exact = FieldSet{T}(forest, 2; G=0, centering=elementcentered(2), P=P)
     function exact_state(t)
         fill_at_nodes!(blast_exact(T, ref, t), exact, el)
         ue = statevector(exact)

@@ -59,7 +59,9 @@ motion (a [`Prescribed`](@ref) one until M6a), the near-field `order`
 projection's `rnear`, and the projection's scratch array.
 
 The window has to hold the particles: its ball and every particle's
-support lie inside the box, which the transfer checks when it runs.
+support lie inside the box, which the transfer checks when it runs. The
+forest has to be uniform: the transfer measures its distances in the
+finest element width, which a coarser element does not have.
 """
 struct InspiralProblem{T,K,WP<:WaveProblem{T,3},TT,MO,S}
     wave::WP
@@ -76,6 +78,7 @@ function InspiralProblem(wave::WaveProblem{T,3}, models::Tuple, window::Window,
                          motion::Prescribed; order::Int=3, tables=nothing,
                          rnear::Real=1) where {T}
     check_order(order)
+    check_uniform(wave.fs.forest, "InspiralProblem")
     tables === nothing && (tables = TransferTables(T, TreeWaveOLDG.order(wave.element)))
     check_tables(wave, tables)
     K = length(models)
@@ -296,8 +299,8 @@ function particle_forces(p::InspiralProblem{T,K}, u, t) where {T,K}
 end
 
 # A fold's `rf` for `ball_norm`: `Σ w |x|^p` and `Σ w` over the nodes
-# within the ball, the node's position from its block's origin, the
-# fold's tag.
+# within the ball, at the node's position, which TreeAMR gives an element
+# set's fold.
 struct BallFold{EL,D,T}
     el::EL
     centre::NTuple{D,T}
@@ -306,7 +309,7 @@ struct BallFold{EL,D,T}
 end
 
 function (bf::BallFold{EL,D})(acc, q) where {EL,D}
-    x = node_position(q.tag, q.h, q.I, bf.el)
+    x = q.x
     r² = sum(ntuple(d -> (x[d] - bf.centre[d])^2, Val(D)))
     r² < bf.radius^2 || return acc
     w = node_weight(q.I, q.h, bf.el, Val(D))
@@ -334,24 +337,21 @@ clean of the box's faces ("The right-hand side with particles" in
 function ball_norm(wave::WaveProblem{T,D}, u::AbstractVector, centre, radius;
                    p::Real=2, vars=1:2) where {T,D}
     fs = wave.fs
-    forest = fs.forest
     isinf(p) || (isinteger(p) && p >= 1) || throw(ArgumentError(
         "ball_norm takes an integer p ≥ 1 or Inf, got p = $p"))
     q = isinf(p) ? 1 : Int(p)
     rf = BallFold{typeof(wave.element),D,T}(wave.element, NTuple{D,T}(Tuple(centre)),
                                             T(radius), q)
-    tag = key -> block_origin(T, forest, key)
     if isinf(p)
         rfmax = (acc, pt) -> begin
-            x = node_position(pt.tag, pt.h, pt.I, wave.element)
+            x = pt.x
             sum(ntuple(d -> (x[d] - rf.centre[d])^2, Val(D))) < rf.radius^2 || return acc
             TreeAMR.combine(acc, Max(maximum(abs, pt.u)))
         end
-        return mesh_fold(rfmax, TreeAMR.combine, Max(zero(T)), fs, u; vars=vars,
-                         tag=tag).value
+        return mesh_fold(rfmax, TreeAMR.combine, Max(zero(T)), fs, u; vars=vars).value
     end
     total, volume = mesh_fold(rf, TreeAMR.combine, (Sum(zero(T)), Sum(zero(T))), fs, u;
-                              vars=vars, tag=tag)
+                              vars=vars)
     volume.value == 0 && return zero(T)
     return (total.value / volume.value)^inv(T(q))
 end

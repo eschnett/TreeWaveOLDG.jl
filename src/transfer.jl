@@ -502,9 +502,9 @@ const HOST_ELEMENT = 2
 end
 
 # The box of element `e` (zero-based, per dimension) of a block. Both
-# faces are computed as `origin + h·(multiple of P+1)`, as `node_position`
-# computes the face nodes, so neighbouring elements share their faces bit
-# for bit.
+# faces are computed as `origin + h·(multiple of P+1)`, as TreeAMR's
+# `nodeposition` computes the face nodes, so neighbouring elements share
+# their faces bit for bit.
 @inline function element_box(origin, h, e, ::Val{P1}, ::Val{D}) where {P1,D}
     lo = SVector(ntuple(d -> origin[d] + h * (e[d] * P1), Val(D)))
     hi = SVector(ntuple(d -> origin[d] + h * ((e[d] + 1) * P1), Val(D)))
@@ -585,6 +585,21 @@ function projection_scratch(p::WaveProblem{T,D}, t::TransferTables{T,P1,Q}) wher
     return allocate(get_backend(p.fs.work), T, ntuple(_ -> E * Q, D)..., nblocks(p.fs))
 end
 
+# Refuse a refined forest. The projection's distances (`rnear`, `rfar`
+# and the graded bands) are in units of the finest element width `hₑ`,
+# and its near and graded elements are classified in it, so on a coarser
+# element every one of them would be off by the ratio of the spacings,
+# and the quadrature chosen for it silently too coarse.
+function check_uniform(forest::Forest, what)
+    lo, hi = extrema(level, forest.leaves)
+    lo == hi || throw(ArgumentError(
+        "$what needs a uniform forest, and this one has levels $lo to $hi: the " *
+        "transfer between particles and grid measures its distances in the finest " *
+        "element width hₑ, and would integrate a coarser element with a rule chosen " *
+        "for a finer one"))
+    return nothing
+end
+
 function check_tables(p::WaveProblem, t::TransferTables)
     order(t) == order(p.element) || throw(ArgumentError(
         "the transfer tables are for order P = $(order(t)), the problem's element for " *
@@ -643,6 +658,7 @@ function projection_plan(p::WaveProblem{T,D}, t::TransferTables{T,P1}, particles
         "rnear = $rnear must lie between 0 and the far rule's distance rfar = $(t.rfar)"))
     fs = p.fs
     forest = fs.forest
+    check_uniform(forest, "project_source!")
     backend = get_backend(fs.work)
     hₑ = minimum_spacing(forest) * P1
     rn = T(rnear) * hₑ

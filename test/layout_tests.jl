@@ -1,18 +1,18 @@
 # The layout: where each owned point is, and how a sum over points
-# becomes an integral. TreeAMR's own answers to both assume equally
-# spaced cell centres, so an error here would sample initial data and
-# exact solutions at the wrong places — and the convergence tests would
-# then measure the sampling, not the scheme.
+# becomes an integral. Both are TreeAMR's element centering's, reached
+# through this package's names, so an error here would sample initial data
+# and exact solutions at the wrong places — and the convergence tests
+# would then measure the sampling, not the scheme.
 
 @testset "Nodes sit where the element says, and face nodes coincide" begin
-    # Guards `node_position` against an off-by-one in the element or
+    # Guards the node positions against an off-by-one in the element or
     # block offset, and the two face nodes of a face against being given
     # positions an ulp apart, which would make "continuous across the
     # face" a statement about roundoff.
-    for (D, P, E) in ((1, 3, 2), (2, 2, 2), (3, 1, 1))
+    for (D, P, E) in ((1, 3, 2), (2, 2, 2), (3, 1, 2))
         forest = wave_forest(Float64, Val(D), P, E; roots=2)
         el = Element(Float64, P)
-        fs = FieldSet(forest, D; G=1)
+        fs = FieldSet(forest, D; G=1, centering=elementcentered(D), P=P)
         fill_at_nodes!((x, v) -> x[v], fs, el)
         N = forest.N
         h = minimum_spacing(forest)
@@ -45,7 +45,7 @@ end
     for (D, P) in ((1, 3), (2, 2), (2, 3))
         forest = wave_forest(Float64, Val(D), P, 2; roots=2)
         el = Element(Float64, P)
-        fs = FieldSet(forest, 1; G=1)
+        fs = FieldSet(forest, 1; G=1, centering=elementcentered(D), P=P)
         u = statevector(fs)
         fill_at_nodes!((x, v) -> 1.0, fs, el)
         gather!(u, fs)
@@ -59,17 +59,10 @@ end
     end
 end
 
-@testset "A layout OLDG cannot run on is refused, with the reason" begin
-    # Guards against running on a forest whose ghosts would be wrong: a
-    # block that splits an element, or a refined forest, whose coarse-fine
-    # ghosts TreeAMR would interpolate as equally spaced cell centres.
+@testset "A block that splits an element is refused, with the reason" begin
+    # Guards against running on a forest whose blocks do not hold whole
+    # elements: the wide derivative would read a face that is not one.
     el = Element(Float64, 2)
-    @test_throws ArgumentError WaveProblem(
+    @test_throws "not a whole number of elements" WaveProblem(
         Forest((2,); N=4, periodic=(true,), extents=((0.0, 1.0),)), el)
-    forest = Forest((2, 2); N=6, periodic=(true, true),
-                    extents=((0.0, 1.0), (0.0, 1.0)))
-    refine!(forest, forest.leaves[1:1])
-    balance!(forest)
-    @test_throws ArgumentError WaveProblem(forest, el)
-    @test_throws ArgumentError wave_forest(Float64, Val(1), 2, 1)
 end

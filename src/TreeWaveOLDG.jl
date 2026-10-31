@@ -14,10 +14,10 @@ Gauss–Lobatto nodes, both face nodes stored, a wide derivative that reads
 one point past its element, and the Laplacian as that derivative applied
 twice.
 
-This is the *unrefined prototype* TreeAMR's `CODE.md` proposes ("Element-
-local DG stencils"): it runs on a uniform forest with the mesh as it is,
-to judge the method on its equations before TreeAMR grows a Gauss–Lobatto
-centering and element-local transfer operators.
+It runs on TreeAMR's element-centered field sets, whose points are the
+elements' Gauss–Lobatto nodes, with TreeAMR's element-local operators
+across coarse-fine faces, so the forest may be refined. The particle
+transfer of the inspiral still needs a uniform one.
 
 The reference element is in `element.jl`, the node layout and quadrature
 in `layout.jl`, the right-hand side in `evolution.jl`, the time integrator

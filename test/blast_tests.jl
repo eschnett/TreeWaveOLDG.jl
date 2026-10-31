@@ -11,8 +11,8 @@
     el = Element(Float64, 3)
     L, x₀, σ = 1.0, (0.5, 0.5), 0.08
     ref = blast_reference(L, x₀, σ; rmax=6σ + 0.4)
-    a = FieldSet(forest, 2; G=1)
-    b = FieldSet(forest, 2; G=1)
+    a = FieldSet(forest, 2; G=0, centering=elementcentered(2), P=3)
+    b = FieldSet(forest, 2; G=0, centering=elementcentered(2), P=3)
     fill_at_nodes!(blast_initial(L, x₀, σ), a, el)
     fill_at_nodes!(blast_exact(Float64, ref, 0.0), b, el)
     ua, ub = statevector(a), statevector(b)

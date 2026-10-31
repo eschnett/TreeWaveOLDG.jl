@@ -24,7 +24,7 @@ end
     # its window, the ghost plane at block faces, the dimension a
     # derivative runs along, and the tensor-product truncation of the
     # initial `v`. The right-hand side itself never truncates.
-    for (D, P, E, roots) in ((1, 3, 1, 3), (2, 2, 2, 3), (2, 3, 1, 2), (3, 1, 1, 3)),
+    for (D, P, E, roots) in ((1, 3, 2, 3), (2, 2, 2, 3), (2, 3, 2, 2), (3, 1, 2, 3)),
         truncate in (true, false)
 
         forest = wave_forest(Float64, Val(D), P, E; roots=roots)
@@ -44,7 +44,7 @@ end
         @test norm(vec(global_array(p.fs, du, 2)) - ref, Inf) < 1e-12 * norm(ref, Inf)
 
         # The initial `v` is projected when truncating, and only then.
-        raw = FieldSet(forest, 2; G=1)
+        raw = FieldSet(forest, 2; G=1, centering=elementcentered(D), P=P)
         fill_at_nodes!(testdata(D), raw, el)
         r = statevector(raw)
         gather!(r, raw)
@@ -86,7 +86,7 @@ end
     # element read across its face would leave a projection that is not
     # `Π ⊗ … ⊗ Π`. The dense reference is built from `el.truncate`, the
     # matrix the kernel does not read.
-    for (D, P, E, roots) in ((1, 3, 2, 2), (2, 2, 2, 2), (2, 4, 2, 1), (3, 3, 1, 2))
+    for (D, P, E, roots) in ((1, 3, 2, 2), (2, 2, 2, 2), (2, 4, 2, 1), (3, 3, 2, 1))
         forest = wave_forest(Float64, Val(D), P, E; roots=roots)
         el = Element(Float64, P)
         p = WaveProblem(forest, el; truncate=false)

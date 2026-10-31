@@ -179,7 +179,7 @@ end
     # of degree `P` per dimension, which is what the pairing of `P ρ` with
     # a polynomial `g` integrates; `g = 1` gives `Q/γ`.
     P = 3
-    forest = wave_forest(Float64, Val(3), P, 1; roots=2)
+    forest = wave_forest(Float64, Val(3), P, 2; roots=1)
     el = Element(Float64, P)
     p = WaveProblem(forest, el)
     t = TransferTables(Float64, P)
@@ -248,7 +248,7 @@ end
     # appears, the projection of a source that does not move stays put to
     # 1e-12, so the switch is invisible.
     P = 3
-    forest = wave_forest(Float64, Val(3), P, 1; roots=2)
+    forest = wave_forest(Float64, Val(3), P, 2; roots=1)
     el = Element(Float64, P)
     p = WaveProblem(forest, el)
     t = TransferTables(Float64, P)
@@ -400,7 +400,7 @@ end
     # with the grid function, for `ρ` and for `∇ρ` (a vector), at rest
     # and moving.
     P = 3
-    forest = wave_forest(Float64, Val(3), P, 1; roots=2)
+    forest = wave_forest(Float64, Val(3), P, 2; roots=1)
     el = Element(Float64, P)
     p = WaveProblem(forest, el)
     t = TransferTables(Float64, P)

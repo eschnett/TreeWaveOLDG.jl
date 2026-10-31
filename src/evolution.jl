@@ -141,9 +141,14 @@ Everything the right-hand side and the truncation need, built once:
 That is all the exchange the wide derivative needs and no more: it reads
 one point past its element along the dimension it differentiates, so `u`
 needs its face ghosts, `∂_d u` the two faces normal to `d`, and `v` none.
-The schedules' operators never run on a uniform forest, which is the
-only kind this accepts (see [`check_layout`](@ref TreeWaveOLDG.check_layout)).
-See "The right-hand side" in `CODE.md`.
+Every set is element-centered at the element's order `P`, and the
+schedules use TreeAMR's element-local operators, so the forest may be
+refined (see [`check_layout`](@ref TreeWaveOLDG.check_layout)): across a
+coarse-fine face a fine ghost is the coarse element's polynomial at the
+fine nodes, and a coarse ghost the restriction that is its adjoint in the
+quadrature, which keeps the discrete energy an exact invariant. An
+element set's edge and corner ghosts are never written, and nothing here
+reads them. See "The right-hand side" in `CODE.md`.
 
 A forest with reflecting faces (a solid wall, decentered `reflecting` on
 every face) makes the problem a reflecting box, and the field sets then
@@ -182,15 +187,16 @@ state_statesparity(::Val{D}) where {D} = [EvenParity, EvenParity]
 state_gradparity(::Val{D}, d) where {D} =
     [ntuple(k -> (k == d ? OddParity : EvenParity), D)]
 
-# A field set over `forest` that carries `parity` only where the forest
-# reflects; TreeAMR refuses a parity elsewhere.
-function wave_fieldset(::Type{T}, forest::Forest{D}, nvars, G, parity,
+# An element-centered field set of order `P` over `forest` that carries
+# `parity` only where the forest reflects; TreeAMR refuses a parity
+# elsewhere.
+function wave_fieldset(::Type{T}, forest::Forest{D}, nvars, G, parity, P,
                        backend) where {T,D}
     if TreeAMR.hasreflecting(forest)
-        return FieldSet{T}(forest, nvars; G=G, centering=cellcentered(D),
+        return FieldSet{T}(forest, nvars; G=G, centering=elementcentered(D), P=P,
                            parity=parity, backend=backend)
     else
-        return FieldSet{T}(forest, nvars; G=G, centering=cellcentered(D),
+        return FieldSet{T}(forest, nvars; G=G, centering=elementcentered(D), P=P,
                            backend=backend)
     end
 end
@@ -198,16 +204,17 @@ end
 function WaveProblem(forest::Forest{D}, el::Element{T}; truncate::Bool=true,
                      backend::Backend=CPU()) where {D,T}
     check_layout(forest, el)
-    fs = wave_fieldset(T, forest, 2, ntuple(_ -> 0, D), state_statesparity(Val(D)),
+    P = order(el)
+    fs = wave_fieldset(T, forest, 2, ntuple(_ -> 0, D), state_statesparity(Val(D)), P,
                        backend)
-    ufs = wave_fieldset(T, forest, 1, ntuple(_ -> 1, D), [EvenParity], backend)
+    check_element_set(fs, el)
+    ufs = wave_fieldset(T, forest, 1, ntuple(_ -> 1, D), [EvenParity], P, backend)
     grads = ntuple(d -> wave_fieldset(T, forest, 1, ntuple(k -> Int(k == d), D),
-                                      state_gradparity(Val(D), d), backend), Val(D))
-    # The operators are a formality: they say how to fill a coarse-fine
-    # ghost, and a uniform forest has none. Conservative order 1 is the one
-    # family TreeAMR accepts for a ghost-free dimension, which the
-    # gradients have.
-    ops = Operators(family=Conservative, prolongation=1, restriction=2)
+                                      state_gradparity(Val(D), d), P, backend), Val(D))
+    # Every operator of an element set follows from its `P`: injection
+    # normal to a face, and tangentially the coarse element's polynomial
+    # for a fine ghost and its adjoint restriction for a coarse one.
+    ops = Operators(family=ElementLocal)
     uschedule = GhostSchedule(ufs, ops)
     gradschedules = map(g -> GhostSchedule(g, ops), grads)
     spacings = to_backend(backend, block_spacings(forest, T))
@@ -317,10 +324,12 @@ end
     wave_energy(p::WaveProblem, u)
 
 The discrete energy `½ Σ w (v² + Σ_d (D_d u)²)`, a quadrature over the
-nodes with the element weights. Summation by parts makes it an exact
-invariant of the semi-discrete system on a periodic box, and truncating
-`v` does not change that (the projector is self-adjoint in this inner
-product), so what a run loses is the time integrator's.
+nodes with the element weights, each block's scaled by its own spacing.
+Summation by parts makes it an exact invariant of the semi-discrete
+system on a periodic or reflecting box, uniform or refined (across a
+coarse-fine face the coarse ghost is the adjoint of the fine one in this
+inner product), and truncating `v` does not change that (the projector is
+self-adjoint in it), so what a run loses is the time integrator's.
 """
 function wave_energy(p::WaveProblem{T,D}, u) where {T,D}
     fill_gradient!(p, u)
@@ -333,7 +342,8 @@ end
     oldg_timestep(p::WaveProblem; cfl)
 
 `cfl · hₑ / (P+1)²`, the DG time step (arXiv:1604.00075, eq. 64), for the
-smallest element width `hₑ = (P+1)h`. That is `cfl · h / (P+1)` in the
+smallest element width `hₑ = (P+1)h`, the finest level's on a refined
+forest. That is `cfl · h / (P+1)` in the
 mesh's spacing. RK4 is stable up to `cfl ≈ 5` in one dimension, measured
 for every `P` from 1 to 6, and the limit falls as `1/√D`; see "Time step"
 in `CODE.md`.
