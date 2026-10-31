@@ -74,11 +74,11 @@ function reflect_exact(D, L, m, t)
 end
 
 """
-    wave_forest(T, Val(D), P, E; roots=4, L=1, reflecting=false)
+    wave_forest(T, Val(D), P, E; roots=4, L=1, reflecting=false, refined=false)
 
-A uniform box of `roots^D` blocks, each holding `E^D` elements of order
-`P`, so `N = E(P+1)` points per dimension. `E` has to be even, so that a
-block of a refined forest covers whole elements of its parent; see
+A box of `roots^D` blocks, each holding `E^D` elements of order `P`, so
+`N = E(P+1)` points per dimension. `E` has to be even, so that a block of
+a refined forest covers whole elements of its parent; see
 [`check_layout`](@ref TreeWaveOLDG.check_layout).
 
 The box is periodic by default. With `reflecting=true` every face is a
@@ -87,9 +87,17 @@ reflection symmetry: each face is `reflecting` on the forest, and
 [`WaveProblem`](@ref) derives the per-variable parities the wall imposes
 (`u` and `v` even, `∂_d u` odd in `d`) for the field sets' ghosts.
 Periodic remains the default; see "Reflecting walls" in `CODE.md`.
+
+The box is uniform by default. `refined` makes it a static two-level
+forest, as TreeWave's is: the blocks whose centres lie inside a region
+are refined once, then the forest is balanced. `refined=true` takes the
+middle half of the box in every dimension, `(L/4, 3L/4)^D`, which needs
+`roots ≥ 3` to hold a block centre; a tuple of `D` intervals `(lo, hi)`
+gives the region itself, so that refinement can reach a wall of a
+reflecting box. A region that holds no block centre is refused.
 """
 function wave_forest(::Type{T}, ::Val{D}, P::Integer, E::Integer; roots=4,
-                     L=one(T), reflecting::Bool=false) where {T,D}
+                     L=one(T), reflecting::Bool=false, refined=false) where {T,D}
     N = E * (P + 1)
     iseven(E) || throw(ArgumentError(
         "E = $E elements of order P = $P per block is odd, and E must be even: a " *
@@ -97,19 +105,37 @@ function wave_forest(::Type{T}, ::Val{D}, P::Integer, E::Integer; roots=4,
         "whole elements of it, so TreeAMR's element centering needs N = $N to be a " *
         "multiple of 2(P+1) = $(2(P + 1))"))
     periodic = ntuple(_ -> !reflecting, D)
-    if reflecting
-        return Forest{T}(ntuple(_ -> roots, D); N=N, periodic=periodic,
-                         reflecting=ntuple(_ -> (true, true), D),
-                         extents=ntuple(_ -> (zero(T), L), D))
+    forest = if reflecting
+        Forest{T}(ntuple(_ -> roots, D); N=N, periodic=periodic,
+                  reflecting=ntuple(_ -> (true, true), D),
+                  extents=ntuple(_ -> (zero(T), L), D))
     else
-        return Forest{T}(ntuple(_ -> roots, D); N=N, periodic=periodic,
-                         extents=ntuple(_ -> (zero(T), L), D))
+        Forest{T}(ntuple(_ -> roots, D); N=N, periodic=periodic,
+                  extents=ntuple(_ -> (zero(T), L), D))
     end
+    refined === false && return forest
+    region = refined === true ? ntuple(_ -> (L / 4, 3L / 4), D) : refined
+    length(region) == D && all(r -> length(r) == 2 && r[1] < r[2], region) ||
+        throw(ArgumentError(
+            "refined must be false, true, or a tuple of $D intervals (lo, hi) with " *
+            "lo < hi, one per dimension; got $(repr(refined))"))
+    targets = filter(forest.leaves) do k
+        ext = block_extent(forest, k)
+        all(d -> region[d][1] < (ext[d][1] + ext[d][2]) / 2 < region[d][2], 1:D)
+    end
+    isempty(targets) && throw(ArgumentError(
+        "no block centre lies inside the region $(repr(region)) to be refined; " *
+        "with refined=true the region is the middle half of the box, which holds " *
+        "a block centre only from roots = 3 on (roots = $roots)"))
+    refine!(forest, targets)
+    balance!(forest)
+    return forest
 end
 
 """
     wave_errors(T, Val(D); P, E, roots=4, L=1, m=1, cfl=1/2, periods=1/4,
-                alg=RK4(), truncate=true, backend=CPU(), reflecting=false)
+                alg=RK4(), truncate=true, backend=CPU(), reflecting=false,
+                refined=false)
 
 Evolve the standing mode to `t_end` with fixed-step `alg` and return the
 quadrature-weighted L2 and nodal L∞ errors of `u` and `v` together, the
@@ -119,7 +145,9 @@ initial and final energies.
 On a periodic box (the default) the mode is the sine [`wave_exact`](@ref);
 on a reflecting box (`reflecting=true`) it is the Neumann standing mode
 [`reflect_exact`](@ref), and the forest's walls are solid. Both measure the
-order of the discretization.
+order of the discretization. `refined` is passed to [`wave_forest`](@ref):
+the box is uniform by default, and a static two-level forest otherwise.
+The spacings returned are the finest level's.
 
 The time step is [`oldg_timestep`](@ref), `cfl · hₑ/(P+1)²`. At RK4's
 fourth order its error falls more slowly than the spatial error once
@@ -133,8 +161,9 @@ stage and step limiter, so that truncation cannot be left out.
 function wave_errors(::Type{T}, ::Val{D}; P::Integer, E::Integer, roots=4, L=one(T),
                      m=1, cfl=T(1//2), periods=T(1//4), alg=RK4(),
                      truncate::Bool=true, backend::Backend=CPU(),
-                     reflecting::Bool=false) where {T,D}
-    forest = wave_forest(T, Val(D), P, E; roots=roots, L=L, reflecting=reflecting)
+                     reflecting::Bool=false, refined=false) where {T,D}
+    forest = wave_forest(T, Val(D), P, E; roots=roots, L=L, reflecting=reflecting,
+                         refined=refined)
     el = Element(T, P)
     problem = WaveProblem(forest, el; truncate=truncate, backend=backend)
 
@@ -169,7 +198,8 @@ end
 
 [`wave_errors`](@ref) on a reflecting box: a shorthand kept so the
 standing Neumann mode's own name reads in a caller. Accepts every keyword
-`wave_errors` does except `reflecting`, which is fixed at `true`.
+`wave_errors` does except `reflecting`, which is fixed at `true`;
+`refined` with a region that reaches a wall refines the box there.
 """
 reflect_errors(args...; kwargs...) = wave_errors(args...; reflecting=true, kwargs...)
 
