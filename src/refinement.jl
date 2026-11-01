@@ -1,16 +1,16 @@
 # The refinement criterion: a per-element indicator, reduced to a
-# per-block verdict for TreeAMR's `regrid!`.
+# per-block verdict for TreeAMR's `regrid!`. See "Adaptive refinement" in
+# `CODE.md`.
 #
 # The split is TreeAMR's, as in TreeWave: the mesh takes a flag per block,
 # the application reduces its own indicator to that flag, and the mesh
 # dilates where the criterion fired by the buffer. What differs is the
 # indicator. TreeWave's Löhner indicator is a second difference over three
 # cells; an element here already holds a polynomial, and how well it
-# resolves the data is how much of the data is in its last Legendre mode.
-# For data the element resolves, the coefficients fall off geometrically,
-# and the last one is what is left; for smooth data the coefficient of
-# `L_m` falls as `hₑ^m`, so a fixed threshold makes refinement stop on its
-# own.
+# resolves the data is how much of the data is in its last Legendre modes.
+# For smooth data the coefficient of `L_m` falls as `(hₑ/ℓ)^m`, with `ℓ`
+# the data's length scale, so a fixed threshold makes refinement stop on
+# its own.
 #
 # Which mode is the last one depends on the scheme. Without truncation it
 # is `u`'s top mode, `P`. With it, `∂ₜu = v` and `v` has no mode of degree
@@ -21,51 +21,96 @@
 # was `7.03e-6` at `t = 0.1` and at `t = 0.4`, while the ring there had an
 # amplitude of `0.14`; an indicator on it left the ring on coarse blocks
 # and kept the start's refinement for good. The last mode that moves with
-# the solution is `P - 1`, so the truncated scheme reads that one.
+# the solution is `M = P - 1`, so the truncated scheme reads that one.
+#
+# One mode alone is not enough before the mesh resolves the data: on an
+# element wider than the feature the coefficients no longer fall with the
+# degree, and any one of them can cross zero. The blast wave's Gaussian,
+# centred on an element corner, scores `2.8e-2` in mode 2 at `hₑ = 1.56σ`
+# against `5.7e-2` at half that width, so a threshold between the two
+# passes the coarser mesh as resolved. So the indicator takes every mode
+# that moves, `m = 1 … M`, each as the estimate it gives of the mode-`M`
+# amplitude, `|c_m|^(M/m)`, since `|c_m| ≈ (hₑ/ℓ)^m`, and the largest of
+# them. On resolved data that is close to `|c_M|` (within a factor 1.1 at
+# `P = 3` and 2.4 at `P = 4` on the Gaussian); on unresolved data it would
+# take every mode crossing zero at once to pass. `CODE.md` has the
+# alternatives measured against it.
 #
 # Threading: TreeAMR calls `flag_blocks`' callback concurrently, one block
 # per thread. So the indicator is not computed inside it: one kernel,
 # launched by block owner, writes every element's amplitude, and the
 # callback only reads its block's slice of that array.
 
-# The amplitude of one Legendre mode of variable `var` along every line of
-# one element, the largest over the element's lines in every dimension,
-# into `τ[e1, …, eD, b]`. `dual` is the mode's row of `Element.duals`:
-# along a line the element's polynomial is `Σ_k c_k L_k`, and `c_m = Σ_j
-# dual[j] u_j` exactly, by the discrete orthogonality of the Legendre
-# modes under the Gauss–Lobatto quadrature. For the top mode this is the
-# dot product the truncation kernel forms with `topdual`. `|L_m| ≤ 1` on
-# the element, with `|L_m(±1)| = 1`, so `|c_m|` is the mode's amplitude in
-# the units of `u`. `G` is the set's ghost width, which offsets the owned
-# nodes in the working array.
-@kernel function mode_kernel!(τ, @Const(a), dual::NTuple{P1}, var, ::Val{D},
-                              ::Val{G}) where {P1,D,G}
+# The scaled amplitudes of the Legendre modes `duals` of variable `var`
+# along every line of one element, the largest over the element's lines
+# in every dimension and over the modes, into `τ[e1, …, eD, b]`. `duals[q]`
+# is a row of `Element.duals`: along a line the element's polynomial is
+# `Σ_k c_k L_k`, and `c_m = Σ_j dual[j] u_j` exactly, by the discrete
+# orthogonality of the Legendre modes under the Gauss–Lobatto quadrature.
+# For the top mode this is the dot product the truncation kernel forms
+# with `topdual`. `|L_m| ≤ 1` on the element, with `|L_m(±1)| = 1`, so
+# `|c_m|` is the mode's amplitude in the units of `u`. It enters as
+# `post (weights[q] |c_m|)^pows[q]`, the weight including one over the
+# global peak. `G` is the set's ghost width, which offsets the owned nodes
+# in the working array.
+@kernel function mode_kernel!(τ, @Const(a), duals::NTuple{Q,NTuple{P1}}, weights::NTuple{Q},
+                              pows::NTuple{Q}, post, var, ::Val{D},
+                              ::Val{G}) where {Q,P1,D,G}
     J = @index(Global, NTuple)                 # (e1..eD, block)
     b = J[D + 1]
     base = ntuple(d -> (J[d] - 1) * P1 + G[d], Val(D))
     m = zero(eltype(τ))
     for d in 1:D
         for K in CartesianIndices(ntuple(k -> k == d ? 1 : P1, Val(D)))
-            c = zero(eltype(τ))
-            for j in 1:P1
-                idx = ntuple(k -> base[k] + (k == d ? j : K[k]), Val(D))
-                @inbounds c += dual[j] * a[idx..., var, b]
+            for q in 1:Q
+                dual = duals[q]
+                c = zero(eltype(τ))
+                for j in 1:P1
+                    idx = ntuple(k -> base[k] + (k == d ? j : K[k]), Val(D))
+                    @inbounds c += dual[j] * a[idx..., var, b]
+                end
+                m = max(m, (weights[q] * abs(c))^pows[q])
             end
-            m = max(m, abs(c))
         end
     end
-    @inbounds τ[ntuple(d -> J[d], Val(D))..., b] = m
+    @inbounds τ[ntuple(d -> J[d], Val(D))..., b] = post * m
+end
+
+# One kernel over every element of `fs`: the largest over the modes
+# `modes` of `post (weights[q] |c_m|/A)^pows[q]`, with `A` the global peak
+# of variable `var`; the result on the host.
+function scaled_modes(fs::FieldSet{T,D}, el::Element{T,P1}, modes::NTuple{Q,Int},
+                      weights::NTuple{Q}, pows::NTuple{Q}, post,
+                      var::Integer) where {T,D,P1,Q}
+    1 <= var <= fs.nvars || throw(ArgumentError(
+        "var = $var is not a variable of this field set, which has $(fs.nvars)"))
+    R = real(float(T))
+    peak = mesh_mapreduce(abs, max, zero(R), fs; vars=var)
+    # A field that vanishes everywhere scores zero rather than NaN.
+    scale = iszero(peak) ? zero(R) : inv(peak)
+    E = fs.forest.N ÷ P1
+    backend = get_backend(fs.work)
+    τ = allocate(backend, R, ntuple(_ -> E, D)..., nblocks(fs))
+    TreeAMR.launch_by_owner!(mode_kernel!, backend, τ, fs.work,
+                             map(m -> el.duals[m + 1], modes),
+                             map(w -> R(w) * scale, weights), map(R, pows), R(post),
+                             Int(var), Val(D), Val(fs.G); ndrange=size(τ))
+    synchronize(backend)
+    return Array(τ)
 end
 
 """
     modal_indicator(fs, el; mode, var=1) -> Array
 
 The refinement indicator of every element of every block of the field
-set `fs`: the largest amplitude of the Legendre mode `L_mode` of variable
-`var` along any line of the element, in any dimension, divided by the
-largest `|value|` of that variable over the whole mesh. An array
-`τ[e1, …, eD, b]` on the host, with `E = N/(P+1)` elements per dimension
-and one slice per block of this rank.
+set `fs`, an array `τ[e1, …, eD, b]` on the host, with `E = N/(P+1)`
+elements per dimension and one slice per block of this rank. With
+`c_m` the coefficient of the Legendre mode `L_m` of variable `var` along
+a line of the element, and `A` the largest `|value|` of that variable
+over the whole mesh, it is
+
+    τ = max over the element's lines in every dimension, and m = 1 … mode,
+        of (|c_m|/A)^(mode/m).
 
 `mode` is the last Legendre mode that moves with the solution, and the
 caller has to say which: `P - 1` for the paper's scheme, which truncates
@@ -75,11 +120,17 @@ the wave), and `P` for the plain one. Mode `0`, an element's mean, says
 nothing about resolution and is refused, and so is the truncated scheme
 at `P = 1`.
 
-For data of degree below `mode` along every line it vanishes, since the
-mode is discretely orthogonal to them. For smooth data it falls as
-`hₑ^mode`, the size of the element's Legendre coefficient of that degree,
-so a fixed threshold makes refinement terminate where the data are
-resolved; for data that are not, it is of the order of the data.
+Each mode enters as the estimate it gives of mode `mode`'s amplitude:
+for smooth data `|c_m| ≈ (hₑ/ℓ)^m`, with `ℓ` the data's length scale, so
+`|c_m|^(mode/m)` falls as `hₑ^mode` for every `m`, and so does `τ`. A
+fixed threshold therefore makes refinement terminate where the data are
+resolved. The lower modes are there for data that are not: on an
+element wider than the feature the coefficients no longer fall with the
+degree, and a single one can cross zero, which a single-mode indicator
+reads as resolved (measured on the blast wave's Gaussian: see "Adaptive
+refinement" in `CODE.md`). `τ` vanishes on data that are constant along
+every line of the element, and only there. [`mode_amplitude`](@ref) is
+one mode's amplitude alone.
 
 The reference amplitude is global, a `mesh_mapreduce`, so the call is
 collective under MPI and the indicator does not depend on how the blocks
@@ -97,20 +148,35 @@ function modal_indicator(fs::FieldSet{T,D}, el::Element{T,P1}; mode::Integer,
                          var::Integer=1) where {T,D,P1}
     check_element_set(fs, el)
     check_mode(mode, P1 - 1)
-    1 <= var <= fs.nvars || throw(ArgumentError(
-        "var = $var is not a variable of this field set, which has $(fs.nvars)"))
-    R = real(float(T))
-    peak = mesh_mapreduce(abs, max, zero(R), fs; vars=var)
-    E = fs.forest.N ÷ P1
-    backend = get_backend(fs.work)
-    τdev = allocate(backend, R, ntuple(_ -> E, D)..., nblocks(fs))
-    TreeAMR.launch_by_owner!(mode_kernel!, backend, τdev, fs.work, el.duals[mode + 1],
-                             Int(var), Val(D), Val(fs.G); ndrange=size(τdev))
-    synchronize(backend)
-    τ = Array(τdev)
-    iszero(peak) || (τ ./= peak)
-    return τ
+    M = Int(mode)
+    modes = ntuple(identity, M)
+    return scaled_modes(fs, el, modes, map(doublefactorial, modes), map(m -> M // m, modes),
+                        1 // doublefactorial(M), var)
 end
+
+"""
+    mode_amplitude(fs, el; mode, var=1) -> Array
+
+The amplitude of the single Legendre mode `L_mode` of variable `var`,
+the largest `|c_mode|` along any line of each element in any dimension,
+relative to the largest `|value|` of that variable over the mesh, in the
+layout of [`modal_indicator`](@ref), which is the largest of these over
+the modes `1 … mode`, each raised to `mode/m`. It vanishes on data of
+degree below `mode` along every line, since the mode is discretely
+orthogonal to them, and for smooth data it falls as `hₑ^mode`.
+Collective under MPI, like the indicator. Any mode `0 … P` is accepted.
+"""
+function mode_amplitude(fs::FieldSet{T,D}, el::Element{T,P1}; mode::Integer,
+                        var::Integer=1) where {T,D,P1}
+    check_element_set(fs, el)
+    0 <= mode <= P1 - 1 || throw(ArgumentError(
+        "mode = $mode is not a Legendre mode of an element of order P = $(P1 - 1)"))
+    return scaled_modes(fs, el, (Int(mode),), (1,), (1,), 1, var)
+end
+
+# `(2m - 1)!! = 1 · 3 · 5 ⋯ (2m - 1)`: a smooth `f` on an element of width
+# `hₑ` has the Legendre coefficient `c_m ≈ (hₑ/2)^m f⁽ᵐ⁾/(2m - 1)!!`.
+doublefactorial(m) = prod(1:2:(2m - 1); init=1)
 
 function check_mode(mode, P)
     1 <= mode <= P || throw(ArgumentError(
@@ -197,9 +263,9 @@ end
 
 [`refine_mark`](@ref) for every block of `fs`, as the flag vector TreeAMR's
 `regrid!` takes, through `flag_blocks`. The indicator is
-[`modal_indicator`](@ref) of Legendre mode `mode` of variable `var`, `u`
-by default: `mode = P - 1` for the scheme that truncates `v`, and `P` for
-the plain one. It is computed once for the whole pass before the
+[`modal_indicator`](@ref) up to Legendre mode `mode` of variable `var`,
+`u` by default: `mode = P - 1` for the scheme that truncates `v`, and
+`P` for the plain one. It is computed once for the whole pass before the
 flagging, which TreeAMR runs concurrently over blocks; each callback then
 only reads its own block's slice. The indicator's reference amplitude is
 a global reduction, so the call is collective under MPI.

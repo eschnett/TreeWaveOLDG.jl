@@ -61,7 +61,7 @@ export wave_omega, wave_exact, wave_forest, wave_errors, reflect_omega,
        reflect_exact, reflect_errors
 
 # Adaptive refinement
-export modal_indicator, refine_mark, refine_flags, refinement_buffer
+export modal_indicator, mode_amplitude, refine_mark, refine_flags, refinement_buffer
 
 # Initial condition: radial blast wave
 export blast_initial, blast_reference, blast_radial_table, blast_exact,

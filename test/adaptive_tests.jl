@@ -47,25 +47,32 @@ end
     # Guards the indicator's table and indexing: a dual of the wrong mode,
     # a line read across the wrong dimension, or owned nodes offset by the
     # wrong ghost width would score data the element represents exactly,
-    # or fall at the wrong rate. Data of degree below `mode` must score
-    # zero, on a refined forest and with ghosts in the set, and data of
-    # degree `mode` must not; smooth data must score `hₑ^mode`. Measured:
-    # 1D rates 2.98-3.99 for modes 2-4 from roots = 4 to 32, 2D 2.96-3.98
-    # from roots = 2 to 8.
+    # or fall at the wrong rate. One mode's amplitude must vanish on data
+    # of degree below it, on a refined forest and with ghosts in the set,
+    # and not on data of its degree; the indicator, which reads every
+    # mode up to `mode`, must vanish on constants only. Both must score
+    # smooth data as `hₑ^mode`, and there the indicator is the top mode's
+    # amplitude, since the weights make every mode's estimate of it exact
+    # on a single Fourier mode. Measured: 1D rates 2.00-4.00 for modes 2-4
+    # from roots = 4 to 32, 2D 1.95-3.96 from 2 to 8; the indicator equals
+    # the amplitude to 1e-14 there.
     for D in (1, 2), P in (3, 4), mode in (P - 1, P)
         el = Element(Float64, P)
         forest = wave_forest(Float64, Val(D), P, 2; roots=4, refined=true)
         for G in (0, 1)
             fs = FieldSet(forest, 2; G=G, centering=elementcentered(D), P=P)
             fill_at_nodes!(poly_data(D, mode - 1), fs, el)
-            @test maximum(modal_indicator(fs, el; mode=mode)) < 1e-13
+            @test maximum(mode_amplitude(fs, el; mode=mode)) < 1e-13
+            @test maximum(modal_indicator(fs, el; mode=mode)) > 1e-9
             # `(hₑ/2)^mode` small on the fine blocks, 5e-6 at P = 4, and
             # far above rounding.
             fill_at_nodes!(poly_data(D, mode), fs, el)
-            @test maximum(modal_indicator(fs, el; mode=mode)) > 1e-9
+            @test maximum(mode_amplitude(fs, el; mode=mode)) > 1e-9
+            fill_at_nodes!((x, v) -> 2.5 + v, fs, el)
+            @test maximum(modal_indicator(fs, el; mode=mode)) < 1e-13
         end
 
-        hs, τs = Float64[], Float64[]
+        hs, τs, as = Float64[], Float64[], Float64[]
         for roots in (D == 1 ? (4, 8, 16, 32) : (2, 4, 8))
             forest = wave_forest(Float64, Val(D), P, 2; roots=roots)
             fs = FieldSet(forest, 2; G=0, centering=elementcentered(D), P=P)
@@ -74,8 +81,11 @@ end
             @test size(τ) == (ntuple(_ -> 2, D)..., roots^D)
             push!(hs, minimum_spacing(forest))
             push!(τs, maximum(τ))
+            push!(as, maximum(mode_amplitude(fs, el; mode=mode)))
         end
-        @test abs(convergence_rate(hs, τs) - mode) < 0.05
+        @test abs(convergence_rate(hs, τs) - mode) < 0.06
+        @test abs(convergence_rate(hs, as) - mode) < 0.06
+        @test τs ≈ as rtol = 1e-12
     end
 
     # The top mode's dual is the truncation's, bit for bit, so the
@@ -90,8 +100,69 @@ end
     τ = modal_indicator(fs, el; mode=2)
     fs.work .*= 1000
     @test modal_indicator(fs, el; mode=2) ≈ τ rtol = 1e-14
+    # The indicator is the largest weighted estimate over the modes.
+    a = [mode_amplitude(fs, el; mode=m) for m in 1:3]
+    @test modal_indicator(fs, el; mode=3) ≈ max.(a[3], (3a[2]) .^ 1.5 ./ 15,
+                                                 a[1] .^ 3 ./ 15) rtol = 1e-13
     fs.work .= 0
     @test all(iszero, modal_indicator(fs, el; mode=2))
+end
+
+@testset "The indicator does not pass an under-resolved Gaussian as resolved" begin
+    # Guards the indicator's lower modes. On an element wider than the
+    # feature the Legendre coefficients no longer fall with the degree,
+    # and one of them can cross zero: the blast wave's Gaussian, centred on
+    # an element corner, scores 2.8e-2 in mode 2 at roots = 4 (hₑ = 1.56σ)
+    # and 5.7e-2 at roots = 8, so a threshold between the two passed the
+    # root mesh as resolved and the run's error reached 7.4. The indicator
+    # must score every mesh whose elements are wider than σ above every
+    # mesh whose elements are narrower, where the single mode does not, and
+    # fall with the spacing from there on; and the initial adaptation must
+    # bring the centre to the level the threshold asks for. Measured at
+    # P = 3: 2.17e-1, 9.58e-2, 5.74e-2, 2.21e-2, 6.14e-3 at roots = 2 to
+    # 32; at P = 4: 6.22e-2, 7.70e-2, 1.30e-2, 1.87e-3, 2.40e-4. From
+    # roots = 4 at refine_tol = 3e-2, hₑ = 0.39σ at the centre, where the
+    # single mode stops at 1.56σ.
+    σ = 0.08
+    for P in (3, 4)
+        el = Element(Float64, P)
+        τs, as = Float64[], Float64[]
+        coarse = 1:2                               # roots = 2 and 4: hₑ > σ
+        for roots in (2, 4, 8, 16, 32)
+            forest = wave_forest(Float64, Val(2), P, 2; roots=roots)
+            fs = FieldSet(forest, 2; G=0, centering=elementcentered(2), P=P)
+            fill_at_nodes!(blast_initial(1.0, (0.5, 0.5), σ), fs, el)
+            push!(τs, maximum(modal_indicator(fs, el; mode=P - 1)))
+            push!(as, maximum(mode_amplitude(fs, el; mode=P - 1)))
+        end
+        @test minimum(τs[coarse]) > maximum(τs[3:end])
+        @test issorted(τs[2:end]; rev=true)
+        P == 3 && @test minimum(as[coarse]) < maximum(as[3:end])
+        @test τs[end] == as[end]
+        P == 3 && @test τs ≈ [2.17e-1, 9.58e-2, 5.74e-2, 2.21e-2, 6.14e-3] rtol = 5e-3
+    end
+
+    # The element width at the centre after the initial adaptation, in σ.
+    function adapted(indicator)
+        P, roots = 3, 4
+        el = Element(Float64, P)
+        forest = wave_forest(Float64, Val(2), P, 2; roots=roots)
+        fs = TWA.wave_fieldset(Float64, forest, 2, (0, 0), TWA.state_statesparity(Val(2)),
+                               P, TWA.CPU())
+        flags(fs) = flag_blocks(fs.forest) do b, k
+            refine_mark(indicator(fs, el; mode=P - 1), el, b, k; refine_tol=3e-2,
+                        coarsen_tol=3e-5, maxlevel_cap=3)
+        end
+        adapt_to_initial_data!(fs, Operators(family=ElementLocal);
+                               initial=blast_initial(1.0, (0.5, 0.5), σ), flags=flags,
+                               buffer=2, maxpasses=8)
+        centre = filter(forest.leaves) do k
+            all(d -> block_extent(forest, k)[d][1] <= 0.5 <= block_extent(forest, k)[d][2], 1:2)
+        end
+        return 1 / (roots * 2^maximum(level, centre) * 2) / σ
+    end
+    @test adapted(modal_indicator) ≈ 0.39 atol = 0.01
+    @test adapted(mode_amplitude) ≈ 1.56 atol = 0.01
 end
 
 @testset "The block verdict is TreeWave's, with the box in nodes" begin
@@ -160,20 +231,20 @@ end
         @test regrid!(forest, p.fs => p.schedule; flags=flags)
         @test maxlevel(forest) == 0
         @test conserved()
-        @test maximum(modal_indicator(p.fs, el; mode=P, var=2)) > 1e-3
+        @test maximum(mode_amplitude(p.fs, el; mode=P, var=2)) > 1e-3
 
         p = WaveProblem(p.fs, el)
         u = statevector(p.fs)
         gather!(u, p.fs)
         truncate_state!(u, p)
         scatter!(p.fs, u)
-        @test maximum(modal_indicator(p.fs, el; mode=P, var=2)) < 1e-13
+        @test maximum(mode_amplitude(p.fs, el; mode=P, var=2)) < 1e-13
         @test conserved()
 
         @test regrid!(forest, p.fs => p.schedule; flags=middle_flags(forest))
         @test maxlevel(forest) == 1
         @test conserved()
-        @test maximum(modal_indicator(p.fs, el; mode=P, var=2)) < 1e-13
+        @test maximum(mode_amplitude(p.fs, el; mode=P, var=2)) < 1e-13
     end
 end
 
@@ -208,10 +279,11 @@ end
     @test_throws "nvars = 2" WaveProblem(single, el)
 end
 
-# One adaptive run shared by the next three testsets, with provisional
-# thresholds: P = 3 from 4 × 4 root blocks up to level 2, to t = 0.2 in
-# chunks of 0.05, three regrids. About half a second after compilation.
-const ADAPTIVE = (P=3, E=2, roots=4, maxlevel_cap=2, refine_tol=1e-2, coarsen_tol=1e-3,
+# One adaptive run shared by the next three testsets, with the
+# recommended thresholds ("Adaptive refinement" in `CODE.md`): P = 3 from
+# 4 × 4 root blocks up to level 2, to t = 0.2 in chunks of 0.05, three
+# regrids. About half a second after compilation.
+const ADAPTIVE = (P=3, E=2, roots=4, maxlevel_cap=2, refine_tol=1e-2, coarsen_tol=1e-5,
                   chunk=0.05, t_end=0.2)
 const adaptive_run = adaptive_blast(; ADAPTIVE...)
 
@@ -246,10 +318,12 @@ end
 @testset "The adaptive blast's energy changes only at regrids" begin
     # Guards the chunking: each chunk is the semi-discrete system on one
     # mesh, whose energy is an exact invariant, so within a chunk only
-    # RK4 loses any (measured: 7.1e-10 to 7.5e-10 of it per chunk), and a
-    # regrid that leaves the mesh alone must leave the state alone. A
-    # regrid that changes the mesh changes the operator, and the energy
-    # with it (measured: 1.7e-7 of it at the first one).
+    # RK4 loses any (measured: 7.1e-10 of it per chunk), and a regrid
+    # that leaves the mesh alone must leave the state alone. A regrid that
+    # changes the mesh changes the operator, and the energy with it, by
+    # how far the data jump across the element faces whose width it
+    # changes (measured: at most 2.7e-11 of it; 1e-5 and more where the
+    # mesh refines evolved data, which costs accuracy).
     r = adaptive_run
     for c in r.chunks
         @test 0 <= (c.energy_start - c.energy_end) / c.energy_start < 2e-9
@@ -257,7 +331,7 @@ end
     for (a, b) in zip(r.chunks[1:(end - 1)], r.chunks[2:end])
         if a.regridded
             @test b.energy_start != a.energy_end
-            @test abs(b.energy_start - a.energy_end) < 1e-5 * r.energy0
+            @test abs(b.energy_start - a.energy_end) < 1e-10 * r.energy0
         else
             @test b.energy_start == a.energy_end
         end
@@ -269,18 +343,29 @@ end
 
 @testset "The adaptive blast matches the uniform fine run at less work" begin
     # Guards the whole cycle end to end: a lossy regrid, a missed
-    # truncation, or refinement that trails the ring shows as an error
-    # well above the uniform run's at the cap's spacing. Provisional
-    # thresholds (measured: 5.58e-2 against 5.59e-2 in L∞, 3.42e-3 against
-    # 3.40e-3 in L2, with 66 per cent of the node-steps); the thresholds
-    # and the factor are still to be measured.
+    # truncation, refinement that trails the ring, or a mesh that refines
+    # data already evolved on a coarser one shows as an error above the
+    # uniform run's at the cap's spacing. At the recommended thresholds the
+    # factor is at most 1.003 in L∞ and 1.002 in L2 for P = 3 and 4, caps
+    # 2 and 3, to t = 0.2 and 0.4 (measured here: L∞ 1.000 and 1.003, L2
+    # 1.000 and 1.000, at 79 and 62 per cent of the node-steps, at caps 2
+    # and 3).
     r = adaptive_run
     u = uniform_blast(; P=ADAPTIVE.P, E=ADAPTIVE.E, t_end=ADAPTIVE.t_end,
                       roots=ADAPTIVE.roots * 2^ADAPTIVE.maxlevel_cap)
-    @test r.err < 1.1 * u.err
-    @test r.l2 < 1.1 * u.l2
-    @test r.node_steps < 0.8 * u.nodes * u.nsteps
+    @test r.err < 1.01 * u.err
+    @test r.l2 < 1.01 * u.l2
+    @test r.node_steps < 0.82 * u.nodes * u.nsteps
     @test r.h == u.h
+
+    # A level deeper, in chunks short enough for the buffer to cover them.
+    deep = (; ADAPTIVE..., maxlevel_cap=3, chunk=0.025)
+    r = adaptive_blast(; deep...)
+    u = uniform_blast(; P=deep.P, E=deep.E, t_end=deep.t_end, roots=deep.roots * 2^3)
+    @test r.maxlevel == 3
+    @test r.err < 1.01 * u.err
+    @test r.l2 < 1.01 * u.l2
+    @test r.node_steps < 0.65 * u.nodes * u.nsteps
 
     # The observer sees the snapshots `uniform_blast`'s does: the first at
     # t = 0 on the initial hierarchy, the last at t_end, each with the

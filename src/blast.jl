@@ -192,8 +192,13 @@ The blast wave of [`uniform_blast`](@ref) on a forest that follows it: a
 where [`modal_indicator`](@ref) of `u` says the elements do not resolve
 the data, up to level `maxlevel_cap`, and coarsened where there is
 nothing left to resolve. The criterion is [`refine_flags`](@ref) with
-`refine_tol` and `coarsen_tol`; nothing about the thresholds is assumed,
-so they have no defaults. It reads `u`'s mode `P - 1` when `truncate`,
+`refine_tol` and `coarsen_tol`, which have no defaults. Measured on
+this case, the run matches the uniform one at the cap's spacing when
+`refine_tol` is low enough for the cap to bind on the initial data
+(`1e-2` at `P = 3`, and at `P = 4` up to cap 2; `1e-3` at `P = 4`,
+cap 3) and `coarsen_tol = refine_tol/1000`; a narrower band refines data
+already evolved on a coarser level, which costs accuracy (see "Adaptive
+refinement" in `CODE.md`). It reads `u`'s mode `P - 1` when `truncate`,
 since `u`'s top mode is then constant in time, and mode `P` otherwise,
 so the truncated scheme needs `P ≥ 2`.
 
