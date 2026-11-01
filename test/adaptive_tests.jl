@@ -149,9 +149,14 @@ end
         forest = wave_forest(Float64, Val(2), P, 2; roots=roots)
         fs = TWA.wave_fieldset(Float64, forest, 2, (0, 0), TWA.state_statesparity(Val(2)),
                                P, TWA.CPU())
-        flags(fs) = flag_blocks(fs.forest) do b, k
-            refine_mark(indicator(fs, el; mode=P - 1), el, b, k; refine_tol=3e-2,
-                        coarsen_tol=3e-5, maxlevel_cap=3)
+        # The indicator outside the callback, which TreeAMR runs
+        # concurrently, as `refine_flags` does.
+        function flags(fs)
+            τ = indicator(fs, el; mode=P - 1)
+            return flag_blocks(fs.forest) do b, k
+                refine_mark(τ, el, b, k; refine_tol=3e-2, coarsen_tol=3e-5,
+                            maxlevel_cap=3)
+            end
         end
         adapt_to_initial_data!(fs, Operators(family=ElementLocal);
                                initial=blast_initial(1.0, (0.5, 0.5), σ), flags=flags,
