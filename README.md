@@ -66,30 +66,44 @@ r.l2, r.energy / r.energy0           # the error, and energy is conserved
 `E` must be even, so that a fine block covers whole elements of its
 parent.
 
+An adaptive forest follows the 2D blast wave's ring, refining where a
+modal indicator says the elements do not resolve the data and
+coarsening where nothing is left. The thresholds, the level cap and the
+time between regrids have no defaults; these are the recommended ones
+for `P = 3` up to two levels:
+
+```julia
+r = adaptive_blast(; P=3, E=2, roots=4, maxlevel_cap=2,
+                   refine_tol=1e-2, coarsen_tol=1e-5, chunk=0.05, t_end=0.2)
+r.err, r.nregrids, r.node_steps   # error, regrids, work
+```
+
 ## Status
 
-A prototype. It runs on a periodic or reflecting forest, uniform or with
-a static refined region, in any number of dimensions, at any order
-`P ≥ 1`, and converges at order `P`. Two
+A prototype. It runs on a periodic or reflecting forest, uniform, with
+a static refined region, or adaptive, in any number of dimensions, at
+any order `P ≥ 1`, and converges at order `P`. Two
 initial conditions are provided, a standing sine mode and a 2D radial blast
-wave, and a viewer draws the second:
+wave, and a viewer draws the second, on a uniform or an adaptive forest:
 
 ```bash
 julia --project=bin bin/visualize2d.jl
+julia --project=bin bin/visualize2d.jl --adaptive
 ```
 
 On a reflecting box the wall is a Neumann (solid, `∂ₙu = 0`) boundary,
 an exact discrete symmetry whose energy is conserved to the integrator's own
 loss.
 
-Mesh refinement is static for now: the mesh is TreeAMR's, with its
-element centering (TreeAMR 0.2.7), and across a coarse-fine face the
-coupling keeps the discrete energy an exact invariant. The L2 error
-converges at order `P` on a refined forest; in two and more dimensions
-the largest pointwise error loses part of an order at the coarse-fine
-faces, an open question recorded in [CODE.md](CODE.md). Adaptive
-refinement, partly reflecting or outflow boundaries, and a device run
-are not there yet.
+The mesh is TreeAMR's, with its element centering (TreeAMR 0.2.7), and
+across a coarse-fine face the coupling keeps the discrete energy an
+exact invariant. The L2 error converges at order `P` on a refined
+forest; in two and more dimensions the largest pointwise error loses
+part of an order at the coarse-fine faces, an open question recorded in
+[CODE.md](CODE.md). On the adaptive blast wave the error is the uniform
+run's at the finest spacing, to 0.3%, at 61–90% of its work, with
+thresholds three orders apart. Partly reflecting or outflow boundaries,
+and a device run, are not there yet.
 
 The first parts of [two inspiralling scalar particles](INSPIRAL.md) exist
 ([INSPIRAL-PLAN.md](INSPIRAL-PLAN.md) has the milestones): a scalar

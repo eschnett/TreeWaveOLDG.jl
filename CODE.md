@@ -19,7 +19,10 @@ and a viewer for the second, on the CPU, stepped by IMEXRungeKutta's RK4
 with its stage arithmetic run by block owner. On a refined forest the
 discrete energy stays an exact invariant and the L2 error converges at
 order `P`; in `D ≥ 2` the L∞ error loses part of an order at the
-coarse-fine faces **(open)**. The
+coarse-fine faces **(open)**. The forest can also follow the solution:
+a modal indicator, a regrid driver in chunks and an adaptive blast wave,
+which matches the uniform run at its finest spacing to `0.3%` at 61–90%
+of its work; see [Adaptive refinement](#adaptive-refinement). The
 first parts of `INSPIRAL.md`'s inspiral exist: the analytic particle
 (`INSPIRAL-PLAN.md`'s M1), its field, the field's time derivative, the
 effective source and the window, the transfer between particles and
@@ -49,6 +52,10 @@ suite passes, also with
   - [The energy](#the-energy)
   - [Accuracy](#accuracy)
   - [What a refined forest does not run](#what-a-refined-forest-does-not-run)
+- [Adaptive refinement](#adaptive-refinement)
+  - [The indicator](#the-indicator)
+  - [The verdict](#the-verdict)
+  - [The driver](#the-driver)
 - [Truncation](#truncation)
 - [Time step](#time-step)
 - [The blast wave](#the-blast-wave)
@@ -72,6 +79,7 @@ suite passes, also with
   - [Refined forests](#refined-forests-1)
   - [The RK4 limit](#the-rk4-limit)
   - [The blast wave's error](#the-blast-waves-error)
+  - [Adaptive refinement](#adaptive-refinement-1)
   - [Threads on Symmetry](#threads-on-symmetry)
   - [The source bracket](#the-source-bracket)
   - [The transfer's cost](#the-transfers-cost)
@@ -93,13 +101,15 @@ suite passes, also with
 
 ## Scope and non-goals
 
-- **Static refined forests, for the field.** A forest may be uniform or
-  refined: `wave_forest(…; refined)` makes a static two-level one, and
-  the kernels, the exchange and the norms take any forest TreeAMR's
-  element centering accepts. Nothing regrids during a run. Adaptive
-  refinement is the next step, decided but not built: a modal indicator
-  (the top Legendre coefficients), a regrid driver and an adaptive blast
-  wave **(proposed)**. See [Refined forests](#refined-forests).
+- **Refined forests, static or adaptive, for the field.** A forest may
+  be uniform or refined: `wave_forest(…; refined)` makes a static
+  two-level one, and the kernels, the exchange and the norms take any
+  forest TreeAMR's element centering accepts. `adaptive_blast` regrids
+  between chunks of a run, by a modal indicator; the cycle is the blast
+  wave's, and another problem would write its own from the same parts
+  (`refine_flags`, `regrid!`, `WaveProblem(fs, el)`). See [Refined
+  forests](#refined-forests) and [Adaptive
+  refinement](#adaptive-refinement).
 - **Particles on uniform forests only.** `InspiralProblem` and
   `project_source!` refuse a refined forest, because the transfer
   measures its distances in the finest element width; see [What a
@@ -113,10 +123,9 @@ suite passes, also with
   partly reflecting box would need the paper's boundary treatment (its
   `Ω₀` and `Ω_{K+1}` singleton elements), which is not implemented.
 - **Two initial conditions**, the standing sine mode, on a uniform or
-  refined forest, and the 2D radial blast wave, on a uniform one.
-  TreeWave's travelling pulse existed to exercise a moving refined
-  region, which waits for adaptive refinement, and the blast wave here
-  keeps only what does not need refinement.
+  refined forest, and the 2D radial blast wave, on a uniform or an
+  adaptive one. TreeWave's travelling pulse, which exercised a moving
+  refined region, is not carried over: the blast wave's ring does that.
 - **One `P` per run**, the same in every element. `P` adaptivity is out
   of scope in TreeAMR too (`P` is the field set's, `N` the forest's).
 - **No mesh machinery here.** The element centering, its positions and
@@ -516,13 +525,164 @@ no stiffer mode, and `oldg_timestep`'s finest-level step is safe.
   elements are classified in it, and `project_near!` divides by its
   weights, so on a coarser element every one of them would be off by
   the ratio of the spacings, and the quadrature silently too coarse.
-- **The blast wave**, whose driver `uniform_blast` builds a uniform
-  forest; a refined ring waits for adaptive refinement.
 - **Point interpolation.** TreeAMR's `interpolate` refuses an element
   set, which needs a basis that maps a position to its element's
   polynomial (**(open)** in TreeAMR); nothing here uses it.
 - **`test/reference.jl`'s global arrays**, which are uniform-only; the
   refined tests use quadrature inner products instead.
+
+## Adaptive refinement
+
+The forest follows the solution: [`src/refinement.jl`](src/refinement.jl)
+holds the criterion, and `adaptive_blast` in
+[`src/blast.jl`](src/blast.jl) is TreeWave's `track_blast` cycle for
+OLDG. The split is TreeAMR's, as in TreeWave: the application reduces
+its own indicator to one flag per block, and `regrid!` balances the
+forest, dilates the flagged boxes by the buffer and moves the state set.
+TreeAMR refines an element set by the coarse element's polynomial and
+coarsens it by the exact `L²` projection, so a regrid keeps the
+Gauss–Lobatto integral `Σ w u` of every variable (a test, to `1e-13`).
+Measurements are under [Adaptive refinement](#adaptive-refinement-1) in
+"Measured results".
+
+### The indicator
+
+`modal_indicator(fs, el; mode)` scores each element by its Legendre
+coefficients along every line, in every dimension, relative to the
+global peak `A = max|u|`:
+
+    τ = max over lines and m = 1 … mode of ((2m - 1)!! |c_m| / A)^(mode/m) / (2mode - 1)!!
+
+For smooth data `c_m ≈ (hₑ/2)^m f⁽ᵐ⁾/(2m - 1)!!`, so each term is the
+estimate mode `m` gives of mode `mode`'s amplitude, all of them `hₑ^mode`;
+on a single Fourier mode they agree, and `τ` is `|c_mode|` itself (to
+`1e-12`, a test). The single mode's amplitude is `mode_amplitude`.
+
+**Which mode.** Without truncation the last mode is `u`'s top one, `P`.
+With truncation `∂ₜu = v` and `v` has no mode of degree `P` in any
+dimension, so every coefficient of `u` of degree `P` along a line is
+constant in time: it is the initial data's, or what the last regrid put
+there, and does not follow the wave. On the blast wave the top mode of a
+level-1 block the ring had crossed was `7.03e-6` at `t = 0.1` and at
+`t = 0.4`, with the ring's amplitude there `0.14`; refining on it left
+the ring on coarse blocks and kept the start's refinement for good. The
+truncated scheme therefore reads `mode = P - 1`, the last mode that
+moves, and the plain one `mode = P`. Mode 0, the mean, is refused, so
+the truncated scheme cannot adapt at `P = 1`. The mode is the caller's
+to give, with no default.
+
+**Why every mode up to it.** A single coefficient is not monotone in the
+spacing before the mesh resolves the data: on an element wider than the
+feature the coefficients stop falling with the degree, and one of them
+can cross zero. The blast wave's Gaussian, centred on an element corner,
+scores `2.8e-2` in mode 2 at `hₑ = 1.56σ` and `5.7e-2` at `0.78σ`; at
+`refine_tol = 3e-2` the single mode passed the root mesh as resolved,
+and the run's error reached 7.4. With the lower modes in, it would take
+every mode crossing zero at once: over `hₑ/σ` from 1 to 6 the indicator
+never falls below its value at `hₑ = σ`, and at `refine_tol = 3e-2` the
+initial adaptation never stops on a mesh coarser than `0.42σ` at the
+centre at `P = 3`, where the single mode stopped at `1.56σ` to `3.12σ`
+in 10 of 180 cases (`σ = 0.04` to `0.12`, `roots = 2` to 8, modes 2
+and 3). On resolved data the two agree, and so do the meshes they build.
+The weights are what makes that so: without them `c_1^mode` overstates
+smooth data by `(2mode - 1)!!` (measured 3.0, 15 and 105 for modes 2, 3,
+4) and refines a sine wave three to a hundred times too early. The
+alternatives measured against this are in "Measured results" and in
+`HISTORY.md`.
+
+The reference amplitude is the global peak at the time of the call, a
+`mesh_mapreduce`, as TreeWave's `field_scales` is refreshed at every
+regrid: a scale-free indicator scores a negligible tail like a feature
+(TreeWave's measurement), and a peak frozen at `t = 0` measured worse
+here: the ring's score falls as it spreads, and blocks around it coarsen. `u` alone is read; `v` starts at zero.
+
+### The verdict
+
+`refine_mark` is TreeWave's, with the element as the unit: `(Refine,
+box)` where an element is above `refine_tol` below the cap, `(Keep,
+box)` where one is above `coarsen_tol`, `Coarsen` otherwise above level
+0. The box covers the nodes of the elements above `coarsen_tol`, so that
+a block at the cap still recruits its neighbours to its level around the
+feature. `refine_flags` computes the indicator once, by block owner, and
+hands `flag_blocks`, which calls back concurrently, a callback that only
+reads its block's slice. `refinement_buffer` is TreeWave's,
+`⌈chunk/h_cap⌉ + 1` points, refused above `N`.
+
+**The thresholds.** Matching the uniform run at the cap's spacing takes
+two conditions, both measured:
+
+- `refine_tol` low enough that the initial adaptation reaches the cap:
+  `1e-2` for the blast wave at `P = 3` and at `P = 4` with cap 2, `1e-3`
+  at `P = 4` with cap 3. The indicator falls as `hₑ^(P-1)`, so the value
+  depends on `P` and on how far the cap is below the root level.
+- `coarsen_tol` three orders below it, far wider than TreeWave's factor
+  of 4. A block whose data are above the run's error but below
+  `coarsen_tol` sits coarser than the cap and recruits no neighbours, and
+  the ring then reaches data already evolved there, which a later regrid
+  refines. **Refining evolved data costs accuracy.** At `P = 4`, cap 3,
+  `refine_tol = 3e-3`, the start stopped at level 2, and as the global
+  peak decayed the centre went to level 3 at `t = 0.075`: the transfer
+  left `v`'s error at the nodes as it was, `8.3e-3`, and one chunk later
+  it was `0.124`, with the energy up `7.6e-6`; the same mesh started from
+  exact data reached `1.9e-3`. That is consistent with the evolved data's
+  jumps across element faces, which a finer element weights by `1/hₑ` in
+  its face terms and which the energy-conserving scheme never damps. The
+  run ended 290 times the uniform run's error.
+
+The recommended values, `refine_tol` as above and `coarsen_tol =
+refine_tol/1000`, keep L∞ within `1.003` and L2 within `1.002` of the
+uniform run at the cap for `P = 3, 4` and caps 2 and 3, at 61–79% of its
+node-steps to `t = 0.2` and 79–90% to `t = 0.4`, by when the ring fills
+the unit box. A factor 10 less between the thresholds already costs up
+to 1.5 in L∞ and 1.6 in L2 at cap 3. That is a far better error than TreeWave's 1.41 at 80%
+of the points, and a smaller saving: the narrow band is what keeps the
+error.
+
+**The wake.** Behind the ring the 2D solution has a real wake (no
+Huygens principle): the exact solution at `t = 0.4` scores `2.1e-3` at
+level 2 there at `P = 3`, and `1.2e-4` at `P = 4`, both above the
+recommended `coarsen_tol`. So the wake stays at the cap, at cap 2 and 3
+alike, and the indicator is right to keep it; it coarsens only at
+`coarsen_tol ≥ 1e-3`, in runs that are 3–8 times off the uniform one.
+The indicator's lower modes change nothing there, since on resolved data
+it is the single mode.
+
+### The driver
+
+`adaptive_blast(T; P, E, roots, maxlevel_cap, refine_tol, coarsen_tol,
+chunk, …)` has no defaults for the thresholds, the cap or the chunk:
+
+1. TreeAMR's `adapt_to_initial_data!` builds the initial hierarchy,
+   flagging and re-sampling the initial data on each new mesh, and the
+   initial `v` is truncated.
+2. The run goes in chunks of `chunk`, each a fresh `wave_integrator` with
+   the step from the current finest spacing: IMEXRungeKutta has no
+   `reinit!`, and the state vector's length changes with the mesh.
+3. After every chunk but the last: `scatter!` the state into the state
+   set, flag, `regrid!` with the buffer, and if the mesh changed, rebuild
+   the problem with `WaveProblem(fs, el)` (the other sets and schedules
+   belong to the old layout), `gather!`, and `truncate_state!`.
+
+The truncation after the regrid is needed: refining keeps `v` in
+`Q_{P-1}`, but coarsening projects two fine polynomials onto one of
+degree `P` and brings `v`'s top mode back (a test, above `1e-3`).
+
+**The chunk and the buffer.** The chunk barely matters at the derived
+buffer: from `0.0125` to `0.05` at cap 2 and `0.00625` to `0.025` at cap
+3 the error stays within `0.993–1.012` of the uniform run's, and shorter
+chunks only regrid more often to the same effect, most of their regrids
+leaving the mesh alone. The longest chunk the buffer allows is the
+cheapest: `0.05` at cap 2 (`buffer = 8 = N` at `P = 3`, 9 of `N = 10` at
+`P = 4`) and `0.025` at cap 3. No buffer is fatal (1.2 to 78 times the
+error); 2 to 4 points cost up to 1.10.
+
+**Energy at regrids.** Within a chunk the energy is the semi-discrete
+system's invariant, and only RK4 loses any (`7.1e-10` per chunk of
+`0.05` at `P = 3`, cap 2). A regrid changes the operator and so the
+energy; at the recommended thresholds by at most `3e-11` of it, and a
+regrid that leaves the mesh alone leaves the state bit for bit. Runs
+that refine evolved data jump by `1e-10` to `2e-3`, and the size of the
+jump does not order them by their error, so it is no diagnostic.
 
 ## Truncation
 
@@ -620,10 +780,12 @@ it against the initial data at `t = 0`.
 
 `uniform_blast` runs it with the same truncating RK4 as `wave_errors`,
 and takes an `observer(p, t, u, ue)` called at `nsnapshots` times with
-the state and the exact state at the same nodes. What TreeWave's version
-has and this one does not: the refined annulus, the refinement criterion
-and its scales, the coverage measure, and the backend, centering and
-type options of its viewer.
+the state and the exact state at the same nodes. `adaptive_blast` runs
+the same case on a forest that follows the ring ([Adaptive
+refinement](#adaptive-refinement)), with the same observer. What
+TreeWave's version has and this one does not: the indicator's own
+scales and its panel, the coverage measure, and the backend, centering
+and type options of its viewer.
 
 ## The viewer
 
@@ -632,9 +794,16 @@ type options of its viewer.
 not a dependency of the package, as in TreeWave:
 
     julia --project=bin bin/visualize2d.jl [--P=4] [--E=2] [--roots=16] [--plain]
+    julia --project=bin bin/visualize2d.jl --adaptive [--roots=4] [--cap=2]
 
 It writes `bin/output/blast_2d.png` (`blast_2d_plain.png` with
-`--plain`) and shows it inline on a terminal. One figure, three parts:
+`--plain`, `blast_2d_adaptive.png` with `--adaptive`) and shows it
+inline on a terminal. `--adaptive` runs `adaptive_blast` from 4 × 4 root
+blocks up to level 2 at the recommended thresholds (`1e-2`, `1e-5`,
+chunk `0.05`), the same finest spacing as the uniform default, and
+colours the block faces by level, TreeWave's colours; at `P = 4` its
+error of `u` at `t = 0.4` is the uniform run's, `1.79e-4` in L∞, at 88%
+of its node-steps. One figure, three parts:
 
 - a filmstrip of `u` at four times. Each block is one heatmap on cells
   around its nodes: within an element a node's cell runs to the
@@ -648,10 +817,11 @@ It writes `bin/output/blast_2d.png` (`blast_2d_plain.png` with
   node off the curve; past `L/2` the ring meets its own periodic images
   and the exact solution stops being radial too;
 - the L∞ and L2 errors of `u` against the exact ring, and the energy
-  lost, over time.
+  lost, over time; with `--adaptive` its modulus, since a regrid may
+  raise it.
 
-The run comes from `uniform_blast`'s observer, so the script has no
-time-stepping loop of its own. CI renders both schemes and keeps the
+The run comes from `uniform_blast`'s or `adaptive_blast`'s observer, so
+the script has no time-stepping loop of its own. CI renders both schemes and keeps the
 figures.
 
 ## Precision
@@ -1228,16 +1398,20 @@ arrives and how large it is.
 - `src/element.jl`: Gauss–Lobatto nodes and weights, `Element`.
 - `src/layout.jl`: `check_layout`, node positions, `fill_at_nodes!`,
   `quadrature_norm`.
-- `src/evolution.jl`: the kernels, `WaveProblem`, `wave_rhs!`,
+- `src/evolution.jl`: the kernels, `WaveProblem` (from a forest, or
+  from a state set after `regrid!`), `wave_rhs!`,
   `truncate_state!`, `truncate_stage!`, `initial_state`, `wave_energy`,
   `oldg_timestep`, `convergence_rate`.
 - `src/stepping.jl`: `state_partition` and `wave_integrator`.
 - `src/sinewave.jl`: `wave_forest`, uniform or two-level, the standing
   sine mode and its driver `wave_errors`.
+- `src/refinement.jl`: `modal_indicator`, `mode_amplitude`,
+  `refine_mark`, `refine_flags` and `refinement_buffer`.
 - `src/blast.jl`: the radial blast wave, its exact solution, and its
-  driver `uniform_blast`.
+  drivers `uniform_blast` and `adaptive_blast`.
 - `src/precision.jl`, `src/device.jl`: `ceilint`, `floorint`, `wrap`,
-  `tofloat64` and `to_backend`, taken from TreeWave.
+  `tofloat64`, `chunk_count`, `chunk_bounds` and `to_backend`, taken from
+  TreeWave.
 - `src/particle_forms.jl`: generated by `derivations/generate.wl`, not
   edited by hand; the profile's radial functions, the near-field terms
   and their Laplacians, and the self-force coefficients.
@@ -1296,8 +1470,9 @@ does.
 
 ## Tests
 
-`julia --project=. -e 'using Pkg; Pkg.test()'`, about three and a
-half minutes on the laptop at one thread and two and a half at four, of
+`julia --project=. -e 'using Pkg; Pkg.test()'`, about three and three
+quarter minutes on the laptop at one thread and two and three quarters
+at four, of
 which the particle, the transfer and the inspiral take about four
 fifths; the inspiral's coarse 3D runs about 50 s of it on four threads,
 and the refined forests' tests about 40 s on one.
@@ -1338,6 +1513,20 @@ and the refined forests' tests about 40 s on one.
   forest's at the finest spacing; a reflecting box refined at its walls
   keeps order `P` and its energy; and, as a measured shortfall, the 2D
   L∞ rate at `P = 3` is below `P - ½` (**(open)**).
+- `adaptive_tests.jl`: one mode's amplitude vanishes on data below its
+  degree, with ghosts and on a refined forest, and the indicator on
+  constants only; both fall as `hₑ^mode` on smooth data, where they are
+  equal; the indicator scores every mesh coarser than the blast wave's
+  `σ` above every finer one, where mode 2 alone does not, and the
+  initial adaptation reaches `hₑ = 0.39σ` at the centre, where mode 2
+  alone stops at `1.56σ`; the block verdict and its box; a regrid keeps
+  `Σ w u` to `1e-13` in 1D to 3D, coarsening brings `v`'s top mode back
+  and the truncation removes it; a problem rebuilt after a regrid is a
+  fresh one bit for bit, periodic and reflecting; the adaptive blast
+  refines the ring to the cap, its energy changes only at regrids that
+  change the mesh, and at the recommended thresholds it matches the
+  uniform run at the cap to `1.01` with at most 82% (cap 2) and 65% (cap
+  3) of its node-steps. About 36 s at one thread.
 - `reflect_tests.jl`: the reflecting box — the Neumann `cos` mode converges
   at order `P` in 1D and 2D, the wall is an exact discrete symmetry
   (energy conserved to the integrator's loss), the parities the wall imposes
@@ -1626,6 +1815,127 @@ nodes across `σ`, so the rates are rough. In the viewer's default run
 (`P = 4`, 16 × 16 blocks) the error of `u` alone at `t = 0.4` is
 `1.8e-4` in L∞ and `1.5e-5` in L2, and the energy lost is `4.7e-10`.
 
+### Adaptive refinement
+
+The blast wave (`σ = 0.08`, `E = 2`, truncated, `cfl = 1/2`) from
+`roots = 4`, on eight threads of the laptop, each run a second or two.
+
+**The indicator before the mesh resolves the data.** The largest score
+over the mesh of the initial Gaussian, centred on an element corner as
+in `adaptive_blast`, on uniform meshes; mode `P - 1` alone against the
+indicator, which reads modes 1 to `P - 1`:
+
+| P | | roots 2 | 4 | 8 | 16 | 32 |
+|---|---|---|---|---|---|---|
+| 3 | mode 2 alone | 2.17e-1 | **2.82e-2** | 5.74e-2 | 2.21e-2 | 6.14e-3 |
+| 3 | indicator | 2.17e-1 | 9.58e-2 | 5.74e-2 | 2.21e-2 | 6.14e-3 |
+| 4 | mode 3 alone | **4.89e-2** | 7.70e-2 | 1.30e-2 | 1.87e-3 | 2.40e-4 |
+| 4 | indicator | 6.22e-2 | 7.70e-2 | 1.30e-2 | 1.87e-3 | 2.40e-4 |
+
+Scanning `hₑ/σ` from 1 to 6 at `roots = 8`, the lowest score at or above
+`hₑ = σ` against the score at `hₑ = σ`, centred: mode 2 alone `1.9e-2`
+against `6.3e-2`, the indicator `5.7e-2` against `6.3e-2` (`P = 3`);
+mode 3 alone `1.5e-3` against `2.8e-2`, the indicator `2.8e-2` (`P =
+4`); mode 3 of the plain `P = 3` alone `2.8e-3` against `2.9e-2`, the
+indicator `2.9e-2`; mode 4 at `P = 5` alone `3.7e-4` against `1.1e-3`,
+the indicator `3.1e-3`. Off-centre (the centre moved by `(0.013,
+0.029)`) the two agree.
+
+The initial adaptation (cap 5, `buffer = 2`, `coarsen_tol =
+refine_tol/10`) over `σ = 0.04, 0.06, 0.08, 0.10, 0.12` and `roots = 2,
+3, 4, 5, 6, 8`, the element width at the centre in `σ`: at `refine_tol =
+1e-2` the two give the same width in all 90 cases (`P = 3` mode 2, `P =
+4` mode 3, plain `P = 3` mode 3). At `3e-2`, mode 2 alone stops at
+`1.56σ` or `1.67σ` in 7 of 30 cases and the plain scheme's mode 3 at
+`3.12σ` in 3, where the indicator gives `0.39σ`–`0.42σ` and `0.78σ`;
+everywhere else the two agree.
+
+**The thresholds.** Error at the end against the uniform run at the
+cap's spacing (L∞ and L2 of `u` and `∂ₜu` together), node-steps as a
+fraction of the uniform run's, blocks after the initial adaptation and
+at the end, regrids that changed the mesh, and the largest energy change
+at a regrid relative to `E₀`. Chunk `0.05` at cap 2 and `0.025` at cap
+3, the derived buffer:
+
+| P | cap | refine | coarsen | t | L∞ ratio | L2 ratio | node-steps | blocks | regrids | ΔE at a regrid |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 3 | 2 | 1e-2 | 1e-5 | 0.2 | 1.000 | 1.000 | 0.79 | 160 → 244 | 3/3 | 2.7e-11 |
+| 3 | 2 | 1e-2 | 1e-5 | 0.4 | 1.001 | 1.000 | 0.90 | 160 → 256 | 4/7 | 2.7e-11 |
+| 3 | 2 | 1e-2 | 1e-4 | 0.4 | 1.000 | 1.000 | 0.89 | 160 → 256 | 3/7 | 3.8e-11 |
+| 3 | 2 | 1e-2 | 1e-3 | 0.4 | 0.967 | 1.003 | 0.82 | 112 → 256 | 5/7 | 1.7e-7 |
+| 3 | 2 | 1e-2 | 3e-3 | 0.4 | 1.467 | 1.110 | 0.77 | 112 → 256 | 6/7 | 1.8e-6 |
+| 3 | 3 | 1e-2 | 1e-5 | 0.2 | 1.003 | 1.000 | 0.62 | 412 → 880 | 7/7 | 1.2e-11 |
+| 3 | 3 | 1e-2 | 1e-5 | 0.4 | 1.003 | 1.000 | 0.80 | 412 → 1024 | 13/15 | 1.2e-11 |
+| 3 | 3 | 1e-2 | 1e-4 | 0.4 | 1.535 | 1.145 | 0.73 | 340 → 1024 | 13/15 | 1.9e-8 |
+| 3 | 3 | 1e-2 | 1e-3 | 0.4 | 8.087 | 3.899 | 0.63 | 208 → 916 | 14/15 | 7.3e-7 |
+| 4 | 2 | 1e-2 | 1e-5 | 0.2 | 0.999 | 1.001 | 0.77 | 160 → 244 | 2/3 | 1.5e-12 |
+| 4 | 2 | 1e-2 | 1e-5 | 0.4 | 0.995 | 0.999 | 0.88 | 160 → 256 | 3/7 | 1.5e-12 |
+| 4 | 2 | 1e-2 | 1e-4 | 0.4 | 1.041 | 1.120 | 0.81 | 112 → 256 | 5/7 | 7.0e-9 |
+| 4 | 2 | 1e-2 | 1e-3 | 0.4 | 4.209 | 5.377 | 0.64 | 88 → 232 | 5/7 | 1.9e-6 |
+| 4 | 3 | 1e-3 | 1e-6 | 0.2 | 1.002 | 1.001 | 0.61 | 388 → 880 | 7/7 | 1.8e-13 |
+| 4 | 3 | 1e-3 | 1e-6 | 0.4 | 0.997 | 1.002 | 0.79 | 388 → 1024 | 12/15 | 1.8e-13 |
+| 4 | 3 | 1e-3 | 1e-5 | 0.4 | 1.243 | 1.571 | 0.71 | 340 → 1012 | 12/15 | 1.3e-10 |
+| 4 | 3 | 3e-3 | 1e-4 | 0.2 | 292.6 | 177.6 | 0.25 | 112 → 484 | 7/7 | 7.6e-6 |
+
+The uniform runs at the cap: `P = 3` L∞ `5.59e-2` and `2.06e-2` at cap 2
+(`t = 0.2`, `0.4`), `3.99e-3` and `2.28e-3` at cap 3; `P = 4` `5.43e-3`
+and `8.83e-3` at cap 2, `6.68e-4` and `6.06e-4` at cap 3. Over the wider
+scan (`refine_tol` `3e-3` to `1e-1`, `coarsen_tol` `1e-4` to `1e-2`):
+
+- `refine_tol = 1e-1` leaves the root mesh as it is (`hₑ = 1.56σ`), and
+  no later regrid recovers: L∞ 9.0 at `t = 0.2` (`P = 3`, cap 2), energy
+  changes of `3.5e-2` at a regrid.
+- At `P = 4`, `refine_tol = 3e-2` stops at level 1 and so does the run,
+  with the uniform level-1 run's accuracy (4 times the cap-2 run's).
+- At `P = 3` any `refine_tol` from `3e-3` to `3e-2` builds the same mesh
+  at cap 2: the cap binds.
+- With the peak frozen at its initial value instead of refreshed, the
+  ring's score falls as it spreads and blocks around it coarsen: `P =
+  3`, cap 3, `1e-2`/`1e-4`, L∞ ratio 1.90 instead of 1.04 at `t = 0.2`
+  and 7.7 instead of 1.5 at `0.4`; `P = 3`, cap 2, `1e-2`/`1e-3`, 1.42
+  instead of 0.97 at `0.4`. It avoids the last row of the table only by
+  never leaving level 2 (7.9 times the cap-3 run).
+
+**The chunk and the buffer**, at the recommended thresholds, L∞ ratio
+and node-steps to `t = 0.4` (regrids that changed the mesh, of those
+done):
+
+| P | cap | chunk short | middle | long (default) | buffer 0 | buffer 2–4 |
+|---|---|---|---|---|---|---|
+| 3 | 2 | 1.001, 0.90 (4/31) | 1.000, 0.92 (4/15) | 1.001, 0.90 (4/7) | 4.35, 0.66 | 1.001, 0.90 |
+| 3 | 3 | 1.003, 0.79 (23/63) | 1.009, 0.81 (18/31) | 1.003, 0.80 (13/15) | 67.0, 0.46 | 1.102, 0.77 |
+| 4 | 2 | 0.995, 0.87 (5/31) | 0.993, 0.86 (5/15) | 0.995, 0.88 (3/7) | 15.6, 0.45 | 1.010, 0.83 |
+| 4 | 3 | 0.995, 0.78 (20/63) | 1.012, 0.77 (16/31) | 0.997, 0.79 (12/15) | 77.8, 0.42 | 0.962, 0.76 |
+
+The chunks are `0.0125`, `0.025`, `0.05` at cap 2 and `0.00625`,
+`0.0125`, `0.025` at cap 3; the default buffer is 8 at `P = 3` and 9 at
+`P = 4`. Buffers of 2 and 4 points build the same meshes as each other,
+and 6 the default's. The largest energy change at a regrid stays below
+`3e-11` at every chunk.
+
+**The wake.** The exact solution's indicator at `t = 0.4` over the
+blocks behind the ring (centres at `r < t - 3σ`), on uniform meshes, the
+peak being `0.137`:
+
+| P | level 1 | level 2 | level 3 |
+|---|---|---|---|
+| 3 | 3.3e-3 | 2.1e-3 | 3.3e-4 |
+| 4 | 3.0e-4 | 1.2e-4 | 9.9e-6 |
+
+At the recommended thresholds the whole disc behind the ring is at the
+cap at `t = 0.4`, at cap 2 and 3. It leaves the cap in the runs with
+`coarsen_tol = 1e-3` at `P = 3` cap 3 (all of it) and `P = 4` cap 2 (61%
+of it), whose errors are 8 and 4 times the uniform run's.
+
+**Refining evolved data.** The last row of the threshold table, traced:
+the start stopped at level 2, and at `t = 0.075` the centre went to
+level 3. Error of `v` at the nodes before the regrid `8.30e-3`, after
+the transfer and the truncation `8.30e-3`, at `t = 0.1` `0.124`, with
+the largest error at block corners near the centre, behind the ring.
+From exact data at `t = 0.075` on the same mesh, `t = 0.1` gives
+`1.9e-3`, and on the uniform level-3 and level-2 meshes `1.0e-3` and
+`4.5e-3`.
+
 ### Threads on Symmetry
 
 `bin/symmetry/benchmark.sh`, job 586013 on `cn085`, 2026-10-30: a
@@ -1895,20 +2205,21 @@ nodes under their quadrature; the time step scales as `hₑ/(P+1)²`
 rather than `h`; the integrator is IMEXRungeKutta's rather than
 OrdinaryDiffEq's.
 
-Not carried over: adaptive refinement (the Löhner indicator, `regrid!`,
-the tracking drivers), the travelling pulse, the 1D viewer,
+Carried over, with changes: adaptive refinement. `refine_mark`,
+`refinement_buffer`, the chunked cycle and the refreshed global scale
+are TreeWave's; the indicator is modal, since Löhner's would fire at
+every element face, where the solution jumps; and the dead band between
+the thresholds is a factor 1000, not 4 ([The verdict](#the-verdict)).
+
+Not carried over: the travelling pulse, the 1D viewer,
 TreeWave's benchmark (this package has its own), the vertex centering,
-and the device and threading test files. Löhner's indicator would also fire at every
-element face, where the solution jumps; a refinement criterion for this
-layout would be modal (the decay of the top Legendre coefficients)
-**(proposed)**.
+and the device and threading test files.
 
 ## Possible extensions
 
-- **(proposed)** Adaptive refinement: a modal indicator (the amplitude
-  of `u`'s top Legendre mode per element), a regrid driver run in
-  chunks, and an adaptive blast wave, on TreeAMR's `regrid!` of element
-  sets, which coarsens by the exact `L²` projection.
+- **(proposed)** A refinement that does not amplify the evolved data's
+  jumps across element faces, so that the dead band between the
+  thresholds could be narrower (see the open question below).
 - The particle transfer on a refined forest ([What a refined forest
   does not run](#what-a-refined-forest-does-not-run)), which the
   inspiral's far zone needs.
@@ -1951,6 +2262,14 @@ layout would be modal (the decay of the top Legendre coefficients)
   small, as at a full period at `P = 3` (see [Accuracy](#accuracy)). The
   remedy is a degree-preserving compatible operator through a finer
   mortar, upstream in TreeAMR, and the decision is the owner's.
+- Whether refining evolved data can be made harmless. Today it is
+  avoided by thresholds three orders apart, which keep the ring's
+  surroundings at the cap before it arrives and so cost work (61–90% of
+  the uniform run's node-steps on the blast wave). The mechanism is
+  inferred, not shown: the transfer is exact at the nodes and the same
+  mesh from exact data is fine, which points at the face jumps a finer
+  element weights more. A transfer that projects them out, or a modal
+  filter, would be candidates, at a cost in conservation or energy.
 - Whether truncation should stay the default for a linear problem,
   where it costs accuracy in `u` and buys no stability (both schemes are
   linearly stable).

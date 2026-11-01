@@ -8,6 +8,7 @@ How the package got where it is, by topic in `CODE.md`'s order.
 - [The method](#the-method)
 - [The right-hand side](#the-right-hand-side)
 - [Refined forests](#refined-forests)
+- [Adaptive refinement](#adaptive-refinement)
 - [Truncation](#truncation)
 - [The blast wave and the viewer](#the-blast-wave-and-the-viewer)
 - [Threads and the integrator](#threads-and-the-integrator)
@@ -144,6 +145,63 @@ How the package got where it is, by topic in `CODE.md`'s order.
   left as decided, and the item is **(open)** in `CODE.md`: a
   degree-preserving compatible operator through a finer mortar would be
   upstream, and the owner's decision.
+
+## Adaptive refinement
+
+- 2026-10-31: built as decided above, on TreeAMR's `regrid!` of element
+  sets: `WaveProblem(fs, el)` rebuilds a problem from a regridded state
+  set, `modal_indicator` and `refine_flags` in `src/refinement.jl`, and
+  `adaptive_blast`, TreeWave's `track_blast` cycle in chunks. The plan
+  had the indicator read `u`'s top Legendre mode. With truncation that
+  mode is constant in time, since `∂ₜu = v` and `v` has none: on the
+  blast wave a level-1 block the ring had crossed held `7.03e-6` in it at
+  `t = 0.1` and `0.4`, under a ring of amplitude `0.14`, and refining on
+  it left the ring coarse. The truncated scheme reads mode `P - 1`
+  instead, and so cannot adapt at `P = 1`. With provisional thresholds
+  (`1e-2`, `1e-3`) the run matched the uniform one at its cap; at
+  `refine_tol = 3e-2` it passed the root mesh as resolved, because mode
+  2 of the Gaussian, centred on an element corner, is `2.8e-2` at
+  `hₑ = 1.56σ` and `5.7e-2` at half that, and its error reached 7.4.
+- 2026-10-31: the indicator made robust before the mesh resolves the
+  data. Measured against each other (tables in `CODE.md`, "Adaptive
+  refinement" under "Measured results"):
+  - the largest of modes `P - 1` and `P - 2`, or the root of the sum of
+    their squares: at `P = 3` that is mode 1, which falls only as `hₑ`
+    (`0.51` to `0.042` from `roots = 2` to 64), so refinement stops at
+    the cap whatever the threshold below `4e-2`. Dropped;
+  - every moving mode raised to `(P-1)/m`, unweighted: robust, but it
+    overstates smooth data by `(2M - 1)!!`, measured 3.0, 15 and 105 on a
+    sine. Weighted by that factor it is the chosen indicator;
+  - `u`'s top mode at `t = 0` only, where it is still the data's: fixes
+    the truncated scheme's start (worst dip 1.2 at `P = 3`, 1.9 at
+    `P = 4`, against 3.3 and 65 for the single mode), but the plain
+    scheme has no mode above `P` (its dip stays 35), and the start would
+    use another indicator than the run. Dropped;
+  - a minimum level: works where the caller knows the feature's width,
+    and leaves the indicator wrong on anything it did not anticipate.
+    Not built;
+  - TreeWave's Löhner indicator fires at every element face. Its
+    refreshed global scale is kept.
+- 2026-10-31: the thresholds measured, over `P = 3, 4`, caps 2 and 3, to
+  `t = 0.2` and `0.4`. The provisional pair did not generalize: at cap 3
+  `coarsen_tol = 1e-3` gave 5 to 8 times the uniform run's error, and at
+  `P = 4` cap 3 with `refine_tol = 3e-3`, 290 times. Traced, the cause is
+  refining data already evolved on a coarser level (the start had
+  stopped at level 2, and the decaying peak later lifted the centre's
+  score): the transfer is exact at the nodes, yet one chunk later `v`'s
+  error is 15 times larger, and the same mesh started from exact data is
+  fine. Freezing the indicator's peak at its initial value was tried,
+  so that a decaying ring would not cross `refine_tol`; it coarsens the
+  blocks around the ring instead and measured worse (1.04 to 1.90, 1.5
+  to 7.7). What works is a start that reaches the cap and `coarsen_tol
+  = refine_tol/1000`: within 1.003 in L∞ in every case, at 61–90% of the
+  node-steps. TreeWave's band is a factor 4.
+- 2026-10-31: the first runs read the wake behind the ring as noise
+  of `τ ≈ 5e-3` left by an under-resolved start. The exact solution's
+  indicator there is `2.1e-3` at level 2 (`P = 3`, `t = 0.4`): the wake
+  is the 2D solution's, and the criterion keeps it at the cap, rightly.
+- 2026-10-31: `bin/visualize2d.jl --adaptive` added, with the block
+  faces coloured by level as in TreeWave's viewer.
 
 ## Truncation
 

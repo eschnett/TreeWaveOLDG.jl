@@ -50,15 +50,18 @@ julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--check-bounds=yes"])
 julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--threads=4"])'
 ```
 
-The first takes about 3m25 on the laptop, the third about 2m30. The
+The first takes about 3m45 on the laptop, the third about 2m45. The
 kernels are `@inbounds`, so run the second one too after touching a
 kernel or the layout.
 
 The viewer, in its own environment (CairoMakie is not a package
-dependency), about 20 seconds; it writes `bin/output/blast_2d.png`:
+dependency), about 20 seconds; it writes `bin/output/blast_2d.png`, and
+with `--adaptive` the adaptive run's `blast_2d_adaptive.png`, block
+faces coloured by level:
 
 ```bash
 julia --project=bin bin/visualize2d.jl
+julia --project=bin bin/visualize2d.jl --adaptive
 ```
 
 The benchmark, in the package environment; on Symmetry,
@@ -107,6 +110,19 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   the transfer measures its distances in the finest element width. Do
   not lift that refusal without making the transfer level-aware ("What
   a refined forest does not run").
+- **The refinement indicator reads `u`'s mode `P - 1` under truncation,
+  `P` without it,** since truncation freezes `u`'s top mode in time; and
+  it reads every mode below that too, weighted, because one mode alone
+  can pass an under-resolved feature as resolved. Do not drop the lower
+  modes or the weights ("Adaptive refinement").
+- **After `regrid!`, rebuild the problem with `WaveProblem(fs, el)`,
+  `gather!`, then `truncate_state!`.** The other sets and schedules
+  belong to the old layout, and a coarsening brings `v`'s top mode back
+  ("The driver").
+- **Keep `coarsen_tol` about `refine_tol/1000`, and `refine_tol` low
+  enough that the cap binds on the initial data.** Refining data already
+  evolved on a coarser level costs accuracy that nothing recovers
+  ("The verdict").
 - **Every field set is element-centered at the element's order, with
   `Operators(family = ElementLocal)`.** The coarse ghost is the energy-
   compatible restriction, exact to degree `P - 1` tangentially; do not
