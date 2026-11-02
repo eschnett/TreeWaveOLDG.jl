@@ -6,14 +6,13 @@ merged pull request and a green suite. The milestones follow
 knows it is done. Section names of `INSPIRAL.md` and `CODE.md` are used
 below without links.
 
-**Status.** M0 to M3 are done. M2's cost gate fired, and the cost is
+**Status.** M0 to M3b are done. M2's cost gate fired, and the cost is
 accepted for now. M3's clean-time gate fired, and the owner answered it
 on 2026-11-01 with a static forest of nested boxes, which is M3b; it
-also brings the binary's warm-up and orbits back as M7. M3b is done and
-awaits its merge. Nothing else is started. The decisions below were
-settled with the owner on 2026-10-30 and 2026-11-01. A milestone's
-status line changes here when its work starts and when its pull request
-merges.
+also brings the binary's warm-up and orbits back as M7. Nothing else is
+started. The decisions below were settled with the owner on 2026-10-30,
+2026-11-01 and 2026-11-02. A milestone's status line changes here when
+its work starts and when its pull request merges.
 
 **Contents**
 
@@ -423,21 +422,21 @@ particle runs.
 
 ## M3b: Nested boxes
 
-**Status:** done, on branch `inspiral-m3b-nested`, awaiting merge. The
-owner chose the layout for M4 to M7 on 2026-11-02: `w₀ = 4`, five
-levels, 64 elements across each at `d/8`, `E = 4` (`CODE.md`, "Nested
-boxes"). The forest, the transfer on its finest level, the norms, the
-scripts and the suite's tests are written and pass. On Symmetry the
-series, the cost and the outgoing waves are measured (jobs 587559 and
-587560), and the clean time at rest on four and five levels (587798 and
-587799), since the particle at `v = 0.2` leaves the fixed window's `R₁`
-ball at `t ≈ 5.7`. Decided with the owner on 2026-11-01, in answer to
-M3's clean-time gate: from M4 on, the inspiral runs on a static forest
-of nested boxes about the centre, fixed before the run and not adaptive.
-The field side exists (TreeAMR 0.2.7's element centering; `CODE.md`,
-"Refined forests"). This milestone builds the forest with more than two
-levels and lets the particles run on it. It also measures what the
-coarse-fine faces send back into the window, and what the layout costs.
+**Status:** done; on `main`. The owner chose the layout for M4 to M7 on
+2026-11-02: `w₀ = 4`, five levels, 64 elements across each at `d/8`,
+`E = 4` (`CODE.md`, "Nested boxes"). The forest, the transfer on its finest
+level, the norms, the scripts and the suite's tests are written and
+pass. On Symmetry the series, the cost and the outgoing waves are
+measured (jobs 587559 and 587560), and the clean time at rest on four
+and five levels (587798 and 587799), since the particle at `v = 0.2`
+leaves the fixed window's `R₁` ball at `t ≈ 5.7`. Decided with the owner
+on 2026-11-01, in answer to M3's clean-time gate: from M4 on, the
+inspiral runs on a static forest of nested boxes about the centre, fixed
+before the run and not adaptive. The field side exists (TreeAMR 0.2.7's
+element centering; `CODE.md`, "Refined forests"). This milestone builds
+the forest with more than two levels and lets the particles run on it.
+It also measures what the coarse-fine faces send back into the window,
+and what the layout costs.
 
 Why nested boxes:
 
