@@ -18,4 +18,5 @@ include("reference.jl")
     include("particle_tests.jl")
     include("transfer_tests.jl")
     include("inspiral_tests.jl")
+    include("nested_tests.jl")
 end

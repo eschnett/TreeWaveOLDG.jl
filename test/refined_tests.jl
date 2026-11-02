@@ -262,8 +262,9 @@ end
     # of elements per block, where a fine block would split a parent's
     # element; a field set whose order is not the element's, whose nodes
     # and weights would be another element's; and the particle transfer
-    # on a refined forest, whose distances and rules are in the finest
-    # element width.
+    # on a refined forest where a coarser block meets the source's ball,
+    # whose distances and rules are in the finest element width
+    # (`nested_tests.jl` has the transfer on the finest level).
     @test_throws "must be even" wave_forest(Float64, Val(2), 3, 3)
     @test_throws "E must be even" WaveProblem(
         Forest((2,); N=6, periodic=(true,), extents=((0.0, 1.0),)), Element(Float64, 1))
@@ -292,10 +293,10 @@ end
     m = ParticleModel(; Q=0.1, ℓ=0.01, M=1.0)
     window = Window(c, 1.0, 1.75; continuity=P + 1)
     motion = uniform_motion((c + SVector(0.11, 0.07, 0.13),), (SVector(0.0, 0.0, 0.0),))
-    @test_throws "needs a uniform forest" InspiralProblem(wave, (m,), window, motion)
+    @test_throws "needs the finest level" InspiralProblem(wave, (m,), window, motion)
     t = TransferTables(Float64, P)
     s = ParticleSupport(m, Trajectory(; z=c, v=zero(c)))
-    @test_throws "needs a uniform forest" project_source!(
+    @test_throws "needs the finest level" project_source!(
         statevector(wave.fs), wave, t, x -> 0.0, (s,); ball=(c, 1.0))
 end
 

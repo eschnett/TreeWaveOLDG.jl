@@ -9,10 +9,11 @@ below without links.
 **Status.** M0 to M3 are done. M2's cost gate fired, and the cost is
 accepted for now. M3's clean-time gate fired, and the owner answered it
 on 2026-11-01 with a static forest of nested boxes, which is M3b; it
-also brings the binary's warm-up and orbits back as M7. Nothing else is
-started. The decisions below were settled with the owner on 2026-10-30
-and 2026-11-01. A milestone's status line changes here when its work
-starts and when its pull request merges.
+also brings the binary's warm-up and orbits back as M7. M3b is done and
+awaits its merge. Nothing else is started. The decisions below were
+settled with the owner on 2026-10-30 and 2026-11-01. A milestone's
+status line changes here when its work starts and when its pull request
+merges.
 
 **Contents**
 
@@ -422,14 +423,21 @@ particle runs.
 
 ## M3b: Nested boxes
 
-**Status:** not started. Decided with the owner on 2026-11-01, in answer
-to M3's clean-time gate: from M4 on, the inspiral runs on a static
-forest of nested boxes about the centre, fixed before the run and not
-adaptive. The field side exists (TreeAMR 0.2.7's element centering;
-`CODE.md`, "Refined forests"). This milestone builds the forest with
-more than two levels and lets the particles run on it. It also measures
-what the coarse-fine faces send back into the window, and what the
-layout costs.
+**Status:** done, on branch `inspiral-m3b-nested`, awaiting merge. The
+owner chose the layout for M4 to M7 on 2026-11-02: `w₀ = 4`, five
+levels, 64 elements across each at `d/8`, `E = 4` (`CODE.md`, "Nested
+boxes"). The forest, the transfer on its finest level, the norms, the
+scripts and the suite's tests are written and pass. On Symmetry the
+series, the cost and the outgoing waves are measured (jobs 587559 and
+587560), and the clean time at rest on four and five levels (587798 and
+587799), since the particle at `v = 0.2` leaves the fixed window's `R₁`
+ball at `t ≈ 5.7`. Decided with the owner on 2026-11-01, in answer to
+M3's clean-time gate: from M4 on, the inspiral runs on a static forest
+of nested boxes about the centre, fixed before the run and not adaptive.
+The field side exists (TreeAMR 0.2.7's element centering; `CODE.md`,
+"Refined forests"). This milestone builds the forest with more than two
+levels and lets the particles run on it. It also measures what the
+coarse-fine faces send back into the window, and what the layout costs.
 
 Why nested boxes:
 
@@ -474,8 +482,9 @@ Estimated at `P = 3` and 64 elements across each level at `d/8`, with
 M3's 180 bytes per node. The memory at `d/12` and `d/16` is for the same
 cubes. The clean time is M3's `(L/2 - r)/2` for the outermost faces,
 taken at the window's edge `r = 3`; it assumes the coarse levels leave
-the speed of the faces' error at M3's twice the speed of light, which M3b
-measures.
+the speed of the faces' error at M3's twice the speed of light. M3b
+measured about 1.5 times through the coarse levels, which makes these
+clean times about a third longer: 19, 40, 83 and 169.
 
 | levels | outer side | outermost `hₑ` at `d/8` | nodes at `d/8` | memory at `d/8` | `d/12` | `d/16` | clean time at `r = 3` |
 |---|---|---|---|---|---|---|---|
@@ -759,12 +768,11 @@ would not separate the inspiral from the eccentricity anyway.
 
 On nested boxes (M3b's table) the warm-up and five orbits, `t ≈ 90`,
 need a clean time of about 90 at the window's edge: seven levels, side
-512, clean to about 126. That is `1.0·10⁸` nodes and 19 GB at `d/8`, 64 GB
-at `d/12` and 151 GB at `d/16`, all on one node. These are estimates
-until M3b has measured the coarse levels' clean time. The binary carries
-no net charge, so M3's drift is absent. Its field at the faces is a
-dipole's, so the faces' error should be smaller than for M3's single
-charge.
+512, clean to about 169 at the speed M3b measured. That is `1.0·10⁸`
+nodes and 19 GB at `d/8`, 64 GB at `d/12` and 151 GB at `d/16`, all on
+one node. The binary carries no net charge, so M3's drift is absent.
+Its field at the faces is a dipole's, so the faces' error should be
+smaller than for M3's single charge.
 
 The time is then the source's. At `d/8` a step takes about a second,
 mostly the projection (0.19 s per right-hand side for the binary's

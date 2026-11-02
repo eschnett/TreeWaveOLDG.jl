@@ -8,6 +8,7 @@ TreeAMR = "91bc416d-811c-44c1-9bc4-b9c8bbdbbd08"
 
 [sources]
 IMEXRungeKutta = {rev = "main", url = "https://github.com/eschnett/IMEXRungeKutta.jl"}
-# TreeAMR 0.2.7 is not registered yet: until it is, take it from the branch of its
-# release PR (eschnett/TreeAMR.jl#32). Remove this once it is.
-TreeAMR = {url = "https://github.com/eschnett/TreeAMR.jl", rev = "eschnett-claude/element-centering"}
+# TreeAMR 0.2.7 is tagged but not registered yet: until it is, take it from its
+# tag (its release PR, eschnett/TreeAMR.jl#32, merged and its branch is gone).
+# Remove this once it is registered.
+TreeAMR = {url = "https://github.com/eschnett/TreeAMR.jl", rev = "v0.2.7"}

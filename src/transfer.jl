@@ -585,18 +585,57 @@ function projection_scratch(p::WaveProblem{T,D}, t::TransferTables{T,P1,Q}) wher
     return allocate(get_backend(p.fs.work), T, ntuple(_ -> E * Q, D)..., nblocks(p.fs))
 end
 
-# Refuse a refined forest. The projection's distances (`rnear`, `rfar`
-# and the graded bands) are in units of the finest element width `hₑ`,
-# and its near and graded elements are classified in it, so on a coarser
-# element every one of them would be off by the ratio of the spacings,
-# and the quadrature chosen for it silently too coarse.
-function check_uniform(forest::Forest, what)
-    lo, hi = extrema(level, forest.leaves)
-    lo == hi || throw(ArgumentError(
-        "$what needs a uniform forest, and this one has levels $lo to $hi: the " *
-        "transfer between particles and grid measures its distances in the finest " *
-        "element width hₑ, and would integrate a coarser element with a rule chosen " *
-        "for a finer one"))
+# The transfer measures its distances (`rnear`, `rfar` and the graded
+# bands) in units of the finest element width `hₑ`, classifies its near
+# and graded elements in it, and divides by its weights, so every element
+# it touches has to be on the finest level: those of every block the
+# source's ball meets, and of every block that holds part of a particle's
+# support. On a coarser element every one of them would be off by the
+# ratio of the spacings, and the quadrature chosen for it silently too
+# coarse. The forest may be refined elsewhere ("Nested boxes" in
+# `CODE.md`).
+function check_finest(fs::FieldSet{T,D}, ball, what) where {T,D}
+    forest = fs.forest
+    top = maxlevel(forest)
+    c, R = SVector{D,T}(Tuple(ball[1])), T(ball[2])
+    for b in 1:nblocks(fs)
+        key = blockkey(fs, b)
+        level(key) == top && continue
+        ext = block_extent(T, forest, key)
+        lo, hi = SVector(map(first, ext)), SVector(map(last, ext))
+        r² = box_distance2(c, lo, hi, 1:D)
+        r² < R^2 || continue
+        r = sqrt(r²)
+        throw(ArgumentError(
+            "$what needs the finest level, $top, under the source's ball of radius " *
+            "$R about $(Tuple(c)), and a block of level $(level(key)) reaches to " *
+            "$r from the ball's centre, $(R - r) inside it: the transfer measures " *
+            "its distances in the finest element width hₑ, and would integrate a " *
+            "coarser element with a rule chosen for a finer one"))
+    end
+    return nothing
+end
+
+function check_finest(fs::FieldSet{T,D}, s::ParticleSupport{D}, what) where {T,D}
+    forest = fs.forest
+    top = maxlevel(forest)
+    for corner in CartesianIndices(ntuple(_ -> 2, D))
+        x = ntuple(d -> s.z[d] + (corner[d] == 1 ? -s.ℓ : s.ℓ), D)
+        b = locate_point(forest, x)
+        # Past the domain's faces, which `support_elements` refuses.
+        b === nothing && continue
+        key = blockkey(fs, b)
+        level(key) == top && continue
+        ext = block_extent(T, forest, key)
+        lo, hi = SVector(map(first, ext)), SVector(map(last, ext))
+        r = sqrt(box_distance2(s.z, lo, hi, 1:D))
+        throw(ArgumentError(
+            "$what needs the finest level, $top, under every particle's support, and " *
+            "the support of radius $(s.ℓ) about z = $(Tuple(s.z)) reaches a block of " *
+            "level $(level(key)), $r from z: the transfer measures its distances in " *
+            "the finest element width hₑ, and would integrate a coarser element with " *
+            "a rule chosen for a finer one"))
+    end
     return nothing
 end
 
@@ -628,6 +667,12 @@ subtract it from `v`'s rate, as the remainder equations want.
   defaults the rules agree to `10⁻¹²` relative where they meet
   ("Quadrature" in `CODE.md`).
 
+The forest may be refined, but every block the ball meets, and every
+block that holds part of a particle's support, must be on the finest
+level, whose element width the distances are measured in; anything else
+is refused, naming the block's level and how far into the ball it reaches
+("Nested boxes" in `CODE.md`).
+
 The far elements run as two kernels, one over the quadrature points and
 one over the elements. The others, several hundred per particle, run on
 the host, threaded over elements; each writes only its own nodes, so the
@@ -658,7 +703,8 @@ function projection_plan(p::WaveProblem{T,D}, t::TransferTables{T,P1}, particles
         "rnear = $rnear must lie between 0 and the far rule's distance rfar = $(t.rfar)"))
     fs = p.fs
     forest = fs.forest
-    check_uniform(forest, "project_source!")
+    check_finest(fs, ball, "project_source!")
+    foreach(s -> check_finest(fs, s, "project_source!"), particles)
     backend = get_backend(fs.work)
     hₑ = minimum_spacing(forest) * P1
     rn = T(rnear) * hₑ
@@ -846,7 +892,9 @@ support, at most `2^D` since `2ℓ < hₑ`, as `(block, element)` pairs with
 zero-based element indices. Found from the box's corners through
 `TreeAMR.locate_point` and the element arithmetic of
 [`node_coordinates`](@ref), with no pass over the mesh. The box must lie
-inside the domain: periodic images are not looked for.
+inside the domain: periodic images are not looked for. On a refined
+forest every block that holds part of the support must be on the finest
+level, and anything else is refused.
 """
 function support_elements(p::WaveProblem{T,D}, s::ParticleSupport{D}) where {T,D}
     P1 = order(p.element) + 1
@@ -860,6 +908,7 @@ function support_elements(p::WaveProblem{T,D}, s::ParticleSupport{D}) where {T,D
     all(inside, 1:D) || throw(ArgumentError(
         "the particle's support around z = $(Tuple(s.z)) reaches past the domain's " *
         "faces; the transfer does not look for periodic images"))
+    check_finest(p.fs, s, "the pairing")
     list = Tuple{Int,NTuple{D,Int}}[]
     for corner in CartesianIndices(ntuple(_ -> 2, D))
         x = SVector(ntuple(d -> s.z[d] + (corner[d] == 1 ? -s.ℓ : s.ℓ), D))

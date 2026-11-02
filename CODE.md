@@ -13,7 +13,7 @@ the element centering (its milestone M16), and the field now runs on
 static refined forests too; see [Refined forests](#refined-forests).
 
 **Status.** Periodic or reflecting boxes, uniform or with a static
-two-level refinement, in any number of dimensions, any order `P ≥ 1`,
+refinement of any number of levels, in any number of dimensions, any order `P ≥ 1`,
 two initial conditions (a standing sine mode and a 2D radial blast wave)
 and a viewer for the second, on the CPU, stepped by IMEXRungeKutta's RK4
 with its stage arithmetic run by block owner. On a refined forest the
@@ -29,8 +29,10 @@ effective source and the window, the transfer between particles and
 grid (M2), the projection of a source onto the nodes and its adjoint, and
 the coupled right-hand side for particles on a prescribed path (M3), in
 which a particle at rest or in uniform motion keeps its remainder; see
-[Particles](#particles). The particles run on uniform forests only. The
-suite passes, also with
+[Particles](#particles). The particles run on uniform forests and on
+static nested boxes whose finest level holds the source's ball (M3b,
+measured on Symmetry, with the layout M4 to M7 run on); see [Nested
+boxes](#nested-boxes). The suite passes, also with
 `--check-bounds=yes` and with four threads.
 
 **Contents**
@@ -71,6 +73,7 @@ suite passes, also with
   - [The transfer](#the-transfer)
   - [Quadrature](#quadrature)
   - [The right-hand side with particles](#the-right-hand-side-with-particles)
+  - [Nested boxes](#nested-boxes)
 - [File layout](#file-layout)
 - [Tests](#tests)
 - [Measured results](#measured-results)
@@ -84,6 +87,7 @@ suite passes, also with
   - [The source bracket](#the-source-bracket)
   - [The transfer's cost](#the-transfers-cost)
   - [Uniform motion](#uniform-motion)
+  - [Nested boxes](#nested-boxes-1)
 - [What carried over from TreeWave, and what did not](#what-carried-over-from-treewave-and-what-did-not)
 - [Possible extensions](#possible-extensions)
 - [Open questions](#open-questions)
@@ -103,17 +107,19 @@ suite passes, also with
 
 - **Refined forests, static or adaptive, for the field.** A forest may
   be uniform or refined: `wave_forest(…; refined)` makes a static
-  two-level one, and the kernels, the exchange and the norms take any
+  one, of two levels or of nested regions level by level, and the kernels, the exchange and the norms take any
   forest TreeAMR's element centering accepts. `adaptive_blast` regrids
   between chunks of a run, by a modal indicator; the cycle is the blast
   wave's, and another problem would write its own from the same parts
   (`refine_flags`, `regrid!`, `WaveProblem(fs, el)`). See [Refined
   forests](#refined-forests) and [Adaptive
   refinement](#adaptive-refinement).
-- **Particles on uniform forests only.** `InspiralProblem` and
-  `project_source!` refuse a refined forest, because the transfer
-  measures its distances in the finest element width; see [What a
-  refined forest does not run](#what-a-refined-forest-does-not-run).
+- **Particles on the finest level only.** The forest may be refined, as
+  the nested boxes of [Nested boxes](#nested-boxes) are, but
+  `InspiralProblem`, `project_source!` and the pairing refuse a source's
+  ball or a particle's support that reaches a coarser block, because the
+  transfer measures its distances in the finest element width; see
+  [What a refined forest does not run](#what-a-refined-forest-does-not-run).
 - **Periodic or reflecting boxes.** Every driver builds a fully periodic
   forest by default, and passes no boundary hook to `fill_ghosts!`. A
   box with `reflecting=true` puts a solid (Neumann) wall on every face
@@ -361,8 +367,12 @@ forest TreeWave's `sinewave.jl` makes: the blocks whose centres lie in a
 region are refined once, and the forest is balanced. `refined = true`
 takes the middle half of the box, `(L/4, 3L/4)^D`, which holds a block
 centre from `roots = 3` on; a tuple of `D` intervals gives any region,
-so that refinement can reach a wall of a reflecting box. `wave_errors`
-and `reflect_errors` pass it through. Nothing else is particular to a
+so that refinement can reach a wall of a reflecting box. A vector of
+such regions, one per level above the root level, refines level by
+level: region `k` refines the leaves of level `k - 1` whose centres lie
+in it, and the forest is balanced after each; `nested_cubes` builds the
+nested boxes of the inspiral that way ([Nested boxes](#nested-boxes)).
+`wave_errors` and `reflect_errors` pass it through. Nothing else is particular to a
 refined forest: the kernels read each block's own spacing, TreeAMR's
 element-local operators fill the coarse-fine ghosts, the quadrature
 weights each block by its own spacing, and the time step is the finest
@@ -519,14 +529,15 @@ no stiffer mode, and `oldg_timestep`'s finest-level step is safe.
 
 ### What a refined forest does not run
 
-- **The particles.** `InspiralProblem` and `project_source!` refuse a
-  refined forest. The transfer's distances (`rnear`, `rfar`, the graded
-  bands) are in units of the finest element width, its near and graded
-  elements are classified in it, and `project_near!` divides by its
-  weights, so on a coarser element every one of them would be off by
-  the ratio of the spacings, and the quadrature silently too coarse.
-  **(planned)** `INSPIRAL-PLAN.md`'s M3b lets them run on a forest whose
-  finest level covers the source's ball and the particles' supports.
+- **The particles off the finest level.** The transfer's distances
+  (`rnear`, `rfar`, the graded bands) are in units of the finest element
+  width, its near and graded elements are classified in it, and
+  `project_near!` divides by its weights, so on a coarser element every
+  one of them would be off by the ratio of the spacings, and the
+  quadrature silently too coarse. `InspiralProblem`, `project_source!`
+  and the pairing therefore refuse a source's ball or a particle's
+  support that reaches a block coarser than the finest; elsewhere the
+  forest may be refined ([Nested boxes](#nested-boxes)).
 - **Point interpolation.** TreeAMR's `interpolate` refuses an element
   set, which needs a basis that maps a position to its element's
   polynomial (**(open)** in TreeAMR); nothing here uses it.
@@ -908,10 +919,11 @@ steps.
 `INSPIRAL.md` designs two inspiralling scalar particles of fixed size
 `ℓ ≪ h` on this scheme, and `INSPIRAL-PLAN.md` builds it in milestones.
 What exists is M1, the analytic particle, everything about a particle
-that needs no mesh; M2, the transfer between particles and grid; and
-M3, the coupled right-hand side for particles on a prescribed path, which
+that needs no mesh; M2, the transfer between particles and grid; M3,
+the coupled right-hand side for particles on a prescribed path, which
 subtracts the projected source after `wave_rhs!` and leaves `wave_rhs!`
-unchanged. The particles do not yet move under their forces (M6a).
+unchanged; and M3b's nested boxes, a static refined forest whose finest
+level holds the source. The particles do not yet move under their forces (M6a).
 Sections of `INSPIRAL.md` are named below without links.
 
 The closed forms are derived in the Wolfram Language and generated into
@@ -1197,8 +1209,10 @@ discontinuous across faces. It is element-local and needs no exchange.
 
 The transfer does not look for periodic images: the source's ball and
 every particle's support must lie inside the box, and `support_elements`
-refuses a support that reaches a face. The graded and nested rules and
-the pairing run on the CPU.
+refuses a support that reaches a face. On a refined forest every block
+the source's ball meets, and every block that holds part of a particle's
+support, must be on the finest level ([Nested boxes](#nested-boxes)).
+The graded and nested rules and the pairing run on the CPU.
 
 ### Quadrature
 
@@ -1351,7 +1365,9 @@ with `wave_rhs!` unchanged and the source subtracted after it.
   rnear = 1)` holds the three-dimensional `WaveProblem`, the particle
   models, the window, the motion, the near-field order, the transfer
   tables and the projection's scratch, which is reused across calls and
-  carries nothing between them. The motion is `Prescribed(path)`, with
+  carries nothing between them. It refuses a window's ball or a
+  particle's support at `t = 0` that reaches a block coarser than the
+  finest ([Nested boxes](#nested-boxes)). The motion is `Prescribed(path)`, with
   `path(t)` the particles' `Trajectory`s at `t`, `isbits`;
   `uniform_motion(z, v)` is one. `Dynamic` is M6a's.
 - `inspiral_rhs!(du, u, p, t)`: `wave_rhs!` on the field part,
@@ -1378,8 +1394,9 @@ with `wave_rhs!` unchanged and the source subtracted after it.
   particles; the analytic parts of the force are M6a's.
 - `ball_norm(p, u, centre, radius; p = 2, vars = 1:2)`:
   `quadrature_norm` over the nodes within a ball, through `mesh_fold`,
-  with each node's position from its block's origin, which reaches the
-  fold as its tag.
+  with each node's position and weight from its own block's origin and
+  spacing, which reach the fold with each point, so it holds on a
+  refined forest too.
 
 **The box.** The field of a charge is not periodic, and in a periodic
 box the initial data `(1 - W)Ψ̂` has kinks at the faces, where `Φ_C` and
@@ -1392,7 +1409,125 @@ continuum that is `L/2 - r`; on the grid the faces' error travels at
 about twice the speed of light, and it is about `(L/2 - r)/2`. Every
 error norm of an inspiral run is taken within the ball that is still
 clean. [Uniform motion](#uniform-motion) has when the faces' error
-arrives and how large it is.
+arrives and how large it is, and [Nested boxes](#nested-boxes) moves the
+faces out.
+
+### Nested boxes
+
+`INSPIRAL-PLAN.md`'s M3b, decided with the owner on 2026-11-01 in
+answer to M3's clean-time gate ([Uniform motion](#uniform-motion)): from
+M4 on, the inspiral runs on a static forest of nested cubes about the
+centre, fixed before the run and not adaptive. What needs resolution,
+the window's ball about the orbit, is known in advance, and a regrid
+would change the operator and the energy and refine evolved data
+([The verdict](#the-verdict)). The field side is the refined forests'
+([Refined forests](#refined-forests)); what M3b adds is the forest with
+more than two levels and the particles on its finest level.
+
+- **The forest.** `nested_cubes(Val(D), w₀, levels)` gives the regions
+  of `wave_forest(…; roots, L = 2^levels·w₀, refined)`: the cube of level
+  `k` has the half-width `2^(levels-1-k)·w₀` about the box's centre, so
+  the finest level, `levels - 1`, covers the cube of half-width `w₀`, the
+  root level the periodic box of side `2^levels·w₀`, and every level has
+  `roots·E` elements across, its element width twice the next finer
+  one's. Each region refines only the leaves of the level below whose
+  centres lie in it, so region `k` makes level `k` and no other. With `roots` a multiple of 4 every cube's faces lie on faces of
+  the blocks of the level below, and each cube sits `roots/4` blocks of
+  its level inside the next coarser one, so balancing refines nothing
+  more (a test).
+- **One time step for every level,** the finest level's
+  ([Time step](#time-step)), as on every refined forest. There is no
+  local time stepping: the source on the finest level is most of the
+  work.
+- **The transfer on the finest level.** `hₑ`, and with it `rnear`,
+  `rfar` and the graded bands, stays the finest level's, so every block
+  the transfer touches must be on that level: every block the source's
+  ball meets, and every block that holds part of a particle's support.
+  `InspiralProblem` checks the window's ball and the supports at
+  `t = 0`; every `project_source!` checks its ball and the supports
+  again, and every pairing its support, since the particles move.
+  Anything else is refused, naming the block's level and how far it
+  reaches into the ball (its nearest point's distance from the ball's
+  centre), or the support's centre. The checks are a pass over the
+  blocks and `2^D` `locate_point`s per particle. On the finest level the
+  projection, the pairing and the initial remainder are, element for
+  element, those of a uniform forest at the finest spacing: the same
+  element boxes give the same rules and the same sums, to an ulp (a
+  test, against a uniform box over the finest cube with the same
+  coordinates).
+- **Norms and initial data.** `ball_norm` weights each node by its own
+  block's spacing and places it by its own block's origin, and
+  `inspiral_initial_state` fills `(1 - W)Ψ̂` at each block's own nodes
+  through `fill_at_nodes!`, so both hold on any level; a ball inside the
+  finest level gives the uniform forest's norm (a test).
+- **Scripts.** `bin/uniform_motion.jl --levels=n --w0=w` runs M3's
+  particle on `n` nested cubes, the finest of half-width `w` (by default
+  M3's box, `w = L/2`), `2w·hdiv` elements across every level, which has
+  to be a multiple of `4E`; `bin/nested_waves.jl` sends the exact
+  outgoing pulse `[g(r - t) - g(r + t)]/r`, `g(s) = exp(-(s/σ)²)
+  cos(2πs/λ)`, `σ = λ/2`, through the levels, the field alone, and
+  records the error and the exact solution in the ball of each level's
+  cube, `w_k = 2^k·w₀`, and the energy. `bin/symmetry/nested_motion.sh`
+  and `bin/symmetry/nested_waves.sh` run them on a Symmetry node.
+
+**What the coarse-fine faces send back.** Measured on Symmetry (under
+[Nested boxes](#nested-boxes-1) in "Measured results"):
+
+- **Inside M3's clean time the nested boxes give M3's numbers,** the
+  errors in every ball and the force, to the digits printed, at `d/4`,
+  `d/8` and `d/12`.
+- **The coarse-fine face sends back no start-up error.** M3's periodic
+  faces spoil the `R₂` ball from `t ≈ 0.19` on, through the kinks the
+  non-periodic data have there; at the coarse-fine face at the same
+  place the data are smooth, and the `R₂` ball stays clean to at least
+  `t = 6`, thirty times longer. In uniform motion the force stays clean
+  until the particle leaves the fixed window's `R₁` ball, at `t ≈ 5.7`
+  at `v = 0.2`, which is what then spoils it, not the faces.
+- **A particle at rest stays clean until the outer faces' error
+  arrives;** the coarse-fine faces send back nothing above the
+  discretization error. On four and five levels around M3's box the
+  errors and the force agree to every digit until `t ≈ 14`, and on five
+  levels they stay at their clean level to `t = 20`, the end of the run:
+  the force at or below `2.7·10⁻⁷`, the error in the `R₂` ball at
+  `2.8–5.0·10⁻⁷`. On four levels the outer faces, at 24, reach the `R₂`
+  sphere at `t ≈ 14` and the particle at `t ≈ 16`: through the coarse
+  levels their error travels at about 1.5 times the speed of light,
+  where it is twice in M3's uniform box, so the clean time at distance
+  `r` is about `(L/2 - r)/1.5`. What arrives is mostly a drift of `Φ_r`,
+  which exerts little force: the force stays below `6.5·10⁻⁷` to
+  `t = 20`.
+- **A physical wave crosses a face resolved at 8 elements per wavelength
+  or more with about `10⁻³` of its amplitude reflected,** and one at 4
+  elements per wavelength with about a tenth, measured at the centre,
+  where the reflections of the cube's six faces meet. The radiation of
+  the first run (`λ = 16`) is resolved that well out to a face whose
+  coarse side has `hₑ = 2`; start-up junk of `λ = 4` only to `hₑ = 1/2`.
+  The coarse ghost's degree loss ([Accuracy](#accuracy)) shows in no
+  other way.
+- **The energy holds** to `2·10⁻¹⁰` relative over `32768` steps on five
+  levels.
+- **The source costs as the whole forest,** though it reads only the
+  window's ball: its far kernels range over every block, and its plan
+  passes over every block on every call. On four levels at `d/12` it is
+  0.79 s of a 3.66 s step, against 0.29 s in M3's uniform box of the
+  same finest cube. **(open)**: restricting those passes to the blocks
+  the ball meets.
+
+**The layout for M4 to M7,** chosen by the owner on 2026-11-02. `w₀ = 4`
+about the centre of mass, 64 elements across each level at `hₑ = d/8`
+(`E = 4`, `roots = 16`), and five levels: an outer box of side 128 at
+`7.5·10⁷` nodes, as `INSPIRAL-PLAN.md` estimated, about 14 GB. A
+convergence series scales every level's spacing together, keeping the
+cubes. The faces at 8 and 16 send the first run's radiation back below
+the discretization error, about `2·10⁻⁶` in the finest cube, the one at
+32 at `1.5·10⁻⁵` from `t ≈ 60`, and the outer faces nothing before
+`t ≈ 96`; four levels let the outer faces in from `t ≈ 38`. Start-up junk of
+`λ = 4` comes back from the face at 16 at `10⁻²` from `t ≈ 28`. The
+outer faces' error from the non-periodic data, at 1.5 times the speed of
+light, reaches the window's edge at about `t ≈ 40`, which covers M4's
+circle (`t ≈ 5` and a time to measure over) several times. M7's five
+orbits, `t ≈ 90`, need more: `INSPIRAL-PLAN.md` estimates seven levels,
+which is M7's to settle.
 
 ## File layout
 
@@ -1405,8 +1540,9 @@ arrives and how large it is.
   `truncate_state!`, `truncate_stage!`, `initial_state`, `wave_energy`,
   `oldg_timestep`, `convergence_rate`.
 - `src/stepping.jl`: `state_partition` and `wave_integrator`.
-- `src/sinewave.jl`: `wave_forest`, uniform or two-level, the standing
-  sine mode and its driver `wave_errors`.
+- `src/sinewave.jl`: `wave_forest`, uniform, two-level or refined level
+  by level, `nested_cubes`, the standing sine mode and its driver
+  `wave_errors`.
 - `src/refinement.jl`: `modal_indicator`, `mode_amplitude`,
   `refine_mark`, `refine_flags` and `refinement_buffer`.
 - `src/blast.jl`: the radial blast wave, its exact solution, and its
@@ -1424,7 +1560,8 @@ arrives and how large it is.
   `TransferTables`, `sinh_rule`, `ParticleSupport`, the far, graded and
   nested rules, the
   projection's kernels and `project_source!`, `support_elements`,
-  `pairing`, `reconstruct`, `reconstruct_gradient` and `ball_rule`.
+  `pairing`, `reconstruct`, `reconstruct_gradient`, `ball_rule`, and
+  `check_finest`, which refuses a ball or a support off the finest level.
 - `src/inspiral.jl`: `Prescribed`, `uniform_motion`, `InspiralProblem`,
   the state's parts (`field_state`, `particle_state`),
   `inspiral_initial_state`, `inspiral_rhs!`, `inspiral_stage!`,
@@ -1445,12 +1582,17 @@ arrives and how large it is.
   source, one tab-separated row per quantity, run in the package
   environment.
 - `bin/uniform_motion.jl`: one particle of the first run in uniform
-  motion, its error against the exact remainder, its force and, with
-  `--cost`, the cost of a right-hand side and its parts and the bytes per
-  node, one tab-separated row per quantity, run in the package
-  environment; `bin/symmetry/uniform_motion.sh` runs its convergence
-  series, `bin/projection.jl` and its clean-time runs on a Symmetry AMD
-  node.
+  motion, in M3's uniform box or, with `--levels`, on nested boxes, its
+  error against the exact remainder, its force and, with `--cost`, the
+  cost of a right-hand side and its parts and the bytes per node, one
+  tab-separated row per quantity, run in the package environment;
+  `bin/symmetry/uniform_motion.sh` runs M3's convergence series,
+  `bin/projection.jl` and its clean-time runs on a Symmetry AMD node, and
+  `bin/symmetry/nested_motion.sh` M3b's on nested boxes.
+- `bin/nested_waves.jl`: the exact outgoing pulse through nested boxes,
+  the field alone, its error and the exact solution in each level's
+  ball, run in the package environment; `bin/symmetry/nested_waves.sh`
+  runs it on a Symmetry AMD node.
 - `test/reference.jl`: dense global operators built from the element's
   tables, and the state rearranged into global arrays, which the kernels
   are checked against.
@@ -1472,12 +1614,12 @@ does.
 
 ## Tests
 
-`julia --project=. -e 'using Pkg; Pkg.test()'`, about three and three
-quarter minutes on the laptop at one thread and two and three quarters
-at four, of
-which the particle, the transfer and the inspiral take about four
-fifths; the inspiral's coarse 3D runs about 50 s of it on four threads,
-and the refined forests' tests about 40 s on one.
+`julia --project=. -e 'using Pkg; Pkg.test()'`, about four minutes and
+fifty seconds on the laptop at one thread and three and a half minutes
+at four, of which the particle, the transfer, the inspiral and the nested
+boxes take about four fifths; the inspiral's coarse 3D runs about 50 s of
+it on four threads and the nested boxes' about 40 s more, and the
+refined forests' tests about 40 s on one.
 
 - `element_tests.jl`: the nodes integrate to degree `2P-1`, and no
   further; the wide derivative is the paper's matrix for `P = 2, 3, 4`
@@ -1586,6 +1728,23 @@ and the refined forests' tests about 40 s on one.
   and their state follows the path to `10⁻¹³`; `ball_norm` is
   `quadrature_norm` over a ball holding the box and a node's value over
   a ball holding only it.
+- `nested_tests.jl`, nested cubes about the centre of a coarse 3D box
+  (`P = 3`, the finest of half-width 2 at `hₑ = 1/2` and `1/4`, one
+  particle of `ℓ = 0.01`): `wave_forest` refines level by level, each
+  level inside its cube and outside the next finer one with `roots·E`
+  elements across, balanced, and `refined = true` and a single region
+  keep their two-level forest; on a three-level forest the projection,
+  the pairing, the force and the initial remainder on the finest level
+  equal a uniform box's over the finest cube element for element to an
+  ulp, with all three of the transfer's rules in the ball, and the
+  initial remainder on the coarser levels is `(1 - W)Ψ̂` at their own
+  nodes; a ball or a support that reaches a coarser block is refused by
+  `InspiralProblem`, `project_source!` and the pairing, naming the
+  level, and one that stays on the finest level is not; `ball_norm`
+  inside the finest level is the uniform box's; and a particle moving
+  at `v = 0.2` keeps its remainder to an error that falls by more than
+  3 from `hₑ = 1/2` to `1/4` at `t = 1/4`, its force falls by more than
+  100, and its state follows the path to `10⁻¹³`.
 
 ## Measured results
 
@@ -2189,6 +2348,177 @@ which `INSPIRAL-PLAN.md`'s memory tables use.
   `d/12`: at `d/4` the element that holds the particle was a third of
   the near work and ran on one thread.
 
+### Nested boxes
+
+The suite's coarse forest on the laptop (Apple M3 Pro, four threads),
+not Symmetry, so these are no timings: one particle of `ℓ = 0.01` moving
+at `v = 0.2`, the window `R₁ = 1`, `R₂ = 1.75`, `P = 3`, on three nested
+cubes with the finest of half-width `w₀ = 2`, which is M3's suite box of
+side 4 (`inspiral_tests.jl`), against that uniform periodic box at the
+same spacing. L2 errors against the exact remainder in the balls about
+the centre, and the force:
+
+| `hₑ` | `t` | box | ball `R₂` | ball `R₁` | force |
+|---|---|---|---|---|---|
+| 1/2 | 1/8 | uniform, side 4 | 5.23e-4 | 2.57e-4 | 4.29e-6 |
+| 1/2 | 1/8 | nested, 3 levels | 5.13e-4 | 2.57e-4 | 4.28e-6 |
+| 1/2 | 1/4 | uniform, side 4 | 6.65e-4 | 3.29e-4 | 3.81e-5 |
+| 1/2 | 1/4 | nested, 3 levels | 5.89e-4 | 3.29e-4 | 3.81e-5 |
+| 1/4 | 1/8 | uniform, side 4 | 1.43e-4 | 5.02e-5 | 1.43e-9 |
+| 1/4 | 1/8 | nested, 3 levels | 1.40e-4 | 5.02e-5 | 1.43e-9 |
+| 1/4 | 1/4 | uniform, side 4 | 2.02e-4 | 3.13e-5 | 1.45e-7 |
+| 1/4 | 1/4 | nested, 3 levels | 9.47e-5 | 3.14e-5 | 1.45e-7 |
+
+- **Inside M3's clean ball the two agree,** in `R₁` and in the force to
+  the digits shown, as they must before anything from the faces arrives.
+- **In the `R₂` ball the nested boxes are cleaner** once the uniform
+  box's faces' error has arrived there, from `t ≈ (2 - 1.75)/2 = 1/8`
+  on: at `hₑ = 1/4` and `t = 1/4` the uniform box's error has stopped
+  falling with `hₑ` and is twice the nested one's, which falls by 6.2
+  from `hₑ = 1/2`. The coarse-fine face at `w₀ = 2` sends back less than
+  the periodic face there.
+- **Two levels give the same** to four digits or better as three at
+  these times, so nothing from the second coarse-fine face, at 4, has
+  arrived.
+
+**On Symmetry.** `bin/symmetry/nested_motion.sh` and
+`nested_waves.sh`, 2026-11-01, jobs 587559 and 587560 on `cn096` and
+`cn098`, each a dual AMD EPYC 7543 (Zen 3, 64 cores), Julia 1.13.3, 64
+threads pinned.
+
+**Uniform motion on four levels** about M3's box: the finest cube of
+half-width `w₀ = 3` is M3's periodic box of side 6, inside cubes of
+half-width 6 and 12 in a periodic box of side 48; M3's particle, window
+and settings, at `v = 0.2`. At `t = 1/2`, against M3's uniform box
+([Uniform motion](#uniform-motion)):
+
+| `hₑ` | `d/4` | `d/8` | `d/12` |
+|---|---|---|---|
+| error, ball `R₁` about the centre | 3.25e-6 | 2.60e-7 | 8.16e-8 |
+| M3 | 3.25e-6 | 2.60e-7 | 8.16e-8 |
+| error, ball `1/2` about the particle | 1.60e-6 | 1.94e-7 | 5.26e-8 |
+| M3 | 1.61e-6 | 1.94e-7 | 5.26e-8 |
+| error, ball `R₂`, at `t = 1/8` | 7.29e-6 | 4.26e-7 | 4.87e-8 |
+| M3 | 7.81e-6 | 4.74e-7 | 5.21e-8 |
+| largest force over `t ≤ 1/2` | 2.7e-7 | 3.0e-8 | 2.5e-9 |
+| M3 | 2.7e-7 | 3.0e-8 | 2.5e-9 |
+
+- **The same numbers,** except in the `R₂` ball at `t = 1/8`, where M3's
+  are 7–10% higher: M3's faces' error, which reaches the `R₂` sphere at
+  `t ≈ 0.19`, has begun to arrive.
+- **The clean time,** at `d/8` to `t ≈ 15`, sampled every `1/16`. The
+  error in the `R₂` ball stays at `2.8–5.0·10⁻⁷`, and in the `R₁` ball at
+  `3.1–7.8·10⁻⁷`, until `t = 6.1`. The force stays at or below
+  `1.3·10⁻⁷` to `t = 4.9`, then rises, `1.6·10⁻⁷` at 5.0, `9·10⁻⁷` at 5.56,
+  `4·10⁻⁶` at 5.63, `10⁻⁴` at 6.1. The error grows outward from the
+  particle: first the force, then the ball about the particle from 5.9,
+  then the `R₁` and `R₂` balls from 6.1. That is the particle reaching
+  the fixed window's `R₁` sphere, which it does at `t = 5.73`, not
+  anything from the faces. After it the error is the window's: the force
+  `10⁻²` to `3·10⁻²` over `t = 7` to 10, the L∞ error at the particle up
+  to 1.5, the error in the `R₁` ball `1.4·10⁻³`, more than the remainder.
+  The particle reaches the finest cube's face at `t = 15`, where the
+  transfer refuses the forest and the run stopped (by design, but the
+  runs on 5 to 7 levels did not run after it). A particle at rest is the
+  way to see the faces past `t = 5.7`, below.
+
+**At rest,** the clean time: jobs 587798 and 587799, 2026-11-02, on
+`cn103` and `cn106`, dual AMD EPYC 7543 like the first two. The same
+particle at `v = 0` at `d/8` to `t = 20`, sampled every `1/16`, on four
+levels (outer box of side 48, `2.57·10⁷` nodes) and five (side 96,
+`3.19·10⁷` nodes):
+
+| | clean level, both, `t ≤ 14` | five levels, `t ≤ 20` | four levels departs from five by 5% at | four levels at `t = 20` |
+|---|---|---|---|---|
+| `Φ_r` alone, ball `R₂` | `0.8–2.2·10⁻⁸` | as before | `t = 14.5` | `8.2·10⁻⁷` |
+| error, ball `R₂` | `2.8–5.0·10⁻⁷` | as before | `t = 15.1` | `3.5·10⁻⁶` |
+| L∞ error, ball `R₂` | `0.4–2.0·10⁻⁵` | as before | `t = 15.9` | `2.2·10⁻⁵` |
+| error, ball `R₁` | `2.0–7.8·10⁻⁷` | as before | `t = 16.3` | `4.2·10⁻⁶` |
+| error, ball `1/2` about the particle | `1.1·10⁻⁷–1.4·10⁻⁶` | as before | `t = 16.8` | `5.3·10⁻⁶` |
+| force | `≤ 2.7·10⁻⁷` | as before | `t = 16.1` | up to `6.4·10⁻⁷` |
+
+- **Nothing comes back from the coarse-fine faces,** at 3, 6 and 12
+  (and 24 on five levels): the two runs share them and agree to every
+  digit printed until `t ≈ 14`, and the five-level run stays at its
+  clean level, without a trend, to the end.
+- **The four-level run's outer faces,** at 24, arrive first in `Φ_r`
+  alone, at the `R₂` sphere at `t ≈ 14`, then in the `R₁` ball and at
+  the particle, about 2 later. Against `(L/2 - r)/2 = 10.75` at the `R₂`
+  sphere in M3's uniform box, the error crosses the coarse levels at
+  about `21.5/14 ≈ 1.5` times the speed of light. By `t = 20` the error
+  of `Φ_r` alone has grown fifty-fold, the force not even threefold: a
+  near-uniform drift, which exerts none.
+- **The net charge's drift** is not measured apart from this: in M3's
+  box it shows from `t ≈ 0.19`, here only with the outer faces' error.
+- **The cost** at rest equals that in motion: on four levels a step
+  takes 1.12 s, `inspiral_rhs!` 0.272 s of which the source 0.255 s; on
+  five 1.21 s, 0.291 s and 0.268 s, the wave equation 0.023 s against
+  0.018 s.
+
+**The cost** of the same runs, seconds per call, the least of three
+after a warm-up, at 64 threads, against M3's uniform box of the finest
+cube:
+
+| `hₑ` | `d/4` | `d/8` | `d/12` |
+|---|---|---|---|
+| nodes, four levels | 3.21M | 25.7M | 86.6M |
+| nodes, M3 | 0.88M | 7.1M | 23.9M |
+| `inspiral_rhs!` | 0.050 | 0.270 | 0.890 |
+|   `wave_rhs!` | 0.0040 | 0.0174 | 0.0954 |
+|   `project_source!` | 0.046 | 0.252 | 0.793 |
+| `particle_forces` | 0.0037 | 0.0037 | 0.0052 |
+| RK4 step | 0.21 | 1.11 | 3.66 |
+| RK4 step, M3 | 0.17 | 0.48 | 1.28 |
+
+- **Each coarser level is 7/8 of the finest one's nodes,** the shell
+  between two cubes, so four levels are 3.6 times M3's box.
+- **The source costs 2.2 to 2.7 times M3's,** though it integrates the
+  same elements: about 8 ns per node of the coarse levels, from its far
+  kernels' range over every block and the plan's pass over every block
+  on every call. It is still most of the step.
+- **The wave equation costs 3.4 times M3's at `d/8`** for 3.6 times the
+  nodes, **and 6.4 times at `d/12`.**
+- **Bytes per node** are M3's: the state 16, the wave problem 54–62, the
+  projection's scratch 27, RK4's 80.
+
+**Outgoing waves through the levels,** the field alone:
+`[g(r - t) - g(r + t)]/r`, `g(s) = exp(-(s/σ)²)cos(2πs/λ)`,
+`σ = λ/2`, about the centre of nested cubes with the finest of
+half-width `w₀ = 4` at `hₑ = 1/8`, 64 elements across every level (the
+layout chosen for M4 to M7), on four levels (outer box of
+side 64, `6.1·10⁷` nodes) and five (side 128, `7.5·10⁷` nodes), each to
+`t = 2^levels·w₀`, sampled every `1/2`. The element width is `1/8` in the
+cube of half-width 4, `1/4` to 8, `1/2` to 16, 1 to 32 and 2 to 64. The
+L∞ error in the cube's inscribed ball of radius 4, against the exact
+solution's largest value there while the pulse passes:
+
+| `λ` | levels | while the pulse passes, `t ≤ 10` | after, `t = 12–24` | from the face at 16, `t ≈ 28–40` | from the face at 32, `t ≈ 60–68` |
+|---|---|---|---|---|---|
+| 4 | 4, 5 | `3–11·10⁻⁵` of 5.9 | `≤ 1.5·10⁻⁴` | `10⁻³` to `9.5·10⁻³` | (images) |
+| 16 | 5 | `1–4·10⁻⁶` of 0.61 | `1.1–2.6·10⁻⁶` | `1.4–2.0·10⁻⁶` | `1.0–1.5·10⁻⁵` |
+| 16 | 4 | as five | as five | from `t ≈ 38`, the outer faces | (images) |
+
+- **Four and five levels agree to every digit printed until the outer
+  faces at 32 come in,** at `λ = 4` until `t ≈ 40`, so what comes back
+  before is the inner faces'.
+- **`λ = 4`.** The face at 8, whose coarse side has 8 elements per
+  wavelength, sends back about `1.5·10⁻⁴` from `t ≈ 14` against the
+  pulse's `0.19` there, `8·10⁻⁴`. The face at 16, with 4 elements per
+  wavelength on its coarse side, sends back up to `9.5·10⁻³` at the
+  centre at `t ≈ 34` against the pulse's `0.09` there: a tenth, where
+  the six faces' reflections meet.
+- **`λ = 16`.** The faces at 8 and 16 send back nothing above the
+  discretization error while the pulse passed, about `2·10⁻⁶`. The face
+  at 32, with 8 elements per wavelength on its coarse side, sends back
+  `1.5·10⁻⁵` at `t ≈ 68` against the pulse's about `3·10⁻²` there,
+  `5·10⁻⁴`.
+- **The periodic images** come in when the outer faces are reached: the
+  exact solution is not periodic, so from then on the error is theirs.
+- **The energy** is constant to `2·10⁻¹⁰` relative in all four runs.
+- **The cost:** about 0.28 s a step on four levels and 0.34 s on five,
+  the field alone, measurements included.
+
+
 ## What carried over from TreeWave, and what did not
 
 Carried over: the equation and its variables, the periodic box, the sine
@@ -2223,10 +2553,6 @@ and the device and threading test files.
 - **(proposed)** A refinement that does not amplify the evolved data's
   jumps across element faces, so that the dead band between the
   thresholds could be narrower (see the open question below).
-- **(planned)** The particle transfer on a refined forest whose finest
-  level covers the source's ball ([What a refined forest does not
-  run](#what-a-refined-forest-does-not-run)), for the nested boxes of
-  `INSPIRAL-PLAN.md`'s M3b, which the inspiral's far zone needs.
 - The paper's modal filter (eq. 76), as a term in the right-hand side.
 - A comparison with TreeWave's finite differences at equal cost: same
   number of points and same wall clock.

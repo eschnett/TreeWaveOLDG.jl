@@ -60,8 +60,13 @@ projection's `rnear`, and the projection's scratch array.
 
 The window has to hold the particles: its ball and every particle's
 support lie inside the box, which the transfer checks when it runs. The
-forest has to be uniform: the transfer measures its distances in the
-finest element width, which a coarser element does not have.
+forest may be refined, as the nested boxes of [`nested_cubes`](@ref) are,
+but the finest level has to lie under the window's ball and every
+particle's support: the transfer measures its distances in the finest
+element width, which a coarser element does not have. The window's ball
+and the particles' supports at `t = 0` are checked here, and every
+projection and pairing checks again, since the particles move ("Nested
+boxes" in `CODE.md`).
 """
 struct InspiralProblem{T,K,WP<:WaveProblem{T,3},TT,MO,S}
     wave::WP
@@ -78,7 +83,6 @@ function InspiralProblem(wave::WaveProblem{T,3}, models::Tuple, window::Window,
                          motion::Prescribed; order::Int=3, tables=nothing,
                          rnear::Real=1) where {T}
     check_order(order)
-    check_uniform(wave.fs.forest, "InspiralProblem")
     tables === nothing && (tables = TransferTables(T, TreeWaveOLDG.order(wave.element)))
     check_tables(wave, tables)
     K = length(models)
@@ -87,6 +91,9 @@ function InspiralProblem(wave::WaveProblem{T,3}, models::Tuple, window::Window,
         "the motion moves $(length(trajs)) particles, and there are $K models"))
     models = map(m -> ParticleModel{T}(m.Q, m.ℓ, m.M), models)
     window = Window{T}(window.centre, window.R₁, window.R₂, window.m)
+    check_finest(wave.fs, (window.centre, window.R₂), "InspiralProblem")
+    foreach((m, tr) -> check_finest(wave.fs, ParticleSupport(m, tr), "InspiralProblem"),
+            models, trajs)
     scratch = projection_scratch(wave, tables)
     return InspiralProblem{T,K,typeof(wave),typeof(tables),typeof(motion),typeof(scratch)}(
         wave, models, window, tables, order, motion, T(rnear), scratch)

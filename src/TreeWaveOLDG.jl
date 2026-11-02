@@ -17,8 +17,8 @@ twice.
 It runs on TreeAMR's element-centered field sets, whose points are the
 elements' Gauss–Lobatto nodes, with TreeAMR's element-local operators
 across coarse-fine faces, so the forest may be refined, statically or
-following the solution. The particle transfer of the inspiral still needs
-a uniform one.
+following the solution. The particle transfer of the inspiral needs the
+finest level under the source's ball.
 
 The reference element is in `element.jl`, the node layout and quadrature
 in `layout.jl`, the right-hand side in `evolution.jl`, the time integrator
@@ -57,8 +57,8 @@ export WaveProblem, wave_rhs!, truncate_state!, truncate_stage!, initial_state,
 export state_partition, wave_integrator
 
 # Initial condition: standing sine mode
-export wave_omega, wave_exact, wave_forest, wave_errors, reflect_omega,
-       reflect_exact, reflect_errors
+export wave_omega, wave_exact, wave_forest, nested_cubes, wave_errors,
+       reflect_omega, reflect_exact, reflect_errors
 
 # Adaptive refinement
 export modal_indicator, mode_amplitude, refine_mark, refine_flags, refinement_buffer

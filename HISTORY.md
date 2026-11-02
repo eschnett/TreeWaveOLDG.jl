@@ -146,6 +146,14 @@ How the package got where it is, by topic in `CODE.md`'s order.
   degree-preserving compatible operator through a finer mortar would be
   upstream, and the owner's decision.
 
+- 2026-11-01: `wave_forest(…; refined)` also takes a vector of regions,
+  one per level above the root level, each refining only the leaves of
+  the level below whose centres lie in it, with the forest balanced
+  after each, and `nested_cubes` builds the nested boxes of
+  `INSPIRAL-PLAN.md`'s M3b from `w₀` and the number of levels.
+  `refined = true` and a single region keep their two-level meaning (a
+  test). See "Particles" below.
+
 ## Adaptive refinement
 
 - 2026-10-31: built as decided above, on TreeAMR's `regrid!` of element
@@ -493,6 +501,70 @@ How the package got where it is, by topic in `CODE.md`'s order.
   `d/8` and 64 GB at `d/12`, with the outer faces' error clean at the
   window's edge to `t ≈ 126`, against `8.6·10⁹` nodes for a uniform box
   of side 64 at `d/8`.
+
+- 2026-11-01: M3b of `INSPIRAL-PLAN.md`, nested boxes, on branch
+  `inspiral-m3b-nested`, started at Erik Schnetter's request:
+  `nested_cubes` and the region list of `wave_forest`, the transfer on
+  the finest level, `test/nested_tests.jl`, `--levels` and `--w0` in
+  `bin/uniform_motion.jl`, `bin/nested_waves.jl`, and
+  `bin/symmetry/nested_motion.sh` and `nested_waves.sh`. The refusal of
+  a refined forest (`check_uniform`, 2026-10-31) gave way to
+  `check_finest`: every block the source's ball meets, and every block
+  holding part of a particle's support, must be on the finest level;
+  `InspiralProblem` checks the window's ball and the supports at
+  `t = 0`, every projection its ball and the supports, and every pairing
+  its support. The refusal names the block's level and its nearest
+  point's distance from the ball's centre, which is how far it reaches
+  into the ball. Settled along the way, where the plan left it open:
+  - **`roots` a multiple of 4.** With the cubes about the box's centre
+    and `roots·E` elements across each level, the faces of every cube lie
+    on block faces of the level below only then, so `bin/` requires
+    `2w₀·hdiv` to be a multiple of `4E`. Around M3's box (`w₀ = 3`) that
+    leaves `d/4`, `d/8` and `d/12` of M3's series, not `d/6` or `d/10`.
+  - **The uniform reference of the suite is the finest cube alone,** a
+    uniform periodic box over it with the same coordinates, rather than
+    the whole box at the finest spacing (2.1M nodes for three levels at
+    `hₑ = 1/2`): the transfer only reads the elements in the ball, and
+    with the same coordinates the element boxes are the same bit for bit.
+  - **The outgoing pulse** of `bin/nested_waves.jl` is
+    `g(s) = exp(-(s/σ)²) cos(2πs/λ)` with `σ = λ/2`, even, so that
+    `[g(r - t) - g(r + t)]/r` is regular at the centre, where a Taylor
+    series replaces the quotient.
+  On the laptop the suite's coarse three-level forest leaves the error
+  in M3's clean ball and the force as M3's uniform box does, and is
+  cleaner in the `R₂` ball once the uniform box's faces' error has
+  arrived (`CODE.md`, "Nested boxes" under "Measured results").
+- 2026-11-02: M3b's Symmetry runs, jobs 587559 and 587560. The series
+  on four levels gives M3's errors and force to the digits printed; the
+  coarse-fine face sends back no start-up error, where M3's periodic
+  face sent one at twice the speed of light; an outgoing wave resolved
+  at 8 elements per wavelength across a face comes back at about `10⁻³`,
+  one at 4 at about a tenth. The clean-time runs as the plan set them,
+  at `v = 0.2` to `t = 20` on 4 to 7 levels, could not measure the
+  faces: the window is fixed about the centre, the particle leaves its
+  `R₁` ball at `t ≈ 5.7`, which then spoils the force, and the finest
+  cube at `t = 15`, where the transfer refused the forest and the job
+  stopped after the first of them. `nested_motion.sh` now runs them at
+  rest on four and five levels. The source turned out to cost as the
+  whole forest rather than the window's ball. The `[sources]` entries
+  for TreeAMR moved from the branch of eschnett/TreeAMR.jl#32, merged
+  and deleted, to its tag `v0.2.7`, the same tree.
+- 2026-11-02: M3b's clean time at rest, jobs 587798 and 587799, four and
+  five levels at `d/8` to `t = 20`. The coarse-fine faces send nothing
+  back above the discretization error; the two runs agree to every digit
+  until the four-level box's outer faces arrive, at the `R₂` sphere at
+  `t ≈ 14`, and the five-level one stays clean to the end. The outer
+  faces' error crosses the coarse levels at about 1.5 times the speed of
+  light, not M3's twice, which superseded the plan's clean times for the
+  layouts (`(L/2 - r)/2`, 14 to 126) with about a third more (19 to
+  169). M3b's Done-when items hold; it was marked done. The drift of the
+  net charge, and six and seven levels, were not run apart: at rest the
+  drift arrives with the outer faces' error, and five levels already
+  outlast the run.
+- 2026-11-02: the owner chose the proposed layout for M4 to M7: `w₀ = 4`
+  about the centre of mass, five levels, 64 elements across each at
+  `d/8` (`E = 4`, `roots = 16`), an outer box of side 128 at `7.5·10⁷`
+  nodes. How many levels M7's five orbits need is left to M7.
 
 ## Dependencies
 

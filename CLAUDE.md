@@ -50,7 +50,7 @@ julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--check-bounds=yes"])
 julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--threads=4"])'
 ```
 
-The first takes about 3m45 on the laptop, the third about 2m45. The
+The first takes about 4m50 on the laptop, the third about 3m25. The
 kernels are `@inbounds`, so run the second one too after touching a
 kernel or the layout.
 
@@ -88,6 +88,16 @@ rsynced checkout after `bash bin/symmetry/uniform_motion.sh setup`:
 julia --project=. -t 4,0 bin/uniform_motion.jl --hdiv=4 --tend=0.125 --cost
 ```
 
+The same on nested boxes, and outgoing waves through them, the field
+alone ("Nested boxes"), in the package environment; on Symmetry
+`sbatch bin/symmetry/nested_motion.sh` and `nested_waves.sh`, each after
+its `setup`. The smallest runs take under half a minute on four threads:
+
+```bash
+julia --project=. -t 4,0 bin/uniform_motion.jl --hdiv=4 --levels=2 --tend=0.0625
+julia --project=. -t 4,0 bin/nested_waves.jl --levels=2 --w0=2 --hdiv=4 --lambda=4 --tend=1
+```
+
 From M1 of `INSPIRAL-PLAN.md` on, `src/particle_forms.jl` is generated
 from the Wolfram Language derivations in `derivations/`; do not edit it
 by hand. Regenerate it, and let the suite check that the checked-in
@@ -104,12 +114,13 @@ julia --project=. -e 'using Pkg; Pkg.test()'
 
 Each is the rule; the `CODE.md` section named after it has the reason.
 
-- **The field runs on refined forests; the particles do not.**
+- **The particles need the finest level under their source's ball.**
   `WaveProblem` accepts any forest TreeAMR's element centering does, and
-  `InspiralProblem` and `project_source!` refuse a refined one, because
-  the transfer measures its distances in the finest element width. Do
-  not lift that refusal without making the transfer level-aware ("What
-  a refined forest does not run").
+  `InspiralProblem`, `project_source!` and the pairing refuse a source's
+  ball or a particle's support that reaches a block coarser than the
+  finest, because the transfer measures its distances in the finest
+  element width. Do not lift that refusal without making the transfer
+  level-aware ("Nested boxes").
 - **The refinement indicator reads `u`'s mode `P - 1` under truncation,
   `P` without it,** since truncation freezes `u`'s top mode in time; and
   it reads every mode below that too, weighted, because one mode alone
@@ -183,7 +194,8 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   `ball_norm`: the field of a charge is not periodic, and the box's
   faces' error, which travels at about twice the speed of light, spoils
   a point at `r` from the centre from `t ≈ (L/2 - r)/2` on ("Uniform
-  motion").
+  motion"); on nested boxes it crosses the coarse levels at about 1.5
+  times, from `t ≈ (L/2 - r)/1.5` on ("Nested boxes").
 - **The asserted rates are measurements.** If one moves, re-measure and
   update "Measured results" rather than widen a tolerance.
 
@@ -204,9 +216,10 @@ guards.
   next item), not from a local checkout; IMEXRungeKutta, which is not registered, from its
   GitHub repository through `[sources]` in `Project.toml` and
   `test/Project.toml`.
-- TreeAMR 0.2.7, the element centering, is not registered yet, so
-  `Project.toml`, `test/Project.toml` and `bin/Project.toml` take it from
-  the branch of eschnett/TreeAMR.jl#32 through `[sources]`. Remove those
+- TreeAMR 0.2.7, the element centering, is tagged but not registered
+  yet, so `Project.toml`, `test/Project.toml` and `bin/Project.toml` take
+  it from its tag `v0.2.7` through `[sources]` (the branch of
+  eschnett/TreeAMR.jl#32 is merged and gone). Remove those
   three entries once 0.2.7 is registered, and update both Manifests.
 - CI (`.github/workflows/CI.yml`) runs the suite with
   `--check-bounds=yes` on Linux and macOS, and on four threads on Linux.

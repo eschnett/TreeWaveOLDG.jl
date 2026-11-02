@@ -64,7 +64,14 @@ r.l2, r.energy / r.energy0           # the error, and energy is conserved
 ```
 
 `E` must be even, so that a fine block covers whole elements of its
-parent.
+parent. A vector of regions refines level by level, one region per
+level; `nested_cubes` gives the nested cubes about the centre that the
+inspiral runs on, here three levels, the finest of half-width 1/8:
+
+```julia
+f = wave_forest(Float64, Val(3), 3, 2; roots=4, L=1.0,
+                refined=nested_cubes(Val(3), 1/8, 3))
+```
 
 An adaptive forest follows the 2D blast wave's ring, refining where a
 modal indicator says the elements do not resolve the data and
@@ -119,8 +126,11 @@ the particle in uniform motion is
 julia --project=. -t 4,0 bin/uniform_motion.jl --hdiv=4 --tend=0.125
 ```
 
-The particles do not yet move under their forces, and run on uniform
-forests only.
+The particles do not yet move under their forces. They run on uniform
+forests and on static nested boxes whose finest level holds their
+source, which moves the box's faces out: a particle at rest on five
+levels stays clean to the end of a run of `t = 20`, and the coarse-fine
+faces send back nothing above the discretization error.
 
 ## Design
 

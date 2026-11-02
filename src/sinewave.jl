@@ -88,13 +88,21 @@ reflection symmetry: each face is `reflecting` on the forest, and
 (`u` and `v` even, `∂_d u` odd in `d`) for the field sets' ghosts.
 Periodic remains the default; see "Reflecting walls" in `CODE.md`.
 
-The box is uniform by default. `refined` makes it a static two-level
-forest, as TreeWave's is: the blocks whose centres lie inside a region
-are refined once, then the forest is balanced. `refined=true` takes the
-middle half of the box in every dimension, `(L/4, 3L/4)^D`, which needs
-`roots ≥ 3` to hold a block centre; a tuple of `D` intervals `(lo, hi)`
-gives the region itself, so that refinement can reach a wall of a
-reflecting box. A region that holds no block centre is refused.
+The box is uniform by default. `refined` makes it a static refined
+forest, fixed before the run:
+
+- `refined=true` refines the middle half of the box in every dimension,
+  `(L/4, 3L/4)^D`, once, which needs `roots ≥ 3` to hold a block centre,
+  as TreeWave's two-level forest does;
+- a tuple of `D` intervals `(lo, hi)` refines that region once, so that
+  refinement can reach a wall of a reflecting box;
+- a vector of such regions, one per level above the root level, refines
+  level by level: region `k` refines the leaves of level `k - 1` whose
+  centres lie in it, and the forest is balanced after each.
+  [`nested_cubes`](@ref) builds the nested boxes of the inspiral this
+  way. An empty vector leaves the box uniform.
+
+A region that holds no centre of a leaf of the level below it is refused.
 """
 function wave_forest(::Type{T}, ::Val{D}, P::Integer, E::Integer; roots=4,
                      L=one(T), reflecting::Bool=false, refined=false) where {T,D}
@@ -114,22 +122,62 @@ function wave_forest(::Type{T}, ::Val{D}, P::Integer, E::Integer; roots=4,
                   extents=ntuple(_ -> (zero(T), L), D))
     end
     refined === false && return forest
-    region = refined === true ? ntuple(_ -> (L / 4, 3L / 4), D) : refined
-    length(region) == D && all(r -> length(r) == 2 && r[1] < r[2], region) ||
-        throw(ArgumentError(
-            "refined must be false, true, or a tuple of $D intervals (lo, hi) with " *
-            "lo < hi, one per dimension; got $(repr(refined))"))
-    targets = filter(forest.leaves) do k
-        ext = block_extent(forest, k)
-        all(d -> region[d][1] < (ext[d][1] + ext[d][2]) / 2 < region[d][2], 1:D)
+    for (k, region) in enumerate(refinement_regions(refined, Val(D), L))
+        targets = filter(forest.leaves) do key
+            level(key) == k - 1 || return false
+            ext = block_extent(forest, key)
+            all(d -> region[d][1] < (ext[d][1] + ext[d][2]) / 2 < region[d][2], 1:D)
+        end
+        isempty(targets) && throw(ArgumentError(
+            "no block centre of level $(k - 1) lies inside the region " *
+            "$(repr(region)) that is to refine it to level $k; with refined=true " *
+            "the region is the middle half of the box, which holds a block centre " *
+            "only from roots = 3 on (roots = $roots)"))
+        refine!(forest, targets)
+        balance!(forest)
     end
-    isempty(targets) && throw(ArgumentError(
-        "no block centre lies inside the region $(repr(region)) to be refined; " *
-        "with refined=true the region is the middle half of the box, which holds " *
-        "a block centre only from roots = 3 on (roots = $roots)"))
-    refine!(forest, targets)
-    balance!(forest)
     return forest
+end
+
+# The regions `wave_forest`'s `refined` stands for, one per level above
+# the root level: the middle half for `true`, a single region for a tuple
+# of `D` intervals, and the regions themselves for a vector.
+function refinement_regions(refined, ::Val{D}, L) where {D}
+    isregion(r) = r isa Tuple && length(r) == D &&
+                  all(i -> i isa Tuple && length(i) == 2 && i[1] < i[2], r)
+    refined === true && return [ntuple(_ -> (L / 4, 3L / 4), D)]
+    isregion(refined) && return [refined]
+    refined isa AbstractVector && all(isregion, refined) && return refined
+    throw(ArgumentError(
+        "refined must be false, true, a tuple of $D intervals (lo, hi) with lo < hi, " *
+        "one per dimension, or a vector of such tuples, one per level; got " *
+        "$(repr(refined))"))
+end
+
+"""
+    nested_cubes(Val(D), w₀, levels)
+
+The regions of a forest of `levels` nested cubes about the centre of a
+box of side `L = 2^levels · w₀`, as [`wave_forest`](@ref)'s `refined`
+takes them (INSPIRAL-PLAN.md, M3b, "The layout"). The cube of level `k`
+has the half-width `w_{levels-1-k} = 2^(levels-1-k) w₀`, so the finest
+level, `levels - 1`, covers the cube of half-width `w₀` and the root
+level the box, of half-width `w_{levels-1}`. Each level's element width
+is twice the next finer one's, so every level has the same number of
+elements across, `roots·E`. `levels = 1` gives no region, a uniform box.
+
+So that every cube's faces lie on faces of the blocks of the level below,
+the root blocks across the box must be a multiple of 4:
+`wave_forest(T, Val(D), P, E; roots, L = 2^levels * w₀, refined =
+nested_cubes(Val(D), w₀, levels))` with `roots % 4 == 0`.
+"""
+function nested_cubes(::Val{D}, w₀, levels::Integer) where {D}
+    levels >= 1 || throw(ArgumentError("a forest has at least one level, got $levels"))
+    w₀ > 0 || throw(ArgumentError(
+        "the finest cube's half-width w₀ = $w₀ must be positive"))
+    c = 2^(levels - 1) * w₀
+    return [ntuple(_ -> (c - 2^(levels - 1 - k) * w₀, c + 2^(levels - 1 - k) * w₀), D)
+            for k in 1:(levels - 1)]
 end
 
 """
