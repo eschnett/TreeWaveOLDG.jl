@@ -525,6 +525,8 @@ no stiffer mode, and `oldg_timestep`'s finest-level step is safe.
   elements are classified in it, and `project_near!` divides by its
   weights, so on a coarser element every one of them would be off by
   the ratio of the spacings, and the quadrature silently too coarse.
+  **(planned)** `INSPIRAL-PLAN.md`'s M3b lets them run on a forest whose
+  finest level covers the source's ball and the particles' supports.
 - **Point interpolation.** TreeAMR's `interpolate` refuses an element
   set, which needs a basis that maps a position to its element's
   polynomial (**(open)** in TreeAMR); nothing here uses it.
@@ -2156,8 +2158,9 @@ distance from the nearest face:
   measured past the clean time. A uniform drift of `Φ_r` exerts none;
   this is its uneven part, and `vΠ̄_r`.
 - **What it sizes.** M4's circle measures the force at `t ≈ 5` at
-  `r ≈ 0.5`, which needs `L ≥ 21` and is a gate of `INSPIRAL-PLAN.md`
-  ([Open questions](#open-questions)).
+  `r ≈ 0.5`, which needs `L ≥ 21` in a uniform box. That fired a gate of
+  `INSPIRAL-PLAN.md`, which the owner answered with nested boxes, its
+  M3b.
 
 **The cost** at `v = 0.2`, seconds per call, the least of three after a
 warm-up, at 64 threads:
@@ -2172,14 +2175,14 @@ warm-up, at 64 threads:
 | RK4 step | 0.17 | 0.29 | 0.48 | 0.82 | 1.28 |
 
 and in bytes per node: the state 16, the wave problem's working arrays
-54, the projection's scratch 27, RK4's scratch 80, about 180 in all, a
-little above the 160 that `INSPIRAL-PLAN.md`'s memory table assumes.
+54, the projection's scratch 27, RK4's scratch 80, about 180 in all,
+which `INSPIRAL-PLAN.md`'s memory tables use.
 
 - **The source is 20 times the wave equation's work over the whole
   box** of side 6, at every resolution, and over 90% of a step. Over the
   window's elements alone it is about 65 times, and 84 for the binary's
   source ([The transfer's cost](#the-transfers-cost)). A larger box
-  dilutes it: in a box of side 24, which the deferred binary run needs,
+  dilutes it: in a uniform box of side 24, which M4's circle would need,
   it would be about a third of the wave equation's work.
 - **Before the near pass was threaded over its points** (job 586061, on
   the same CPU model), the source took 0.118 s at `d/4` and 0.368 s at
@@ -2220,9 +2223,10 @@ and the device and threading test files.
 - **(proposed)** A refinement that does not amplify the evolved data's
   jumps across element faces, so that the dead band between the
   thresholds could be narrower (see the open question below).
-- The particle transfer on a refined forest ([What a refined forest
-  does not run](#what-a-refined-forest-does-not-run)), which the
-  inspiral's far zone needs.
+- **(planned)** The particle transfer on a refined forest whose finest
+  level covers the source's ball ([What a refined forest does not
+  run](#what-a-refined-forest-does-not-run)), for the nested boxes of
+  `INSPIRAL-PLAN.md`'s M3b, which the inspiral's far zone needs.
 - The paper's modal filter (eq. 76), as a term in the right-hand side.
 - A comparison with TreeWave's finite differences at equal cost: same
   number of points and same wall clock.
@@ -2285,16 +2289,6 @@ and the device and threading test files.
   for ten (see [The transfer's cost](#the-transfers-cost)). It is
   accepted for now and to be revisited, probably with threading or a
   device.
-- What to do about the clean time, about `(L/2 - r)/2` where `L/2 - r`
-  was expected, since the error of the box's faces outruns light (see
-  [Uniform motion](#uniform-motion)). It fires the gate of
-  `INSPIRAL-PLAN.md`'s "Gates and fallbacks" for M4's circle, measured at
-  `t ≈ 5`, which would need a box of side about 24: 4.5·10⁸ nodes and
-  80 GB at `d/8`, and more than a node's memory at `d/12`. The plan's
-  fallbacks are a smaller circle radius or `P = 4` at a coarser `hₑ`;
-  others are initial data that are periodic, or carry no net charge, so
-  that the faces start no error, and an outflow boundary. The owner
-  decides before M4.
 - Whether the far rule's kernels should balance the window's blocks over
   all threads instead of running each block on its owner: on Symmetry
   they reach about half the speed their source evaluations allow (see

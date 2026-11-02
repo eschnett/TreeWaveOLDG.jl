@@ -476,6 +476,23 @@ How the package got where it is, by topic in `CODE.md`'s order.
   0.229 s at one thread, against the 0.237 s its elements took one after
   another, 0.069 s at four and 0.052 s at eight; on Symmetry, see
   `CODE.md`, "Uniform motion".
+- 2026-11-01: Erik Schnetter answered M3's clean-time gate: from M4 on,
+  the inspiral runs on a static forest of nested boxes about the centre,
+  fixed before the run, not adaptive. TreeAMR 0.2.7's element centering
+  and the refined forests here already carry the field. `INSPIRAL-PLAN.md`
+  gets M3b, which builds the nested boxes and lets the transfer run on
+  their finest level, and the binary's warm-up and orbits, deferred on
+  2026-10-30 until mesh refinement or a better outer boundary, become its
+  M7. The gate's own fallbacks, a smaller circle radius or `P = 4` at a
+  coarser `hₑ`, are not taken. Neither are initial data without net
+  charge or periodic, nor an outflow boundary, nor adaptive refinement.
+  The region that needs resolution, the window's ball about the orbit,
+  is known before the run. Regrids would change the operator and the
+  energy, and refining evolved data costs accuracy (`CODE.md`, "The
+  verdict"). The plan's estimate is seven levels, about `10⁸` nodes at
+  `d/8` and 64 GB at `d/12`, with the outer faces' error clean at the
+  window's edge to `t ≈ 126`, against `8.6·10⁹` nodes for a uniform box
+  of side 64 at `d/8`.
 
 ## Dependencies
 
