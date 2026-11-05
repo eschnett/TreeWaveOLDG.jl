@@ -14,7 +14,7 @@ using StaticArrays
 # the element corners, moving uniformly with velocity `(v, 0, 0)`, the
 # window `R₁ = 1`, `R₂ = 1.75`: `roots = 4` gives `hₑ = 1/2`, `roots = 8`
 # gives `hₑ = 1/4`.
-function inspiral_box(roots; v=0.0, P=3, order=3)
+function inspiral_box(roots; v=0.0, P=3, order=3, continuous=true)
     L = 4.0
     forest = wave_forest(Float64, Val(3), P, 2; roots=roots, L=L)
     wave = WaveProblem(forest, Element(Float64, P))
@@ -22,41 +22,47 @@ function inspiral_box(roots; v=0.0, P=3, order=3)
     m = ParticleModel(; Q=0.1, ℓ=0.01, M=1.0)
     w = Window(c, 1.0, 1.75; continuity=P + 1)
     motion = uniform_motion((c + SVector(0.11, 0.07, 0.13),), (SVector(v, 0.0, 0.0),))
-    return InspiralProblem(wave, (m,), w, motion; order=order)
+    return InspiralProblem(wave, (m,), w, motion; order=order, continuous)
 end
 
 @testset "The inspiral's right-hand side is wave_rhs! minus the projected source" begin
     # Guards the assembly: the field part of `du` must be exactly what
-    # `wave_rhs!` and `project_source!` give on the field part of `u`, the
+    # `wave_rhs!` and `project_source!` give on the field part of `u`, with
+    # the source averaged over shared nodes when the problem is continuous
+    # and alone (`du = v` restored where it served as scratch), the
     # particles must move as their path says, and nothing may be written
     # to `u` or carried from one call to the next, which RK4 relies on.
-    p = inspiral_box(4; v=0.2)
-    u = inspiral_initial_state(p)
-    u0 = copy(u)
-    du1, du2 = similar(u), similar(u)
-    inspiral_rhs!(du1, u, p, 0.1)
-    inspiral_rhs!(du2, 2 .* u, p, 0.3)
-    inspiral_rhs!(du2, u, p, 0.1)
-    @test u == u0
-    @test du1 == du2
+    for continuous in (true, false)
+        p = inspiral_box(4; v=0.2, continuous)
+        u = inspiral_initial_state(p)
+        u0 = copy(u)
+        du1, du2 = similar(u), similar(u)
+        inspiral_rhs!(du1, u, p, 0.1)
+        inspiral_rhs!(du2, 2 .* u, p, 0.3)
+        inspiral_rhs!(du2, u, p, 0.1)
+        @test u == u0
+        @test du1 == du2
 
-    ref = similar(field_state(u, p))
-    wave_rhs!(ref, field_state(u, p), p.wave, 0.1)
-    trajs = p.motion.path(0.1)
-    S = ParticleSource(p.models, p.window, trajs)
-    project_source!(ref, p.wave, p.tables, S, map(ParticleSupport, p.models, trajs);
-                    ball=(p.window.centre, p.window.R₂))
-    @test field_state(du1, p) == ref
-    # The source does something: the window's terms reach the nodes.
-    wave_rhs!(ref, field_state(u, p), p.wave, 0.1)
-    @test norm(field_state(du1, p) - ref, Inf) > 1e-3
+        ref = similar(field_state(u, p))
+        wave_rhs!(ref, field_state(u, p), p.wave, 0.1)
+        trajs = p.motion.path(0.1)
+        S = ParticleSource(p.models, p.window, trajs)
+        source = zero(ref)
+        project_source!(source, p.wave, p.tables, S, map(ParticleSupport, p.models, trajs);
+                        ball=(p.window.centre, p.window.R₂))
+        continuous && average_shared!(TreeWaveOLDG.statearray(source, p.wave.fs), p.shared,
+                                      2, Val(4))
+        @test field_state(du1, p) == ref .+ source
+        # The source does something: the window's terms reach the nodes.
+        @test norm(field_state(du1, p) - ref, Inf) > 1e-3
 
-    (z, v), = particle_state(u, p)
-    @test z == p.motion.path(0.0)[1].z
-    @test v == trajs[1].v
-    (ż, v̇), = particle_state(du1, p)
-    @test ż == v
-    @test v̇ == trajs[1].a
+        (z, v), = particle_state(u, p)
+        @test z == p.motion.path(0.0)[1].z
+        @test v == trajs[1].v
+        (ż, v̇), = particle_state(du1, p)
+        @test ż == v
+        @test v̇ == trajs[1].a
+    end
 end
 
 @testset "Every inspiral stage and step has v truncated, and only through the limiter" begin
@@ -127,7 +133,10 @@ end
              z=particle_state(integ.u, p)[1][1] - p.motion.path(integ.t)[1].z)
         end
         coarse, fine = results
-        @test coarse.force0 == 0 && fine.force0 == 0
+        # Zero but for the averaging, which on the coarse box reaches
+        # shared nodes in the window's transition, where truncating `Π_r`
+        # leaves coincident nodes apart.
+        @test coarse.force0 < 1e-9 && fine.force0 < 1e-9
         @test coarse.err < coarse.field
         @test coarse.err / fine.err > 3
         @test coarse.force < 1e-4

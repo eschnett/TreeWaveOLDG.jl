@@ -9,10 +9,14 @@ below without links.
 **Status.** M0 to M3b are done. M2's cost gate fired, and the cost is
 accepted for now. M3's clean-time gate fired, and the owner answered it
 on 2026-11-01 with a static forest of nested boxes, which is M3b; it
-also brings the binary's warm-up and orbits back as M7. Nothing else is
-started. The decisions below were settled with the owner on 2026-10-30,
-2026-11-01 and 2026-11-02. A milestone's status line changes here when
-its work starts and when its pull request merges.
+also brings the binary's warm-up and orbits back as M7. M4 is done on
+its branch: its go/no-go gate fired on 2026-11-02, and passes since the
+owner had the `t′²` term of `Φ_C`'s lab slice carried ahead of M5 and
+the source written and the forces read through the averaging over
+shared nodes (2026-11-03). Nothing else is started. The decisions
+below were settled with the owner on 2026-10-30, 2026-11-01 and
+2026-11-02. A milestone's status line changes here when its work starts
+and when its pull request merges.
 
 **Contents**
 
@@ -582,8 +586,18 @@ On Symmetry:
 
 ## M4: Prescribed paths
 
-**Status:** not started. `INSPIRAL.md`: validation step 4, at
-`v ≤ 0.05`.
+**Status:** done on branch `inspiral-m4-prescribed`, not merged. The
+go/no-go gate fired on 2026-11-02: the radial force did not converge to
+zero, and face crossings gave impulses far above the radiation-reaction
+force. The owner chose to carry the `t′²` term of `Φ_C`'s lab slice
+ahead of M5, which makes the forces converge, and then to write the
+source and read the forces through the averaging over shared nodes, the
+paper's post-processing, which keeps every crossing within radiation
+reaction from `d/12` on (2026-11-03; `CODE.md`, "The averaging" and
+"Prescribed paths" under "Measured results"). The circle was also
+started from its retarded field, beside the instantaneous data the plan
+names (`CODE.md`, "Prescribed paths"). `INSPIRAL.md`:
+validation step 4, at `v ≤ 0.05`.
 
 - **Hyperbolic motion.** The exact retarded field of a point charge, by
   root-finding for the retarded time (`bin/` and test helper). Initial
@@ -613,7 +627,9 @@ force to zero. If not, stop and take it to the owner before M5; see
 
 ## M5: The lab slice
 
-**Status:** not started. `INSPIRAL.md`: "Moving particles and the lab
+**Status:** not started. `derivations/labslice.wl` exists since M4,
+with the `t′²` term of `Φ_C` that the owner had carried ahead of this
+milestone; M5 extends it. `INSPIRAL.md`: "Moving particles and the lab
 slice"; validation step 5.
 
 - `derivations/labslice.wl`: the re-expansion
@@ -799,7 +815,19 @@ before continuing.
 - **M4: no convergence, or visible face-crossing impulses.** For the
   impulses, the smooth reading kernel of width about `hₑ` from "The
   transfer operator" (**(open)** there). For no convergence, report the
-  rates per order before going on.
+  rates per order before going on. Fired on 2026-11-02, both ways: the
+  radial force on the circle does not fall with `hₑ`, which the `t′²`
+  term of `Φ_C`'s lab-slice re-expansion explains, and every face
+  crossing gives an impulse far above radiation reaction. Taken to the
+  owner, who chose to carry that term ahead of M5 (2026-11-02). With it
+  the forces converge; the impulses fall with resolution but remain
+  above radiation reaction at `d/12`, and go to the owner again
+  (`CODE.md`, "Prescribed paths" under "Measured results"). At the
+  owner's suggestion the force was then read from the field made
+  continuous by averaging shared nodes, a cheaper alternative to the
+  kernel, which took the impulses away; the owner made it the force,
+  with the source written through it too, and the gate passes
+  (2026-11-03).
 - **M5: the lab-slice forms are too large to generate usefully.**
   Evaluate the re-expansion at runtime with nested `ForwardDiff` in `t′`
   instead of closed forms, and measure the cost.
@@ -830,5 +858,5 @@ milestone named:
 - M3b: `w₀`, the number of levels, the elements across a level, and the
   block size `E`.
 - M4: the circle's radius and measuring time, and the hyperbolic run's
-  `g` and duration.
+  `g` and duration. Chosen in M4 (`CODE.md`, "Prescribed paths").
 - M6b: whether diagnostics get their own file.

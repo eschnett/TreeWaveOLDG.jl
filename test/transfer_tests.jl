@@ -7,7 +7,7 @@
 # references here are independent of the rules they check.
 
 using ForwardDiff
-using LinearAlgebra: dot
+using LinearAlgebra: dot, norm
 using StaticArrays
 
 const TWT = TreeWaveOLDG
@@ -420,6 +420,104 @@ end
         ∇fold = SVector(ntuple(d -> fold(x -> ∇ρ(x)[d]), 3))
         @test pairing(p, t, g, ∇ρ, s) ≈ ∇fold rtol = 1e-12
     end
+end
+
+@testset "The continuous pairing reads a continuous field as it is, and no face jump" begin
+    # Guards `pairing(…; continuous = true)`: the averaging over shared
+    # nodes must find the neighbours across faces, edges and corners and
+    # across blocks, leave a field filled at the nodes (continuous already)
+    # as it is, take away the `Q[g_h]/ℓ` term of a jump across a face that
+    # the support straddles, and refuse to look across the domain's faces.
+    P = 3
+    forest = wave_forest(Float64, Val(3), P, 2; roots=4)
+    el = Element(Float64, P)
+    p = WaveProblem(forest, el)
+    t = TransferTables(Float64, P)
+    hₑ = TWT.minimum_spacing(forest) * (P + 1)
+    m = ParticleModel(; Q=0.07, ℓ=0.01hₑ, M=1.0)
+    smooth(x) = sinpi(2x[1] + 0.3) * cospi(3x[2] - 0.1) + x[3]^2
+    g = (fill_at_nodes!((x, v) -> v * smooth(SVector(x)), p.fs, el);
+         u = statevector(p.fs);
+         gather!(u, p.fs);
+         u)
+    # A face between blocks and an element face, then a corner.
+    for z in (SVector(0.5 + 0.3m.ℓ, 0.375 - 0.4m.ℓ, 0.6),
+              SVector(0.5 - 0.2m.ℓ, 0.5 + 0.3m.ℓ, 0.625 + 0.1m.ℓ))
+        s = ParticleSupport(m, Trajectory(; z=z, v=zero(z)))
+        ρ(x) = particle_density(m, x, z, zero(z))
+        ∇ρ(x) = ForwardDiff.gradient(ρ, x)
+        for (K, var) in ((ρ, 1), (∇ρ, 1), (ρ, 2))
+            @test pairing(p, t, g, K, s; var, continuous=true) ≈
+                  pairing(p, t, g, K, s; var) rtol = 1e-12
+        end
+        # A unit jump: one of the support's elements raised by 1.
+        b, e = first(TWT.support_elements(p, s))
+        g2 = copy(g)
+        ua = TWT.statearray(g2, p.fs)
+        for K in CartesianIndices(ntuple(_ -> P + 1, 3))
+            ua[(e .* (P + 1) .+ Tuple(K))..., 1, b] += 1
+        end
+        Δ(continuous) = pairing(p, t, g2, ∇ρ, s; continuous) -
+                        pairing(p, t, g, ∇ρ, s; continuous)
+        @test norm(Δ(false)) > 0.1m.Q / m.ℓ
+        @test norm(Δ(true)) < 0.15 * norm(Δ(false))
+        @test norm(Δ(true)) < 10m.Q / hₑ
+    end
+    z = SVector(0.5, 0.125 - 0.4m.ℓ, 0.6)
+    s = ParticleSupport(m, Trajectory(; z=z, v=zero(z)))
+    @test_throws "does not look for periodic images" pairing(p, t, g, x -> 1.0, s;
+                                                             continuous=true)
+end
+
+@testset "The source is averaged as the pairing reads, and self-adjointly" begin
+    # Guards `average_shared!`, through which the inspiral writes its
+    # source: one dimension at a time it must give each node the mean over
+    # all the elements that share it, the same values the continuous
+    # pairing reads, across faces, edges, corners and blocks; it must be
+    # self-adjoint in `⟨,⟩_w` for functions that vanish where the ball's
+    # blocks end, as the source does, so that the force read through it is
+    # the gradient of the interaction energy; and it must leave the other
+    # variable and the blocks outside the ball alone.
+    P = 3
+    forest = wave_forest(Float64, Val(3), P, 2; roots=4)
+    p = WaveProblem(forest, Element(Float64, P))
+    sn = SharedNodes(p.fs, ((0.5, 0.5, 0.5), 0.3))
+    n = length(statevector(p.fs))
+    f, g = irregular(n), reverse(irregular(n))
+    fa = TWT.statearray(f, p.fs)
+    Af = copy(f)
+    Afa = TWT.statearray(Af, p.fs)
+    average_shared!(Afa, sn, 1, Val(P + 1))
+    inside = 0
+    for b in sn.blocks, J in CartesianIndices((2, 2, 2))
+        e = Tuple(J) .- 1
+        key = blockkey(p.fs, b)
+        lo, hi = TWT.element_box(block_origin(Float64, forest, key),
+                                 spacing(Float64, forest, key), e, Val(P + 1), Val(3))
+        # Only elements whose 26 neighbours are in the ball's blocks.
+        all(Iterators.product(-1:1, -1:1, -1:1)) do s
+            x = (lo + hi) / 2 + SVector(s) .* (hi - lo)
+            all(0 .< x .< 1) && locate_point(forest, Tuple(x)) in sn.blocks
+        end || continue
+        @test TWT.element_values(Afa, b, e, 1, Val(P + 1)) ≈
+              TWT.continuous_values(p.fs, fa, b, e, 1, Val(P + 1)) rtol = 1e-14
+        inside += 1
+    end
+    @test inside >= 8
+    # Both cut off at radius 0.2, inside the blocks of the ball of 0.3.
+    fill_at_nodes!((x, v) -> (r = norm(SVector(x) .- 0.5); r < 0.2 ? cospi(2.5r)^2 : 0.0),
+                   p.fs, p.element)
+    bump = statevector(p.fs)
+    gather!(bump, p.fs)
+    fb, gb = f .* bump, g .* bump
+    Afb, Agb = copy(fb), copy(gb)
+    average_shared!(TWT.statearray(Afb, p.fs), sn, 1, Val(P + 1))
+    average_shared!(TWT.statearray(Agb, p.fs), sn, 1, Val(P + 1))
+    @test weighted_inner(p, Afb, gb, 1) ≈ weighted_inner(p, fb, Agb, 1) rtol = 1e-13
+    @test Afb != fb
+    @test selectdim(Afa, 4, 2) == selectdim(fa, 4, 2)
+    outside = setdiff(1:nblocks(p.fs), sn.blocks)
+    @test all(b -> selectdim(Afa, 5, b) == selectdim(fa, 5, b), outside)
 end
 
 @testset "The reconstruction is the element's polynomial" begin

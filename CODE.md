@@ -32,7 +32,16 @@ which a particle at rest or in uniform motion keeps its remainder; see
 [Particles](#particles). The particles run on uniform forests and on
 static nested boxes whose finest level holds the source's ball (M3b,
 measured on Symmetry, with the layout M4 to M7 run on); see [Nested
-boxes](#nested-boxes). The suite passes, also with
+boxes](#nested-boxes). A particle on a prescribed path with known
+acceleration, the slow circle and hyperbolic motion, runs against the
+retarded field of a point charge (M4): the circle's tangential force is
+radiation reaction and its radial force zero, both converging, since
+the particle field carries the `t′²` term of `Φ_C`'s lab slice; and
+since the source is written and the force read through the averaging
+over shared nodes, face crossings stay within radiation reaction from
+`d/12` on, where the transfer alone gave impulses of tens to hundreds
+of times it. M4's gate passes; see [Prescribed
+paths](#prescribed-paths) and [The averaging](#the-averaging). The suite passes, also with
 `--check-bounds=yes` and with four threads.
 
 **Contents**
@@ -71,9 +80,11 @@ boxes](#nested-boxes). The suite passes, also with
   - [The split](#the-split)
   - [The window](#the-window)
   - [The transfer](#the-transfer)
+  - [The averaging](#the-averaging)
   - [Quadrature](#quadrature)
   - [The right-hand side with particles](#the-right-hand-side-with-particles)
   - [Nested boxes](#nested-boxes)
+  - [Prescribed paths](#prescribed-paths)
 - [File layout](#file-layout)
 - [Tests](#tests)
 - [Measured results](#measured-results)
@@ -88,6 +99,7 @@ boxes](#nested-boxes). The suite passes, also with
   - [The transfer's cost](#the-transfers-cost)
   - [Uniform motion](#uniform-motion)
   - [Nested boxes](#nested-boxes-1)
+  - [Prescribed paths](#prescribed-paths-1)
 - [What carried over from TreeWave, and what did not](#what-carried-over-from-treewave-and-what-did-not)
 - [Possible extensions](#possible-extensions)
 - [Open questions](#open-questions)
@@ -922,15 +934,19 @@ What exists is M1, the analytic particle, everything about a particle
 that needs no mesh; M2, the transfer between particles and grid; M3,
 the coupled right-hand side for particles on a prescribed path, which
 subtracts the projected source after `wave_rhs!` and leaves `wave_rhs!`
-unchanged; and M3b's nested boxes, a static refined forest whose finest
-level holds the source. The particles do not yet move under their forces (M6a).
+unchanged; M3b's nested boxes, a static refined forest whose finest
+level holds the source; and M4's prescribed paths with known
+acceleration, the slow circle and hyperbolic motion, with the retarded
+field of a point charge to start from and compare with. The particles do
+not yet move under their forces (M6a).
 Sections of `INSPIRAL.md` are named below without links.
 
 The closed forms are derived in the Wolfram Language and generated into
 Julia:
 
-- `derivations/profile.wl`, `nearfield.wl` and `selfforce.wl` derive the
-  profile's potentials, the near field and its self-force, and assert
+- `derivations/profile.wl`, `nearfield.wl`, `selfforce.wl` and
+  `labslice.wl` derive the profile's potentials, the near field and its
+  self-force, and the `t′²` term of the lab slice, and assert
   every identity they rely on, so that a wrong derivation stops the
   script (`check` in `derivations/common.wl` exits with status 1).
 - `derivations/generate.wl` writes `src/particle_forms.jl`, which is not
@@ -1039,22 +1055,49 @@ generated `self_inertia`, `self_force_addot`, `self_force_a2a` and
 `near_field(m, Val(N), x, traj)` is the rest-frame term at the
 rest-frame position `y = Λ(v)(x - z)`, with the proper acceleration
 `α′ = γ²Λ(v)a` for `a` and with `ä` as given. At rest it is the
-time-symmetric field order by order. Moving, it lacks the re-expansion,
-whose part `≈ δm v² a` does not converge, as `INSPIRAL.md` says.
+time-symmetric field order by order. Moving, it lacks the re-expansion.
 
-It also lacks something at rest, which `INSPIRAL.md` does not say. The
-bracket of [The split](#the-split) takes `∂ₜ²`, which sees the field at
-neighbouring times, where `v ≠ 0`. The re-expansion's `t′²` term,
-`½(v·r)²(-a·∇Φ₀)`, vanishes at rest, but its second time derivative does
-not. So along a trajectory through rest the bracket with orders 1–3
-carried keeps `(a·r)²(a·∇Φ₀)` at order 3, which outside the particle is
-`(Q/4π)(a·n̂)³` plus terms in `(ℓ/r)²` (`nearfield.wl` asserts the
-point form, `particle_tests.jl` the bracket's). It behaves like `r⁰`,
-as the whole order-3 residual does with only orders 1–2 carried. Until
-M5, carrying order 3 therefore removes only the `ä` part of that
-residual. On a circle `a³` is `v²` times `ä`, so at small `v` that part
-is suppressed, as `INSPIRAL.md` assumes; in hyperbolic motion at
-`t = 0` it is not (see [Open questions](#open-questions)).
+**The `t′²` term of `Φ_C`,** the one part of the re-expansion carried
+ahead of M5, decided by the owner on 2026-11-02 after M4's first series
+([Prescribed paths](#prescribed-paths)). A lab point at `r = x - z` sits
+at rest-frame time `t′ = -γ v·r = -v·y`, where the particle, at rest at
+`t′ = 0`, has moved by `α′t′²/2`, so its static field there is
+`Φ₀(|y - α′t′²/2|)`, and the lab slice picks up
+
+    T₂ = -½ t′² (α′·∇Φ₀(y)) = -(v·y)² (α′·y) Φ₀′(q),    Φ₀′ = dΦ₀/dq,
+
+which outside the particle is `-(Q/8π) v²(v̂·n̂)²(α′·n̂)`, of order `r⁰`
+and proportional to `v²a`: the part `INSPIRAL.md` found the boosted form
+missing, and whose force does not converge. `derivations/labslice.wl`
+derives it with the extended `Φ₀`, so it is smooth inside the particle,
+asserts that it is that `t′²` coefficient and that its Laplacian in `y`
+is
+
+    ∇²T₂ = -[2v²(α′·y)Φ₀′ + 4(v·y)(v·α′)Φ₀′ + (v·y)²(α′·y)(8Φ₀″ + ρ₀′)],
+
+with `∇²Φ₀ = ρ₀` differentiated in `q` so that no term of size `Q/ℓ³`
+appears, and `generate.wl` emits both (`_tprime2_term`,
+`_tprime2_laplacian`). `lab_slice(m, x, traj)` evaluates it.
+`particle_field` carries it **from order 1 on**, gated with the order-1
+term rather than always on: it holds one acceleration, so it counts as
+order 1, and `INSPIRAL.md`'s table asks each order carried to come with
+its lab-slice corrections; order 0 stays the particle paper's `Φ_C`
+alone. Its own force on the particle at rest, which M6a's analytic
+self-force will need, is `(11/60)δm v²α′ + (11/30)δm (v·α′)v`
+(`self_force_tprime2_v2`, `self_force_tprime2_va`). The rest of the
+re-expansion, the `t′` and `t′²` terms of the near-field orders, which
+count as order 2 and above, are M5's.
+
+It also removes something at rest, which `INSPIRAL.md` does not say.
+The bracket of [The split](#the-split) takes `∂ₜ²`, which sees the field
+at neighbouring times, where `v ≠ 0`. `T₂` vanishes at rest, but its
+second time derivative does not: without it, along a trajectory through
+rest the bracket with orders 1–3 carried keeps `(a·r)²(a·∇Φ₀)` at order
+3, which outside the particle is `(Q/4π)(a·n̂)³` plus terms in `(ℓ/r)²`
+and behaves like `r⁰`, so that carrying order 3 removed only the `ä`
+part of the order-3 residual. With `T₂` carried, a point particle's
+bracket has no order-3 part along a trajectory through rest, and an
+extended one's keeps only terms in `(ℓ/r)²` (`particle_tests.jl`).
 
 ### The split
 
@@ -1075,18 +1118,21 @@ the bracket is assembled without subtracting them:
   each near-field term has `∇²_x = ∇²_y + γ²(v·∇_y)²`, where
   `γ²(v·∇_y)² = (v·∇_x)² = (v·∂_z)²`. So the bracket is
   `𝒟²Ψ - (v·∂_z)²Ψ`, the part of `Ψ`'s second time derivative the
-  acceleration causes, minus `∇²_y` of the near-field terms, which is
-  their generated closed form.
-- `Ψ` depends on `x` and `t` only through four invariants: `q = |y|²`,
-  `α′·y`, `|α′|²` and `ä·y`. With `r = x - z` and `M = Λ(v)² = I + γ²vvᵀ`
-  they are `rᵀMr`, `k·r` with `k = γ²Ma`, `γ⁴aᵀMa`, and `e·r` with
-  `e = Λ(v)ä`, so their dependence on time is through `r`, with `ṙ = -v`
-  and `r̈ = -a`, and through `M`, `k`, `γ⁴aᵀMa` and `e`, which do not
+  acceleration causes, minus `∇²_y` of the near-field terms and of the
+  `t′²` term, which is their generated closed form. The `t′²` term obeys
+  the same `∇²_x = ∇²_y + (v·∂_z)²`, as every function of `y` at fixed
+  `v` does.
+- `Ψ` depends on `x` and `t` only through five invariants: `q = |y|²`,
+  `α′·y`, `|α′|²`, `ä·y` and `v·y`, the last for the `t′²` term. With
+  `r = x - z` and `M = Λ(v)² = I + γ²vvᵀ` they are `rᵀMr`, `k·r` with
+  `k = γ²Ma`, `γ⁴aᵀMa`, `e·r` with `e = Λ(v)ä`, and `w·r` with `w = γv`,
+  so their dependence on time is through `r`, with `ṙ = -v` and
+  `r̈ = -a`, and through `M`, `k`, `γ⁴aᵀMa`, `e` and `w`, which do not
   depend on `x`. Of each invariant `I` the bracket needs the rate `İᵤ`
   of uniform motion (`r` moving with `-v`, everything else held) and the
-  acceleration's parts `δİ = İ - İᵤ` and `δÏ = Ï - Ïᵤ`, written out
-  term by term: for `q`, `δq̇ = rᵀṀr` and
-  `δq̈ = -2aᵀMr - 4vᵀṀr + rᵀM̈r`. Then
+  acceleration's parts `δİ = İ - İᵤ` and `δÏ = Ï - Ïᵤ`, written out term
+  by term: for `q`, `δq̇ = rᵀṀr` and `δq̈ = -2aᵀMr - 4vᵀṀr + rᵀM̈r`.
+  Then
 
       𝒟²Ψ - (v·∂_z)²Ψ = Σᵢ Ψ_i δÏᵢ + Σᵢⱼ Ψ_ij δİᵢ (2İᵤ + δİ)ⱼ,
 
@@ -1169,9 +1215,11 @@ discontinuous across faces. It is element-local and needs no exchange.
   subtracting it from `v`'s rate as the remainder equations want. `S`
   takes an `SVector{D}` and is a kernel argument, so it is `isbits`;
   `ball = (centre, R)` holds its support, and elements that miss it are
-  skipped, blocks by a per-block mask. Elements at least `rfar·hₑ`
-  from every particle take the far rule in two kernels launched through
-  `TreeAMR.launch_by_owner!`: one over `E·q` points per dimension and
+  skipped, and blocks that miss it are left out of the launch. Elements
+  at least `rfar·hₑ` from every particle take the far rule in two
+  kernels launched through `TreeAMR.launch_by_owner!` over the list of
+  the ball's blocks, split evenly over the threads (M4, [Prescribed
+  paths](#prescribed-paths)): one over `E·q` points per dimension and
   block evaluates `S` into a scratch array (`projection_scratch`), and
   one per element contracts its `q^D` values one dimension at a time, in
   place, into `P S` at its nodes. That is the one place a kernel is not
@@ -1198,6 +1246,9 @@ discontinuous across faces. It is element-local and needs no exchange.
   the host. A `mesh_fold` of `wₙ (P K)ₙ gₙ` gives the same at the cost of
   a projection and a pass over the mesh; the tests keep it as the
   reference ([The transfer's cost](#the-transfers-cost) has both).
+  With `continuous = true` it first replaces each node on an element's
+  boundary by the average over the elements that share it, which is how
+  the inspiral reads its forces ([The averaging](#the-averaging)).
 - `reconstruct(p, t, u, x)` and `reconstruct_gradient` give `g_h(x)` and
   `∇g_h(x)` at any point, for the flux spheres (M6b) and the tests. A
   point on a face between elements takes the upper element, as
@@ -1213,6 +1264,60 @@ refuses a support that reaches a face. On a refined forest every block
 the source's ball meets, and every block that holds part of a particle's
 support, must be on the finest level ([Nested boxes](#nested-boxes)).
 The graded and nested rules and the pairing run on the CPU.
+
+### The averaging
+
+[`src/transfer.jl`](src/transfer.jl) and
+[`src/inspiral.jl`](src/inspiral.jl). The particle's support is far
+narrower than an element, so while it straddles a face the pairing
+`∫(∇ρ)Φ_r,h` reads the jump `[Φ_r,h]` there, a term of size
+`Q[Φ_r,h]/ℓ` that the continuum does not have, and M4 measured it as
+impulses of tens to hundreds of times radiation reaction at every face
+crossing ([Prescribed paths](#prescribed-paths-1) in "Measured
+results"). The paper's averaging post-processing (its eq. 98–100) makes
+the reconstruction continuous: every node that elements share takes the
+mean over them, two on a face, four on an edge and eight at a corner.
+On one level coincident nodes have equal weights, so this averaging `A`
+is the `⟨,⟩_w`-orthogonal projection onto continuous fields, and
+self-adjoint. The inspiral uses it on both sides of the transfer:
+
+    dv -= A P S                                 # the source, written
+    F = ∫(∇ρ)(AΦ_r)_h - v∫ρ(AΠ_r)_h             # the force, read
+
+so that `⟨Π_r, A P S⟩_w = ∫ S (AΠ_r)_h` and the force is
+`-∂_z ⟨A P ρ(z), Φ_r⟩_w`, the gradient of the discrete interaction energy
+as before, with `A P` in place of `P`. A straddling support reads the
+jump of `∇(AΦ_r)_h`, of size `Q[∇Φ_r,h]`, not `Q[Φ_r,h]/ℓ`.
+
+- `SharedNodes(fs, ball)` holds the blocks the source's ball meets, the
+  ones `project_source!` writes, and for each the same-level block
+  across each upper face among them; it is built once, in
+  `InspiralProblem`, since the ball does not move.
+- `average_shared!(ua, sn, var, Val(P+1))` averages one dimension at a
+  time: each pair of coincident nodes across a face along `d` takes
+  their mean, inside a block and across its upper face, threaded over
+  blocks. The passes together give the group's mean, the same values
+  the pairing reads. A face to a block outside the ball's is left alone,
+  so at the ball's outermost blocks a node some of whose sharers are
+  outside gets no exact mean; the source has fallen to zero there with
+  the window.
+- `inspiral_rhs!` averages the source alone, without the wave equation's
+  part or a second array: in the ball's blocks it projects the source
+  into `du`'s first variable, which `wave_rhs!` has just set to `v`,
+  averages it there, adds it to `dv`, and writes `du = v` again.
+- `pairing(…; continuous = true)` averages the nodes of each element the
+  support meets over all the elements that share them, which it finds
+  through `locate_element`; it refuses a neighbour on another level, or
+  across the domain's faces, where it would need a periodic image.
+- `InspiralProblem(…; continuous = true)` is the default;
+  `continuous = false` is the transfer and its adjoint alone, as the
+  milestones before M4's decision ran, and `particle_forces(…;
+  continuous)` reads either way on either problem. M3's and M3b's
+  measurements, and M4's first series, ran without the averaging.
+- **(open)** Near the finest level's edge the reading refuses a support
+  element with a coarser neighbour, one element further out than the
+  transfer's own refusal; the nested boxes keep the particles well
+  inside.
 
 ### Quadrature
 
@@ -1369,7 +1474,9 @@ with `wave_rhs!` unchanged and the source subtracted after it.
   particle's support at `t = 0` that reaches a block coarser than the
   finest ([Nested boxes](#nested-boxes)). The motion is `Prescribed(path)`, with
   `path(t)` the particles' `Trajectory`s at `t`, `isbits`;
-  `uniform_motion(z, v)` is one. `Dynamic` is M6a's.
+  `uniform_motion(z, v)` is one, and `circular_motion` and
+  `hyperbolic_motion` are M4's ([Prescribed paths](#prescribed-paths)).
+  `Dynamic` is M6a's.
 - `inspiral_rhs!(du, u, p, t)`: `wave_rhs!` on the field part,
   `project_source!` of `ParticleSource(models, window, path(t))` over the
   window's ball, subtracted from `dv`, and `ż = v`, `v̇ = a` for each
@@ -1506,12 +1613,15 @@ more than two levels and the particles on its finest level.
   other way.
 - **The energy holds** to `2·10⁻¹⁰` relative over `32768` steps on five
   levels.
-- **The source costs as the whole forest,** though it reads only the
-  window's ball: its far kernels range over every block, and its plan
-  passes over every block on every call. On four levels at `d/12` it is
-  0.79 s of a 3.66 s step, against 0.29 s in M3's uniform box of the
-  same finest cube. **(open)**: restricting those passes to the blocks
-  the ball meets.
+- **The source cost as the whole forest** in M3b, though it reads only
+  the window's ball: its far kernels ranged over every block, and the
+  ball's blocks, a few contiguous runs of the forest's order, belonged to
+  a few threads. On four levels at `d/12` it was 0.79 s of a 3.66 s step,
+  against 0.29 s in M3's uniform box of the same finest cube. Since M4
+  the far kernels range over the ball's blocks only, split evenly over
+  the threads, which cut the source by 3.1 to 4.7 on the layout for M4
+  to M7 ([Prescribed paths](#prescribed-paths-1) in "Measured results");
+  the plan's pass over every block on every call remains, and is small.
 
 **The layout for M4 to M7,** chosen by the owner on 2026-11-02. `w₀ = 4`
 about the centre of mass, 64 elements across each level at `hₑ = d/8`
@@ -1528,6 +1638,131 @@ light, reaches the window's edge at about `t ≈ 40`, which covers M4's
 circle (`t ≈ 5` and a time to measure over) several times. M7's five
 orbits, `t ≈ 90`, need more: `INSPIRAL-PLAN.md` estimates seven levels,
 which is M7's to settle.
+
+### Prescribed paths
+
+`INSPIRAL-PLAN.md`'s M4, `INSPIRAL.md`'s validation step 4: one particle
+on a path whose acceleration and its derivatives are known exactly, so
+that nothing is solved, on M3b's nested boxes in the layout chosen for
+M4 to M7 ([Nested boxes](#nested-boxes)). [`src/prescribed.jl`](src/prescribed.jl):
+
+- `circular_motion(centre, radius, speed; phase, normal)` and
+  `hyperbolic_motion(z₀, g; direction)` are `Prescribed` motions, `isbits`,
+  whose `Trajectory` holds `a`, `ȧ`, `ä` and `a⃛` in closed form: on the
+  circle `ȧ = -Ω²v`, so that `(Q²/12π)ȧ` opposes the motion; in
+  hyperbolic motion, at rest at `z₀` at `t = 0`, `X(t) = (√(1 + g²t²) -
+  1)/g`, with `a = g`, `ȧ = 0` and `ä = -3g³` at `t = 0` (a test checks
+  every derivative against dual numbers).
+- `retarded_field(path, k, Q, x, t)` is the retarded field of a point
+  charge on particle `k`'s worldline and its time derivative. The
+  retarded time `s` is the root of `t - s = |x - z(s)|`, by Newton's method
+  from `t - |x - z(t)|`, converged to roundoff of the positions; then
+  `Φ = -Q/(4πγ(R - R·v))` with `R = x - z(s)` and `v = v(s)`, the
+  normalization of "Fields and particles" (`Q/γ` in the lab), and
+  `∂ₜΦ = (dΦ/ds)/(1 - R̂·v)` by a dual number in `s`. A point no past light
+  cone reaches is refused: behind a particle in eternal hyperbolic motion
+  by more than `1/g`. For uniform motion it is `-Q/4π|y|`, at `t = 0` of
+  hyperbolic motion `INSPIRAL.md`'s closed form, and it solves the wave
+  equation (tests).
+- **The exact remainder as initial data.** `inspiral_initial_state(p;
+  t, retarded = W_x)` adds `W_x(Φ_ret - Ψ̂_pt)` (and `W_x(∂ₜΦ_ret -
+  𝒟Ψ̂_pt)`) to M3's `(1 - W)Ψ̂`, with `W_x` a `Window` and `Ψ̂_pt` the
+  particle field of `point_model(m)`, the same particle at `ℓ = 10⁻¹²`. The
+  total field is then `W_xΦ_ref + (1 - W_x)Ψ̂`, with
+  `Φ_ref = Φ_ret + Ψ̂ - Ψ̂_pt`: the retarded field of the extended particle
+  up to its finite-size terms beyond `order`, of relative size `ℓ²` times
+  orders not carried. The difference is taken against the point limit
+  because `Φ_ret - Ψ̂_pt` is regular at the particle, the two `-Q/4πr`
+  cancelling to roundoff, and `Ψ̂ - Ψ̂_pt` is the finite-size part through
+  `order` that `Ψ̂` already carries; within `10⁻⁶` of the particle the
+  difference is taken as zero. At `t = 0` of hyperbolic motion it is
+  `-(Q/4πr) Σ_{k>order} (-gr/2)^k P_k(cos θ)` (a test). The same function
+  at a later `t` is the reference: in the ball where `W_x = 1` the
+  continuum remainder is it until a signal from where `W_x < 1` arrives.
+- `ball_norm(…; hole = (centre, radius))` leaves out a ball, the one
+  about the particle, where the exact remainder holds the structures the
+  grid cannot follow.
+- **Far kernels over the ball's blocks.** `project_source!`'s two far
+  kernels now range over the blocks the source's ball meets, listed per
+  call, and the launch splits them evenly over the threads instead of
+  giving each block to its owner. On nested boxes the ball's blocks are
+  a few percent of the forest, contiguous runs in its order that a few
+  threads own, which then did all the far work. Every element is
+  computed by the same arithmetic whichever thread runs it, so the
+  result does not change (the suite's ulp and thread-count tests pass).
+
+**The two runs.** `bin/prescribed.jl`, one particle of the first run
+(`Q² = 0.005`, `ℓ = 10⁻³`), its window `R₁ = 1.25`, `R₂ = 2.5` about the
+centre `c`, `P = 3`, RK4 at `cfl = 1/2`, on the five nested cubes of
+half-width 4 to 64, the particle off the faces' planes by
+`o = (1.23, 0.71, 0.93)·10⁻²` as in M3:
+
+- **The slow circle,** chosen here (`INSPIRAL-PLAN.md`, "Left to settle
+  later"): about `c + o` in the `xy` plane, of radius `r_c = 0.5`, the
+  first run's, at `v = 0.05`, so `Ω = 0.1`, `|a| = 0.005`,
+  `|ȧ| = 5·10⁻⁴`, and the radiation-reaction force
+  `(Q²/12π)|ȧ| = 6.63·10⁻⁸`; its relativistic correction is `γ⁴ - 1 =
+  0.5%`. The particle starts at `c + o + (r_c, 0, 0)` and stays well
+  inside `R₁`. Its force is recorded every step to `t = 8`, a fifth of
+  the clean time at the window's edge, 0.8 rad of the orbit, with two to
+  eight face crossings depending on `hₑ`. The measuring time, also
+  chosen here, is `t = 2` to 8, leaving out 0.25 about each crossing:
+  the force is averaged over every step there, since a single step
+  scatters about the mean by more than `F_RR` up to `d/8`. Started from
+  the retarded field, no junk has to leave; starting at `t = 2` leaves
+  out the time in which the evolved remainder near the particle takes
+  over from the projected exact one, which the reading below measures
+  on its own.
+- **Hyperbolic motion,** chosen here: `g = 0.1` along `y` from
+  `c + o + (0.5, 0, 0)`, until the speed reaches 0.05, `t = 0.50`. `g` is
+  the size of the first run's accelerations (`vΩ = 0.08`), and `1/g = 10`
+  keeps the retarded field defined over the whole ball `W_x` reaches,
+  `W_x` one to 3 and zero from 3.75 about `c`. The error against the
+  reference is taken in the ball `R₁` without the ball of radius 1/4
+  about the particle, every `1/32`, and the force every step.
+
+**From the retarded field, not only from instantaneous data.** The plan
+sets the circle up from instantaneous data, `(1 - W)Ψ̂`, and measures
+the force once the junk has left the near zone, at `t ≈ 5`. At `v = 0.05`
+and `r_c = 0.5` the near zone reaches `1/Ω = 10`, and the junk is not
+gone by `t ≈ 5` ([Prescribed paths](#prescribed-paths-1) in "Measured
+results"). So the convergence series starts from the circle's retarded
+field (`--data=retarded`, `W_x` one to 24 and zero from 30), whose
+remainder is the steady one from the start; the instantaneous data run
+beside it at two resolutions, to record the junk.
+
+**What the remainder held that the particle field lacked.** The
+particle field is the rest-frame field at the boosted position ([The
+near field](#the-near-field)), and the remainder carries the lab-slice
+terms it lacks. In M4's first series the largest was the `t′²` term of
+`Φ_C`, `-½γ²(v·r)²(α′·∇Φ₀)`, which outside the particle behaves like
+`r⁰`: `-(Q/8π) v²(v̂·n̂)²(α′·n̂)`. Its force on the particle is along
+`α′`, so radial on the circle and along the acceleration in hyperbolic
+motion, and the grid read it the more strongly the finer the elements,
+as it read the self-inertia before the near field was carried
+(INSPIRAL.md, "Why the near field must be analytic"). That kept M4's
+gate shut, and the owner chose on 2026-11-02 to carry the term ahead of
+M5; since then the particle field carries it from order 1 on ([The near
+field](#the-near-field)), which settles the extension proposed after
+M1. `bin/prescribed.jl --reading` reads the exact remainder's force
+without evolving it, as it is and with the term put back into it (in
+its point form), as it was before; see the measurements.
+
+**Face crossings.** The script records the time of every crossing of a
+plane of the finest level's element faces by the particle's centre,
+interpolated between steps, beside the force every step. While the
+support straddles a face, the pairing `∫(∇ρ)Φ_r,h` holds the jump of the
+discontinuous `Φ_r,h` across the face weighted by `ρ` on it, a term of
+size `Q[Φ_r,h]/ℓ` that the smooth field does not have
+([Prescribed paths](#prescribed-paths-1) in "Measured results"). The
+averaging over shared nodes takes that term away, and the inspiral now
+writes its source and reads its forces through it ([The
+averaging](#the-averaging)): a straddling support then reads the jump of
+the gradient, of size `Q[∇Φ_r,h]`, in place of `Q[Φ_r,h]/ℓ`. `--plain`
+runs without it, as M4's first two series did, and `--both` records the
+force read the other way as well; M4's read-only runs, the source
+written without the averaging and the force read both ways, are
+`--plain --both` (then `--continuous`).
 
 ## File layout
 
@@ -1552,10 +1787,11 @@ which is M7's to settle.
   TreeWave.
 - `src/particle_forms.jl`: generated by `derivations/generate.wl`, not
   edited by hand; the profile's radial functions, the near-field terms
-  and their Laplacians, and the self-force coefficients.
-- `src/particle.jl`: `ParticleModel`, `Trajectory`, the boost, `Ψ`,
-  `𝒟Ψ`, `ParticleJets` and the source bracket, `Window`, and
-  `ParticleSource`.
+  and their Laplacians, the `t′²` term and its Laplacian, and the
+  self-force coefficients.
+- `src/particle.jl`: `ParticleModel`, `Trajectory`, the boost, the
+  `t′²` term of the lab slice (`lab_slice`), `Ψ`, `𝒟Ψ`, `ParticleJets`
+  and the source bracket, `Window`, and `ParticleSource`.
 - `src/transfer.jl`: `gauss_nodes_weights`, `GaussRule`,
   `TransferTables`, `sinh_rule`, `ParticleSupport`, the far, graded and
   nested rules, the
@@ -1564,11 +1800,16 @@ which is M7's to settle.
   `check_finest`, which refuses a ball or a support off the finest level.
 - `src/inspiral.jl`: `Prescribed`, `uniform_motion`, `InspiralProblem`,
   the state's parts (`field_state`, `particle_state`),
-  `inspiral_initial_state`, `inspiral_rhs!`, `inspiral_stage!`,
-  `inspiral_partition`, `inspiral_integrator`, `particle_forces` and
-  `ball_norm`.
+  `inspiral_initial_state` (with the retarded field inside a window, for
+  M4), `inspiral_rhs!`, `inspiral_stage!`, `inspiral_partition`,
+  `inspiral_integrator`, `particle_forces` and `ball_norm` (with a
+  hole).
+- `src/prescribed.jl`: `circular_motion` and `hyperbolic_motion`, the
+  retarded field of a point charge on any path by root-finding,
+  `retarded_field`, and `point_model`.
 - `derivations/`: the Wolfram Language derivations (`profile.wl`,
-  `nearfield.wl`, `selfforce.wl`), each runnable alone with
+  `nearfield.wl`, `selfforce.wl`, and `labslice.wl`, the `t′²` term of
+  `Φ_C` that M5 extends), each runnable alone with
   `wolframscript -file` and asserting its identities, the generator
   `generate.wl`, and `common.wl`, which they load.
 - `bin/visualize2d.jl`, `bin/Project.toml`: the viewer and its
@@ -1589,6 +1830,12 @@ which is M7's to settle.
   `bin/symmetry/uniform_motion.sh` runs M3's convergence series,
   `bin/projection.jl` and its clean-time runs on a Symmetry AMD node, and
   `bin/symmetry/nested_motion.sh` M3b's on nested boxes.
+- `bin/prescribed.jl`: one particle of the first run on the slow circle
+  or in hyperbolic motion on nested boxes, its force every step in
+  components, its face crossings, and its error against the retarded
+  field; `--reading` reads the exact remainder's force without evolving
+  it; `bin/symmetry/prescribed.sh` runs it on a Symmetry AMD node, one
+  run per `path:hdiv:order[:tend]` of `TREEWAVEOLDG_RUNS`.
 - `bin/nested_waves.jl`: the exact outgoing pulse through nested boxes,
   the field alone, its error and the exact solution in each level's
   ball, run in the package environment; `bin/symmetry/nested_waves.sh`
@@ -1614,12 +1861,13 @@ does.
 
 ## Tests
 
-`julia --project=. -e 'using Pkg; Pkg.test()'`, about four minutes and
-fifty seconds on the laptop at one thread and three and a half minutes
-at four, of which the particle, the transfer, the inspiral and the nested
-boxes take about four fifths; the inspiral's coarse 3D runs about 50 s of
-it on four threads and the nested boxes' about 40 s more, and the
-refined forests' tests about 40 s on one.
+`julia --project=. -e 'using Pkg; Pkg.test()'`, about six minutes and
+ten seconds on the laptop at one thread and four and a quarter minutes
+at four, of which the particle, the transfer, the inspiral, the nested
+boxes and the prescribed paths take about four fifths; the inspiral's
+coarse 3D runs about 50 s of it on four threads, the nested boxes' about
+40 s more and the prescribed paths' about 50 s, and the refined forests'
+tests about 40 s on one.
 
 - `element_tests.jl`: the nodes integrate to degree `2P-1`, and no
   further; the wide derivative is the paper's matrix for `P = 2, 3, 4`
@@ -1684,13 +1932,18 @@ refined forests' tests about 40 s on one.
   in `Float64`, and so do `δm` and `∬ρρ′|x - x′|`; a particle below
   its classical radius is refused; `□_vΦ_C = ρ` at `v = 0.2` in several
   directions; each order's generated Laplacian is its nested-dual
-  Laplacian; along a motion through rest the bracket is `∇²Φ⁽ᴺ⁺¹⁾` at
-  the first order not carried, for orders 0 and 1, order 3 enters
-  through `-∇²Φ⁽³⁾`, and a point particle keeps `(a·r)²(a·∇Φ₀)`; the
+  Laplacian; the `t′²` term is the `t′²` coefficient of the displaced
+  `Φ₀` at the boosted position, inside and outside, its Laplacian is its
+  generated closed form, and outside it is `-(Q/8π)v²(v̂·n̂)²(α′·n̂)`;
+  along a motion through rest the bracket is `∇²Φ⁽ᴺ⁺¹⁾` at the first
+  order not carried, for orders 0 and 1, order 3 enters through
+  `-∇²Φ⁽³⁾`, and a point particle's bracket has no order-3 part, where
+  without the `t′²` term it would keep `(a·r)²(a·∇Φ₀)`; the
   point limits are the hyperbolic-motion terms and leave a residual
   falling as `r³`; `𝒟Ψ` and the bracket equal `BigFloat` finite
   differences in `t` and `x`; the `Float64` bracket equals the naive
-  difference in `BigFloat` to `1e-12` at `v = 0.2`, and vanishes to
+  difference in `BigFloat` to `1e-15 Q|a|/ℓ²` at `v = 0.2` and `0.05`,
+  and to `1e-12` relative without the near field, and vanishes to
   `1e-15 Q/ℓ³` without acceleration; the window's step is exactly
   `C^m`, and its closed-form derivatives are its dual-number ones; the
   source equals `∂ₜ²(WΨ̂) - ∇²(WΨ̂) + Σρ` evaluated naively in
@@ -1745,6 +1998,27 @@ refined forests' tests about 40 s on one.
   at `v = 0.2` keeps its remainder to an error that falls by more than
   3 from `hₑ = 1/2` to `1/4` at `t = 1/4`, its force falls by more than
   100, and its state follows the path to `10⁻¹³`.
+- `prescribed_tests.jl`: the circle's and hyperbolic motion's `v`, `a`,
+  `ȧ`, `ä` and `a⃛` are the dual-number derivatives of their positions,
+  the circle has its radius, speed and `ȧ = -Ω²v`, and hyperbolic motion
+  `a = g`, `ä = -3g³` at `t = 0` and proper acceleration `g` later; the
+  retarded field is the boosted Coulomb field in uniform motion and
+  `INSPIRAL.md`'s closed form at `t = 0` of hyperbolic motion, with
+  `∂ₜΦ = 0` there, solves the wave equation away from the particle on
+  both paths, its second value is its time derivative, and a point
+  behind the particle by more than `1/g` is refused; at `t = 0` of
+  hyperbolic motion the initial remainder is the rest of the Legendre
+  series beyond orders 2 and 3; on M3b's coarse three-level forest
+  (`hₑ = 1/2` and `1/4`, `ℓ = 0.01`, `g = 0.2` to `v = 0.05`), started from
+  the retarded field, the error against it away from the particle falls
+  by more than 5 and the force by more than 10, and the force at `t = 0`
+  is below `10⁻⁸`; on a circle at `v = 0.3` started from the retarded
+  field the tangential force is `(Q²/12π)ȧ` to a factor 2, at `t = 0` and
+  at `t = 1/8`; and, read without evolving it, the exact remainder of
+  hyperbolic motion at `v = 0.05` exerts less than 1% of the force along
+  the acceleration it exerts with the `t′²` term put back, and that of
+  the circle less than `0.1 F_RR` radially, falling from `hₑ = 1/2` to
+  `1/4`, where with the term put back it more than doubles.
 
 ## Measured results
 
@@ -2160,23 +2434,28 @@ What it says:
 ### The source bracket
 
 `source_bracket` with orders 1–3 carried, against the naive difference
-`∂ₜ²Ψ - ∇²Ψ + ρ` evaluated in `BigFloat`: the largest relative error
-over twelve points at `σ = 0.3, 0.9, 1.5, 4` in three directions, for
-`Q = 0.07`, `ℓ = 10⁻³` and a particle moving perpendicular to its
-acceleration, with `|ä| = 4va`.
+`∂ₜ²Ψ - ∇²Ψ + ρ` evaluated in `BigFloat`: the largest error over twelve
+points at `σ = 0.3, 0.9, 1.5, 4` in three directions, for `Q = 0.07`,
+`ℓ = 10⁻³` and a particle moving perpendicular to its acceleration, with
+`|ä| = 4va`; relative, and in units of `Qa/ℓ²`, the size of the terms the
+cancellation-free bracket subtracts.
 
-| `v` | `a` | cancellation-free, `Float64` | naive, `Float64` |
-|---|---|---|---|
-| 0.2 | 0.08 | `1.7e-14` | `4.0e-5` |
-| 0.05 | 0.0025 | `5.0e-13` | `1.0` |
+| `v` | `a` | cancellation-free, relative | in `Qa/ℓ²` | naive, relative |
+|---|---|---|---|---|
+| 0.2 | 0.08 | `3.1e-9` | `3.3e-17` | `6.1e-4` |
+| 0.05 | 0.0025 | `2.9e-6` | `8.1e-17` | `2.1` |
 
-The naive difference loses eleven digits at the first run's speed and
-all of them at `v = 0.05`, the speed of `INSPIRAL.md`'s first tests.
-`INSPIRAL-PLAN.md`'s estimate of three digits, `log₁₀(v²/aℓ)`, compared
-the large terms with `A`, but the bracket is smaller still: `A`'s
-order-1 part cancels against `∇²Φ⁽¹⁾`. The cancellation-free bracket
-loses about three digits, in that remaining cancellation between terms
-of size `Qa/ℓ²`.
+The naive difference loses all its digits at `v = 0.05`, the speed of
+`INSPIRAL.md`'s first tests. `INSPIRAL-PLAN.md`'s estimate of three
+digits, `log₁₀(v²/aℓ)`, compared the large terms with `A`, but the
+bracket is smaller still: `A`'s order-1 part cancels against `∇²Φ⁽¹⁾`,
+and, since M4, the `v²a` part of what is left against `∇²T₂`. The
+cancellation-free bracket is good to `10⁻¹⁶` of `Qa/ℓ²`, which is
+roundoff in the terms it is formed from. Relative to the bracket that is
+up to `3·10⁻⁹` and `3·10⁻⁶` on the line along the acceleration, where
+the bracket is now `10⁻⁸` and `10⁻¹¹` of `Qa/ℓ²`; before the `t′²` term
+was carried the bracket was larger there and the same error was
+`1.7·10⁻¹⁴` and `5.0·10⁻¹³` of it (`HISTORY.md`, "Particles").
 
 ### The transfer's cost
 
@@ -2519,6 +2798,291 @@ solution's largest value there while the pulse passes:
   the field alone, measurements included.
 
 
+### Prescribed paths
+
+`bin/symmetry/prescribed.sh` on Symmetry, 2026-11-02, Julia 1.13.3, 64
+threads pinned, one dual-socket AMD node per job, in two series. **The
+first**, without the `t′²` term in the particle field: jobs 587903
+(`cn093`), 587923 (`cn096`), 587926 (`cn093`), 587927 (`cn098`), 587928
+(`cn101`) and 587929 (`cn103`) on EPYC 7543 (Zen 3), and 587930, 587933
+and 587934 (`cn086`, `cn087`, `cn086`) on EPYC 7532 (Zen 2). **The
+second**, with it, after the owner's decision: jobs 587990, 587991,
+587992 and 587993 (`cn096`, `cn101`, `cn103`, `cn109`) on EPYC 7543, and
+587989 and 587994 (`cn083`, `cn084`) on EPYC 7532. The runs of
+[Prescribed paths](#prescribed-paths): the layout for M4 to M7, five
+levels, `P = 3`, the first run's particle and window, `v = 0.05` on the
+circle of radius 0.5 (`Ω = 0.1`, radiation reaction
+`(Q²/12π)|ȧ| = 6.63·10⁻⁸`, written `F_RR` below), `g = 0.1` in hyperbolic
+motion to `t = 0.50`. The two `d/16` circles (587992 with the term,
+587933 without) ran through a closing of the SSH tunnel to Symmetry and
+were collected whole once it was reopened.
+
+**The circle's force, from the retarded field.** The tangential (`F_t`,
+along `v`) and radial (`F_r`) components, each divided by the
+radiation-reaction force along `v`, `(Q²/12π)ȧ·v̂ = -F_RR` (the script's
+`rr`), so that `F_t/F_RR = 1` is radiation reaction opposing the motion
+and a positive `F_r/F_RR` points inward, here and in the readings below;
+averaged over every step of `t = 2` to 8, leaving out `0.25`
+about each face crossing; `sd` is the standard deviation of the single
+steps about that mean. Orders 2 and 3 give the same numbers to the
+digits shown, in both series, so one row stands for both:
+
+| `hₑ` | first series, `F_t/F_RR` | `F_r/F_RR` | with the `t′²` term, `F_t/F_RR` | `F_r/F_RR` | sd of `F_t` | sd of `F_r` | `F_n/F_RR` |
+|---|---|---|---|---|---|---|---|
+| `d/4` | 0.97 | 0.30 | 0.949 | 0.14 | 2.5 | 4.8 | -0.06 |
+| `d/6` | 0.98 | 0.22 | 0.975 | 0.001 | 1.25 | 2.4 | -0.01 |
+| `d/8` | 1.03 | 0.28 | 0.993 | -0.004 | 0.61 | 0.94 | -0.004 |
+| `d/12` | 1.06 | 0.33 | 1.003 | 0.000 | 0.105 | 0.14 | -0.007 |
+| `d/16` | 1.06 | 0.42 | 1.002 | 0.000 | 0.022 | 0.045 | -0.006 |
+
+- **With the `t′²` term carried, the gate's two conditions hold at
+  order 3:** the tangential force converges to radiation reaction, 0.95
+  to 1.003, against `γ⁴ = 1.005` for the relativistic correction, and
+  the radial force to zero, below 0.005 `F_RR` from `d/6` on. The single
+  steps' scatter about the mean, the window's discretization error,
+  falls at about second order to `d/8`, fourth to `d/12` and fifth to
+  `d/16`.
+- **Without it the radial force stayed at 0.2–0.4 `F_RR`,** 0.42 at
+  `d/16`, and the tangential one drifted above 1 as the elements shrank
+  (1.06 at `d/12` and `d/16`), as the reading below predicts.
+- **Orders 2 and 3 agree** to 1% of `F_RR` and better at every
+  resolution, in both series, in the force and in the error: at this
+  speed and radius the order-3 terms, `ä = Ω²|a|` and `a³`, are too small
+  for the grid to see, so the rates 1 and 2 cannot be told apart on the
+  circle. Hyperbolic motion shows them (below).
+
+**The exact remainder's force, read without evolving it**
+(`--reading`, jobs 587930, 587934 and 587994): the circle's at `t = 0`
+and hyperbolic motion's at `t = 0.50`, with the `t′²` term carried and
+with it put back into the remainder, as in the first series, in units
+of `F_RR` for the circle and absolute for hyperbolic motion. The first
+series' diagnostic, which took the term out of the remainder in the
+script, and the second series' readings with the term carried agree to
+every digit printed:
+
+| `hₑ` | `d/4` | `d/6` | `d/8` | `d/12` | `d/16` |
+|---|---|---|---|---|---|
+| circle `F_t/F_RR`, with the term | 1.051 | 1.041 | 1.033 | 1.021 | 1.012 |
+| without it | 1.091 | 1.100 | 1.125 | 1.157 | 1.079 |
+| circle `F_r/F_RR`, with the term | -0.005 | -0.004 | -0.003 | 0.000 | 0.002 |
+| without it | 0.144 | 0.254 | 0.374 | 0.550 | 0.545 |
+| hyperbolic `F_a`, with the term | -5.6e-10 | -5.6e-11 | -2.4e-10 | -7.9e-10 | -9.4e-10 |
+| without it | 7.9e-7 | 7.6e-7 | 7.8e-7 | 1.38e-6 | 2.13e-6 |
+
+- **The first series' radial force was the `t′²` term of `Φ_C`'s
+  lab-slice re-expansion.** Without it, the circle's radial force read
+  from the exact remainder grows with resolution, 0.14 to 0.55 `F_RR`,
+  and hyperbolic motion's is `10⁻⁶`; with it they are below 0.005 `F_RR`
+  and `10⁻⁹`. Its `r⁰` structure is not resolved by any `hₑ ≫ ℓ`, and the
+  grid reads it the more strongly the finer it is, as `INSPIRAL.md`'s
+  table says of any `r⁰` structure. Order 2 reads the same, to `10⁻³`.
+- **With it the tangential reading converges to radiation reaction,**
+  1.051 to 1.012 at `d/16`, against `γ⁴ = 1.005`; without it it is
+  8–16% high and does not converge.
+
+**Face crossings.** The largest `|F_t|` and `|F_r|` within 0.25 of a
+crossing of the face plane `x = c + 0.5` (slow, at 0.011 across the
+face) and of the `y` planes (at 0.04–0.05, the largest over them), in
+units of `F_RR`, order 3 (order 2 gives the same), in the first series
+and with the `t′²` term:
+
+| `hₑ` | `x`, `|F_t|` | `x`, `|F_r|` | `y`, `|F_t|` | `y`, `|F_r|` | with the term: `x`, `|F_t|` | `x`, `|F_r|` | `y`, `|F_t|` | `y`, `|F_r|` |
+|---|---|---|---|---|---|---|---|---|
+| `d/4` | 136 | 612 | 810 | 445 | 129 | 581 | 839 | 461 |
+| `d/6` | 40 | 184 | 192 | 163 | 32 | 147 | 187 | 145 |
+| `d/8` | 22 | 64 | 48 | 27 | 34 | 75 | 81 | 45 |
+| `d/12` | 11 | 56 | 25 | 20 | 4.1 | 19 | 14 | 4.4 |
+| `d/16` | 8.9 | 31 | 27 | 18 | 5.1 | 4.4 | 1.6 | 0.9 |
+
+- **Every crossing still gives an impulse above radiation reaction**
+  with the term carried, lasting while the support straddles the face,
+  `2ℓ` over the speed across it, 0.18 for the slow `x` crossing; at
+  `d/4` the run steps through it as a smooth bump of 0.15 time units, not
+  a single step. With the term the impulses fall with resolution, at
+  about third to fourth order from `d/8` to `d/12` (the slow crossing's
+  radial one 75 to 19, the `y` crossings' tangential one 81 to 14); in
+  the first series the slow crossing's radial impulse stopped falling
+  there, at 64 and 56. At `d/16` the slow crossing's radial impulse is
+  4.4 with the term, a rate of about 5 from `d/12`, and 31 without; its
+  0.25 shares a `y` crossing 0.16 later, so its row holds both. The
+  four `y` crossings apart from it, and the two faster `x` crossings,
+  give at most 1.6 `F_t` and 0.9 `F_r` with the term, 27 and 18
+  without.
+- **The likely cause** is the pairing over a support that straddles a
+  face: `∫(∇ρ)Φ_r,h` holds the jump of `Φ_r,h` across the face times `ρ`
+  on it, of size `Q[Φ_r,h]/ℓ`. Without the `t′²` term the jump of its
+  unresolved `r⁰` structure did not shrink with `hₑ`; with it, the jump
+  of the discretization error is what is left. The averaged reading
+  below takes that term away, and with it the impulses.
+
+**The averaged reading** (`--continuous`, now `--plain --both`; jobs
+588208, `cn104`, `d/4` to `d/8`, and 588209, `cn083`, `d/12`, to
+`t = 8`, and 588210, `cn108`, `d/16` to `t = 4`; 2026-11-02, with the
+`t′²` term, order 3; `cn083` is an EPYC 7532, the others 7543). The
+force as the pairing reads it is the same to the bit as in the runs
+above; beside it, the force read from the field made continuous by
+averaging shared nodes. The largest `|F_t|` and `|F_r|` within 0.25 of
+the slow `x` crossing and of all the other crossings, in units of
+`F_RR`, plain and averaged; then the averaged force's mean over the
+window and the scatter of both:
+
+| `hₑ` | slow `x`, plain | averaged | others, plain | averaged | averaged `F_t/F_RR` | `F_r/F_RR` | sd of `F_t`, plain → averaged | sd of `F_r` |
+|---|---|---|---|---|---|---|---|---|
+| `d/4` | 129 / 581 | 5.4 / 8.0 | 839 / 461 | 7.3 / 9.2 | 0.912 | 0.027 | 2.5 → 1.96 | 4.8 → 3.4 |
+| `d/6` | 32 / 147 | 1.9 / 2.7 | 187 / 145 | 5.8 / 4.4 | 0.966 | 0.001 | 1.25 → 1.07 | 2.4 → 1.8 |
+| `d/8` | 34 / 75 | 1.6 / 1.9 | 81 / 56 | 2.6 / 1.5 | 0.997 | 0.009 | 0.61 → 0.40 | 0.94 → 0.65 |
+| `d/12` | 4.1 / 19 | 1.20 / 0.62 | 14 / 4.4 | 1.31 / 0.31 | 1.002 | 0.001 | 0.105 → 0.066 | 0.143 → 0.111 |
+| `d/16` (to `t = 4`) | 5.1 / 4.4 | 1.18 / 0.20 | 1.5 / 0.34 | 1.08 / 0.10 | 1.003 | 0.000 | 0.030 → 0.015 | 0.067 → 0.027 |
+
+The `d/16` row's mean and scatter are over `t = 2` to 4, where the plain
+reading gives 1.003 and 0.003; its slow crossing's window also holds a
+`y` crossing.
+
+- **Averaging takes the impulses away.** They are 20 to 100 times
+  smaller at every resolution, and from `d/12` on the largest `|F_t|`
+  near a crossing, 1.1–1.3, is radiation reaction itself and its
+  scatter, and `|F_r|` stays below 0.7. The slow crossing's radial
+  impulse falls 8.0, 2.7, 1.9, 0.62 and 0.20 from `d/4` to `d/16`, at
+  about third to fourth order from `d/8`. What is left is the jump of
+  the gradient, which the support reads over the crossing as a step
+  from one element's gradient to the other's, as the design's "Face
+  crossings" estimates ([Prescribed paths](#prescribed-paths)).
+- **The means do not change** beyond the scatter: from `d/8` on the
+  averaged and the plain reading agree to 0.01 `F_RR`, and at `d/4`, where
+  the scatter is twice the force, to 0.04. The scatter away from
+  crossings falls by a third to a half, so most of it is not the faces.
+- **These runs read through the averaging and wrote without it,** so
+  their averaged force was not the gradient of the discrete interaction
+  energy. The owner then had the source written through it too, which
+  the runs below measure ([The averaging](#the-averaging)).
+
+**The averaged source and force** (the default since 2026-11-03,
+[The averaging](#the-averaging); `--both`, jobs 588573, `cn092`, EPYC
+7532, `d/4` to `d/8`, 588574, `cn099`, 7543, `d/12`, and 588575, `cn092`,
+`d/16`, all to `t = 8`, with the `t′²` term, order 3). The force, and
+the force read from the same field without the averaging (`plain`),
+as in the table above:
+
+| `hₑ` | slow `x`, force | plain | others, force | plain | `F_t/F_RR` | `F_r/F_RR` | sd of `F_t` | sd of `F_r` |
+|---|---|---|---|---|---|---|---|---|
+| `d/4` | 5.1 / 7.4 | 141 / 634 | 6.1 / 7.5 | 672 / 368 | 0.927 | 0.022 | 1.69 | 2.99 |
+| `d/6` | 1.8 / 2.5 | 30 / 138 | 5.2 / 3.9 | 156 / 125 | 0.970 | 0.001 | 0.93 | 1.59 |
+| `d/8` | 1.5 / 1.7 | 28 / 67 | 2.4 / 1.3 | 71 / 50 | 0.998 | 0.008 | 0.35 | 0.57 |
+| `d/12` | 1.17 / 0.56 | 3.7 / 18 | 1.28 / 0.28 | 12 / 3.8 | 1.002 | 0.001 | 0.057 | 0.098 |
+| `d/16` | 1.17 / 0.17 | 4.9 / 3.0 | 1.13 / 0.11 | 1.6 / 1.0 | 1.002 | -0.001 | 0.014 | 0.024 |
+
+- **The gate's impulse condition holds from `d/12` on:** near every
+  crossing the largest `|F_t|` is radiation reaction and its scatter,
+  and `|F_r|` stays below 0.6 `F_RR`. The slow crossing's radial
+  impulse falls 7.4, 2.5, 1.7, 0.56 and 0.17 from `d/4` to `d/16`.
+- **Writing the source through the averaging helps a little more than
+  reading through it alone:** the impulses and the scatter are 5–15%
+  below the read-only runs', and the field itself jumps less, as the
+  plain reading of it shows (28 and 67 at `d/8`'s slow crossing, against
+  34 and 75 with the source written plain).
+- **The means are the same,** 0.998 and 1.002 `F_RR` at `d/8` and `d/12`
+  against `γ⁴ = 1.005`, and the radial force below 0.01.
+- **It costs nothing measurable:** a step takes 0.896 s at `d/8` on an
+  EPYC 7532 against 0.880 s without (job 587989), and 1.96 s at `d/12`
+  on a 7543 against 2.00 s (587990). At `d/16` it took 5.06 s on a 7532,
+  where the run without it had a 7543 (4.36 s, 587992), so the two are
+  not compared.
+
+**The circle from instantaneous data,** `(1 - W)Ψ̂`, in the first series
+(job 587929, order 3, averages over 2 time units): at `d/4` `F_t/F_RR`
+is -0.1 to 0.2 to `t = 8`, where the run from the retarded field has 0.9
+to 1.2, then falls, -0.1 to -0.7 at `t = 10–18`, -1.6 at 20, -2.9 at 30,
+and back to -1.1 at 38, and `F_r/F_RR` falls from about 0.3 to -7.2 at
+38; at `d/8`, to `t = 16`, `F_t/F_RR` is 0.0 to 0.1 to `t = 8` and -0.1
+to -0.6 from there, and `F_r/F_RR` 0.2 to 0.5 throughout (the first
+series' radial offset). The junk does not
+leave: the instantaneous field lacks the radiation-reaction field near
+the particle for at least `t ≈ 8`, and what arrives from `t ≈ 10` pushes
+the force the other way, by more as time goes on. Where it comes from
+is not measured apart: the near zone's edge at `1/Ω = 10`, beyond which
+`Ψ̂`'s near-field terms, which the instantaneous data carry everywhere,
+no longer resemble the retarded field, and the coarse-fine face at 4,
+whose reflection of the start-up junk returns from about `t ≈ 8`, both
+fit. Neither is radiation reaction within the clean time of the
+layout, so the convergence series starts from the retarded field.
+
+**Hyperbolic motion.** The remainder's force along the acceleration,
+`F_a`, at times `t` (where `v = gt`), in the first series and with the
+`t′²` term:
+
+| `hₑ` | order | first series, `t = 1/4` | `t = 1/2` | with the term, `t = 0` | `t = 1/8` | `t = 1/4` | `t = 1/2` |
+|---|---|---|---|---|---|---|---|
+| `d/4` | 3 | 1.2e-7 | 7.0e-7 | -7.8e-12 | -3.5e-10 | -5.2e-11 | -2.2e-8 |
+| `d/6` | 3 | 2.1e-7 | 1.18e-6 | -3.8e-12 | -3.2e-10 | -1.24e-9 | -8.3e-9 |
+| `d/8` | 3 | 2.8e-7 | 1.50e-6 | -2.1e-12 | -3.4e-10 | -1.34e-9 | -2.3e-9 |
+| `d/12` | 3 | 3.8e-7 | 1.68e-6 | -7.0e-13 | -3.5e-10 | -1.34e-9 | -3.6e-9 |
+| `d/16` | 3 | 4.2e-7 | 1.64e-6 | -7.3e-13 | -3.7e-10 | -1.33e-9 | -2.8e-9 |
+| `d/4` | 2 | 1.2e-7 | 7.0e-7 | 1.73e-9 | 2.2e-9 | 2.1e-9 | -2.0e-8 |
+| `d/8` | 2 | 2.9e-7 | 1.51e-6 | 1.12e-9 | 1.4e-9 | 9.4e-11 | -7.1e-11 |
+| `d/12` | 2 | 3.8e-7 | 1.68e-6 | 5.6e-10 | -6.1e-11 | -8.3e-10 | -2.6e-9 |
+
+- **With the `t′²` term the force along the acceleration falls by two
+  to three orders,** from `1.6·10⁻⁶` to a few `10⁻⁹` at `t = 1/2`. What
+  is left with order 3 grows as `t²`, that is as `v²`, and is the same at
+  every resolution from `d/6` on, `-1.34·10⁻⁹` at `t = 1/4`: a
+  continuum force of the remainder, not a grid error, from the parts of
+  the lab slice not carried yet (M5's) or the finite-size terms beyond
+  them. Without the term the force grew as `v²` and with resolution until
+  `d/12`, the term's reading.
+- **At `t = 0` the rates are those of "Why the near field must be
+  analytic".** There the remainder is the time-symmetric field beyond
+  the orders carried, and nothing has evolved: with order 2 the force
+  falls at first order, `1.7·10⁻⁹` to `5.6·10⁻¹⁰` from `d/4` to `d/12`
+  (rate 1.0), and with order 3 at second order, `7.8·10⁻¹²` to
+  `7.0·10⁻¹³` (rate 2.2), where it stops at `d/16`. After the start the
+  `v²` force above covers them.
+- **`Φ_r + Φ_p` is the retarded field away from the particle.** The
+  error of `(Φ_r, Π_r)` at `t = 1/2` in the ball `R₁` without the ball of
+  radius 1/4 about the particle is the same in both series: `3.3·10⁻⁶`,
+  `9.4·10⁻⁷`, `2.8·10⁻⁷`, `1.2·10⁻⁷` and `8.7·10⁻⁸` from `d/4` to `d/16`
+  with order 3, falling by 12 from `d/4` to `d/8`, against an exact
+  remainder of `7.7·10⁻⁷` there in the first series and `9.7·10⁻⁸` with
+  the term (whose part of the remainder is now in the particle field).
+  With order 3 the error of `Φ_r` alone stops at `2.7·10⁻⁸` at every
+  resolution, where order 2's falls to `1.4·10⁻⁹`: the bracket omits
+  `d⁴a·∂_äΦ⁽³⁾` ([The particle](#the-particle)), and in hyperbolic motion
+  `d⁴a = 45g⁵` at `t = 0`, a source error of about `3·10⁻⁷r²` over the
+  window, which over `t = 1/2` leaves about this much in `Φ_r`. On the
+  circle `d⁴a` is `Ω⁴|a| = 5·10⁻⁷`, a thousand times smaller.
+- **The first series' `d/8` order-3 row is job 587903's,** run before
+  the far kernels moved to the ball's blocks and before the retarded
+  field's root-finding was made type-stable, which changed neither.
+
+**The cost,** seconds per call at 64 threads, the least of three after
+a warm-up, order 3, with the `t′²` term (EPYC 7543; `d/12` from the
+circle, the others from hyperbolic motion, which costs the same), and the
+first series' (7543, but `d/16` on a 7532):
+
+| `hₑ` | `d/4` | `d/6` | `d/8` | `d/12` | `d/16` |
+|---|---|---|---|---|---|
+| nodes | 9.4M | 31.9M | 75.5M | 255M | 604M |
+| `inspiral_rhs!` | 0.057 | 0.099 | 0.179 | 0.417 | 0.905 |
+|   `wave_rhs!` | 0.0059 | 0.028 | 0.073 | 0.190 | 0.452 |
+|   `project_source!` | 0.051 | 0.070 | 0.103 | 0.225 | 0.452 |
+| RK4 step | 0.24 | 0.42 | 0.74 | 1.96 | 4.33 |
+| first series, step | 0.20 | 0.38 | 0.68 | 1.83 | 4.75 |
+| first series, `project_source!` | 0.042 | 0.062 | 0.087 | 0.189 | 0.475 |
+| before the far kernels' change, step | | | 1.40 | 4.64 | |
+| before it, `project_source!` | | | 0.269 | 0.892 | |
+
+- **The `t′²` term costs the source 18–20%** (0.087 to 0.103 s at `d/8`
+  and 0.189 to 0.225 s at `d/12`, both on 7543s), a fifth invariant on
+  the nested dual numbers, and a step 7–9%. On a 7532 the source at
+  `d/8` takes 0.134 s.
+- **The far kernels over the ball's blocks** cut the source by 3.1 at
+  `d/8` and 4.7 at `d/12` and a step by 2.1 and 2.5: the "before" rows
+  are job 587903, on `cn093` like 587926's `d/8`. The source's cost is
+  now of the ball's blocks, as on M3's uniform box (0.112 s at `d/8` on
+  its 7.1M nodes), and no longer of the forest
+  ([Nested boxes](#nested-boxes-1)).
+- **A circle to `t = 8`** takes 2048 steps at `d/8`, about 30 minutes,
+  and 4096 at `d/16`, about 5.5 hours.
+
 ## What carried over from TreeWave, and what did not
 
 Carried over: the equation and its variables, the periodic box, the sine
@@ -2563,8 +3127,8 @@ and the device and threading test files.
   `INSPIRAL-PLAN.md`'s table. It would also cut the stage arithmetic, a
   quarter of a 64-thread step ([Threads on
   Symmetry](#threads-on-symmetry)), by about half.
-- The paper's averaging post-processing (its eq. 98–100), which makes
-  the interpolated solution continuous for plotting.
+- The paper's averaging post-processing (its eq. 98–100) for plotting;
+  the transfer has it already ([The averaging](#the-averaging)).
 - A 1D viewer, a device run, and a subprocess thread-count test, as in
   TreeWave.
 - **(proposed)** Cheaper transfer, if the cost gate is to be met (see
@@ -2577,11 +3141,10 @@ and the device and threading test files.
   its time.
 - The graded and nested passes on a device, and the pairing there too;
   they run on the host now.
-- **(proposed)** The `t′²` term of the lab-slice re-expansion of `Φ_C`,
-  `½γ²(v·r)²(-α′·∇Φ₀)`, in the particle field ahead of M5, which would
-  make the bracket at rest the first order not carried at order 3 too
-  (see [The near field](#the-near-field)). Its finite-size part, the
-  `(ℓ/r)²` terms, would need the full re-expansion.
+- A smooth reading kernel of width about `hₑ` for the forces
+  (`INSPIRAL.md`, "The transfer operator", and the M4 fallback of
+  `INSPIRAL-PLAN.md`), should the gradient's jump that the averaged
+  reading leaves matter.
 
 ## Open questions
 
@@ -2603,11 +3166,23 @@ and the device and threading test files.
 - Whether truncation should stay the default for a linear problem,
   where it costs accuracy in `u` and buys no stability (both schemes are
   linearly stable).
-- Whether M4's hyperbolic-motion test should expect second order with
-  orders 1–3 carried. Until the lab-slice re-expansion, the bracket at
-  rest keeps `(a·r)²(a·∇Φ₀)`, which behaves like `r⁰` and so would limit
-  the force to first order where `a³` is not small against `ä`, as in
-  hyperbolic motion (see [The near field](#the-near-field)).
+- What the force left in hyperbolic motion with the `t′²` term carried
+  is: `-1.34·10⁻⁹` at `v = 0.025`, growing as `v²` and the same at every
+  resolution, so a continuum force of the remainder, from the parts of
+  the lab slice not carried (M5's) or finite-size terms beyond them. At
+  `t = 0` the force falls at first order with order 2 and second with
+  order 3, as `INSPIRAL.md` expects; afterwards this `v²` force covers
+  that.
+- Whether the bracket should hold `d⁴a·∂_äΦ⁽³⁾`. It is of order 5 near
+  the particle but polynomial in `r` across the window, and in
+  hyperbolic motion at `g = 0.1` it leaves an error in `Φ_r` of 3.5% of
+  the remainder that no resolution removes ([Prescribed
+  paths](#prescribed-paths-1)); on the circle and for the binary it is a
+  thousand times smaller.
+- Whether a circle at `v = 0.05` and `r_c = 0.5` can tell orders 2 and 3
+  apart at all: its order-3 terms are too small for the grid to see, and
+  the two agree to 1% in both series. A smaller radius, or M5's circle at
+  `v = 0.2`, would.
 - Which `ä` the order-3 term should take for a moving particle. M1 takes
   the lab one; the rest-frame proper-time derivative is M5's.
 - What to do about the cost of the projection, about 90 times the wave
@@ -2615,10 +3190,10 @@ and the device and threading test files.
   for ten (see [The transfer's cost](#the-transfers-cost)). It is
   accepted for now and to be revisited, probably with threading or a
   device.
-- Whether the far rule's kernels should balance the window's blocks over
-  all threads instead of running each block on its owner: on Symmetry
-  they reach about half the speed their source evaluations allow (see
-  [The transfer's cost](#the-transfers-cost)).
+- Whether the far rule's kernels reach the speed their source
+  evaluations allow, now that they are balanced over all threads (M4):
+  on M3's uniform box they reached about half of it (see [The
+  transfer's cost](#the-transfers-cost)); not measured since.
 - The quadrature error on the elements the window's spheres cut, which
   `INSPIRAL.md`'s `10⁻¹²` does not cover (see [Quadrature](#quadrature)):
   whether it matters, and if so a split at `R₁` and `R₂` like the one at

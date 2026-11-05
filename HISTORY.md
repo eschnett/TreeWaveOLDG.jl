@@ -565,6 +565,155 @@ How the package got where it is, by topic in `CODE.md`'s order.
   about the centre of mass, five levels, 64 elements across each at
   `d/8` (`E = 4`, `roots = 16`), an outer box of side 128 at `7.5·10⁷`
   nodes. How many levels M7's five orbits need is left to M7.
+- 2026-11-02: M4 of `INSPIRAL-PLAN.md`, prescribed paths, on branch
+  `inspiral-m4-prescribed`, started at Erik Schnetter's request:
+  `src/prescribed.jl` (`circular_motion`, `hyperbolic_motion`,
+  `retarded_field` by root-finding, `point_model`), the retarded field
+  as initial data and reference (`inspiral_initial_state(p; retarded)`),
+  `ball_norm`'s hole, `test/prescribed_tests.jl`, `bin/prescribed.jl` and
+  `bin/symmetry/prescribed.sh`. Chosen here, where the plan left them
+  open ("Left to settle later"), for the owner to review:
+  - **The circle:** `r_c = 0.5`, the first run's, at `v = 0.05`, so
+    `Ω = 0.1` and radiation reaction `6.63·10⁻⁸`; the force recorded
+    every step to `t = 8` and averaged over `t = 2` to 8, leaving out
+    0.25 about each face crossing. A smaller radius would raise the
+    signal as `1/r_c²` and let orders 2 and 3 differ visibly; the plan's
+    radius was kept.
+  - **Hyperbolic motion:** `g = 0.1`, until `v = 0.05` at `t = 0.50`.
+    `g` is the size of the first run's accelerations, and `1/g = 10`
+    keeps the retarded field defined over the ball the initial data take
+    it in (to 3.75 about the centre, the particle 0.5 from it).
+  - **The initial data of hyperbolic motion:** the plan's
+    `Φ_exact - Φ_p` near the particle and `(1 - W)·…` far out is the
+    total field `W_xΦ_ref + (1 - W_x)Ψ̂`, `W_x` one to 3 and zero from
+    3.75, with the remainder taken against the point limit of `Ψ̂`, so
+    that it is regular at the particle and holds no `ℓ`-dependent
+    cancellation (`CODE.md`, "Prescribed paths").
+- 2026-11-02: departed from the plan in M4: the circle's series starts
+  from its retarded field, not only from the instantaneous data the plan
+  names. From instantaneous data the tangential force is about zero to
+  `t = 8` and then turns negative, to -2.9 times radiation reaction at
+  `t = 30` (job 587929, `d/4`): the junk does not leave the near zone,
+  of radius `1/Ω = 10`, by `t ≈ 5`, as the plan assumed from the window's
+  size. The instantaneous runs are kept beside it, to record that.
+- 2026-11-02: in M4, `project_source!`'s far kernels range over the
+  blocks the source's ball meets and split them evenly over the threads,
+  instead of every block on its owner, the **(open)** item M3b left. On
+  the layout for M4 to M7 the source fell from 0.269 s to 0.087 s at
+  `d/8` and from 0.892 s to 0.189 s at `d/12`, a step from 1.40 s to
+  0.68 s and from 4.64 s to 1.83 s (jobs 587903 against 587926 on the
+  same node, and 587929). M3b's measurement of the source costing as the
+  whole forest is superseded; its table in `CODE.md` is kept as M3b's.
+- 2026-11-02: found in M4: `retarded_field`'s closures captured variables
+  they reassigned, which boxed them, and it allocated on every call; and
+  its tolerance did not scale with the positions, so on the layout,
+  whose centre is at 64, it refused points it had converged on. Both
+  fixed before the series.
+- 2026-11-02: M4's go/no-go gate fired, both ways, and goes to Erik
+  Schnetter (`INSPIRAL-PLAN.md`, "Gates and fallbacks"; `CODE.md`,
+  "Prescribed paths" under "Measured results"). On the circle the
+  tangential force is radiation reaction to a few percent from `d/4` to
+  `d/8`, but the radial force stays at 0.2–0.3 of it, and every face
+  crossing gives an impulse of tens to hundreds of times it, still 11
+  to 56 at `d/12`. Reading the exact remainder's force without evolving
+  it shows that the radial force, and the whole of hyperbolic motion's,
+  is the `t′²` term of `Φ_C`'s lab-slice re-expansion, the `r⁰` part
+  proportional to `v²a` that `INSPIRAL.md` ("Moving particles and the lab
+  slice") expected to be suppressed enough at small `v`, and the
+  extension `CODE.md` proposed after M1. At `v = 0.05` it is not: the grid
+  reads it as 0.14 to 0.55 of radiation reaction, more the finer the
+  elements. Taken out, the readings fall by two to three orders, and the
+  tangential force converges to radiation reaction.
+  Orders 2 and 3 agree to 1% everywhere: at `v = 0.05` and `r_c = 0.5`
+  the order-3 terms are too small to see, so the rates 1 and 2 of
+  "Why the near field must be analytic" were not measured. The M1
+  question whether hyperbolic motion can show second order is answered
+  only as far as this: its force is the `t′²` term's. Also found: the
+  bracket's omission of `d⁴a·∂_äΦ⁽³⁾` leaves 3.5% of the remainder in
+  hyperbolic motion's field at every resolution. The SSH tunnel to
+  Symmetry closed at about 13:20 while jobs 587927–587929 and 587933 ran,
+  and was reopened later the same day.
+- 2026-11-02: Erik Schnetter answered M4's gate: carry the `t′²` term of
+  `Φ_C`'s lab-slice re-expansion now, ahead of M5, and re-measure the
+  circle and the face-crossing impulses. `derivations/labslice.wl`
+  derives `T₂ = -½t′²(α′·∇Φ₀) = -(v·y)²(α′·y)Φ₀′(q)` with the extended
+  `Φ₀`, its Laplacian through `∇²Φ₀ = ρ₀` differentiated in `q`, and its
+  own force at rest, `(11/60)δm v²α′ + (11/30)δm (v·α′)v`; `generate.wl`
+  emits them into `particle_forms.jl`. `lab_slice` evaluates it,
+  `particle_field` adds it from order 1 on, and the bracket gets a fifth
+  invariant, `v·y = w·r` with `w = γv`, lifted like the others, and
+  `∇²_y T₂` beside the near field's. Decided here: it is gated with
+  order 1, not always on, since it holds one acceleration and
+  `INSPIRAL.md` pairs each order carried with its lab-slice corrections;
+  order 0 stays the particle paper's `Φ_C`. This settles the extension
+  `CODE.md` proposed after M1 and the M1 finding that the bracket at rest
+  keeps `(a·r)²(a·∇Φ₀)` at order 3: a point particle's bracket has no
+  order-3 part along a trajectory through rest now. The rest of the
+  re-expansion stays M5's. The bracket's error against the naive
+  `BigFloat` difference stays at `10⁻¹⁶` of `Qa/ℓ²`, but the bracket
+  itself is smaller now, along the acceleration down to `10⁻⁸` to
+  `10⁻¹¹` of that, so the relative errors `CODE.md` quoted, `1.7·10⁻¹⁴`
+  at `v = 0.2` and `5.0·10⁻¹³` at `v = 0.05`, became `3.1·10⁻⁹` and
+  `2.9·10⁻⁶` there; the suite's check of it is now absolute.
+- 2026-11-02: M4 re-measured with the `t′²` term, jobs 587989 to 587994
+  (and the first series' 587927–587929 and 587933 collected after the
+  SSH tunnel was reopened; over the full `t = 2` to 8 the first series'
+  `d/12` reads 1.06 and 0.33, not the 1.22 and 0.30 of its first three
+  time units). The gate's conditions now hold at order 3: on the circle
+  the tangential force is 0.949, 0.975, 0.993 and 1.003 `F_RR` from
+  `d/4` to `d/12`, and 1.003 at `d/16` over the 3.3 time units
+  collected, against `γ⁴ = 1.005`, and the radial force 0.14, 0.001,
+  -0.004 and 0.000. Hyperbolic motion's force falls from `10⁻⁶` to a few
+  `10⁻⁹`, a `v²` force the same at every resolution, and at `t = 0`
+  falls at first order with order 2 and second with order 3, the first
+  measurement of the rates of "Why the near field must be analytic".
+  Face crossings still give impulses, 14–19 `F_RR` at `d/12` and 4.4 at
+  `d/16`'s slow crossing, falling at about third to fourth order from
+  `d/8`, where in the first series the slow crossing's radial impulse
+  had stopped falling at 56. Whether that passes the gate, and the
+  smooth reading kernel, are the owner's; M4 waits for that answer. The
+  term costs the source 18–20%. The tunnel closed again at about 16:40
+  while both `d/16` circles ran.
+- 2026-11-02: the two `d/16` circles collected whole once the tunnel was
+  reopened. With the term `F_t/F_RR` is 1.002 and `F_r/F_RR` 0.000 over
+  `t = 2` to 8 (1.003 and 0.004 over the first 3.3 time units), without
+  it 1.06 and 0.42 (1.10 and 0.47 over the first 4.4). Away from the
+  slow `x` crossing, whose window at `d/16` also holds a `y` crossing,
+  every crossing with the term gives at most 1.6 `F_RR`, without it up
+  to 27. `CODE.md` had called its radial force outward while dividing
+  by the signed radiation-reaction force, which is negative; its
+  wording now says that a positive `F_r/F_RR` points inward.
+- 2026-11-02 and 2026-11-03: the owner asked whether OLDG's
+  reconstruction of a continuous solution would help against the
+  impulses, and to test it as a reading first.
+  `pairing(…; continuous = true)` averages the nodes elements share
+  before reading, and `bin/prescribed.jl --continuous` reads the force
+  both ways every step, with the source and the evolution unchanged
+  (jobs 588208 to 588210, `d/4` to `d/12` to `t = 8`, `d/16` to `t = 4`;
+  the plain reading is the earlier runs' to the bit). The impulses fall
+  20 to 100 times, 581 to 8 `F_RR` at `d/4`'s slow crossing and 81 to
+  2.6 at `d/8`'s `y` crossing, and from `d/12` on are within radiation
+  reaction; the means do not change beyond the scatter. The kernel of
+  width `hₑ` was not built. A first version of the averaging took an
+  element on the domain's face for its periodic neighbour, through
+  `locate_element`'s clamp; it now refuses such an element, as the
+  transfer looks for no periodic images.
+- 2026-11-03: the owner made the averaged reading the force, with the
+  source written through the same averaging, so that the force stays
+  the gradient of the discrete interaction energy, and asked that M4's
+  gate count as passed if the impulses stay within radiation reaction.
+  `average_shared!` averages the projected source over the source
+  ball's blocks one dimension at a time, in `du`'s first variable as
+  scratch, and `InspiralProblem(…; continuous = true)` is the default;
+  `--continuous` became `--plain` and `--both`. The uniform-motion test's
+  force at `t = 0`, exactly zero before, is `2·10⁻¹⁰` on the coarse box,
+  where the averaging reaches nodes in the window's transition that
+  truncation leaves apart; its bound is now `10⁻⁹`. Jobs 588573 to
+  588575: near every crossing the force is within radiation reaction
+  from `d/12` on, the slow crossing's radial impulse 7.4, 2.5, 1.7, 0.56
+  and 0.17 `F_RR` from `d/4` to `d/16`, 5–15% below the read-only
+  runs', at 2% of a step or less. The gate passes, and M4 is done on its
+  branch.
 
 ## Dependencies
 

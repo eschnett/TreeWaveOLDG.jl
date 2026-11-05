@@ -126,15 +126,41 @@ end
     end
 end
 
+@testset "The t′² term is the lab slice's second-order term of Φ_C" begin
+    # Guards the generated t′² term and its Laplacian against a wrong
+    # derivation or a wrong argument: in the rest frame the static field of
+    # the particle accelerating from rest is Φ₀(|y - α′t′²/2|), at the lab
+    # slice's t′ = -v·y, and its t′² term, inside and outside, is what
+    # `lab_slice` gives at the boosted position with the proper
+    # acceleration; its Laplacian in y is the generated closed form; and
+    # outside it is -(Q/8π)v²(v̂·n̂)²(α′·n̂).
+    m = big_model()
+    traj = big_trajectory(; v=SA[big"0.2", big"0.05", big"-0.1"])
+    for x in sample_points(traj.z, m.ℓ)
+        y, α′ = TW.rest_frame(traj, x)
+        t′ = -dot(traj.v, y)
+        Φ(τ) = m.Q * TW._phi0(dot(y - α′ * τ^2 / 2, y - α′ * τ^2 / 2), m.ℓ)
+        @test lab_slice(m, x, traj) ≈ t′^2 / 2 * TW.second_derivative(Φ, zero(t′)) rtol = 1e-60
+        v = traj.v
+        T(η) = TW._tprime2_term(m.Q, m.ℓ, dot(η, η), dot(α′, η), dot(v, η))
+        @test laplacian(T, y) ≈ TW._tprime2_laplacian(m.Q, m.ℓ, dot(y, y), dot(α′, y),
+                                                      dot(v, y), dot(v, v), dot(v, α′)) rtol = 1e-60
+        if dot(y, y) > m.ℓ^2
+            n = y / sqrt(dot(y, y))
+            @test lab_slice(m, x, traj) ≈ -m.Q / 8big(π) * dot(v, n)^2 * dot(α′, n) rtol = 1e-60
+        end
+    end
+end
+
 @testset "Along a motion through rest, the bracket is the first order not carried" begin
     # Guards the hierarchy ∇²Φₙ = ∂ₜ²Φₙ₋₂ as the bracket sees it. With the
     # derivatives of the velocity scaled as a → εa, ȧ → ε²ȧ, ä → ε³ä, the
     # bracket with orders up to N carried is O(ε^{N+1}), and for N = 0, 1
-    # its leading part is ∇²Φ⁽ᴺ⁺¹⁾. At order 3 the rest-frame terms, without
-    # the lab-slice re-expansion, leave a part that does not vanish at rest:
-    # (a·r)²(a·∇Φ₀) for a point, plus finite-size terms in (ℓ/r)² (CODE.md,
-    # "The near field"). So carrying order 3 changes the bracket by
-    # -∇²Φ⁽³⁾ only.
+    # its leading part is ∇²Φ⁽ᴺ⁺¹⁾. Carrying order 3 changes the bracket by
+    # -∇²Φ⁽³⁾. The rest-frame terms alone would leave (a·r)²(a·∇Φ₀) at
+    # order 3 for a point, which does not vanish at rest; the t′² term of
+    # Φ_C's lab slice, carried from order 1 on, removes it, and what is
+    # left are finite-size terms in (ℓ/r)² (CODE.md, "The near field").
     ε = big"1e-20"
     scale(traj) = Trajectory(; traj.z, traj.v, a=ε * traj.a, ȧ=ε^2 * traj.ȧ,
                              ä=ε^3 * traj.ä, a⃛=ε^4 * traj.a⃛)
@@ -154,7 +180,11 @@ end
     for x in sample_points(z, big"0.01")[9:end]
         ∇Φ₀ = ForwardDiff.gradient(ξ -> boosted_static(point, ξ, z, zero(z)), x)
         missing3 = dot(a, x - z)^2 * dot(a, ∇Φ₀)
-        @test source_bracket(point, x, scale(traj); order=3) / ε^3 ≈ missing3 rtol = 1e-15
+        bracket3 = source_bracket(point, x, scale(traj); order=3) / ε^3
+        @test abs(bracket3) < 1e-15 * abs(missing3)
+        # Without the t′² term the bracket keeps it.
+        T₂(t) = lab_slice(point, x, trajectory_at(scale(traj), t))
+        @test bracket3 - TW.second_derivative(T₂, zero(ε)) / ε^3 ≈ missing3 rtol = 1e-15
     end
 end
 
@@ -218,18 +248,24 @@ end
     # Guards the assembly of the bracket: near the particle ∇²Ψ, (v·∇)²Ψ
     # and ρ are each of size Q/ℓ³, and subtracting them in Float64 would
     # lose digits. The cancellation-free Float64 bracket equals the naive
-    # difference evaluated in BigFloat to 10⁻¹² at v = 0.2.
+    # difference evaluated in BigFloat to 10⁻¹⁵ of Q|a|/ℓ², the size of the
+    # terms it is assembled from, at v = 0.2 and v = 0.05. Relative to the
+    # bracket that is 10⁻¹² and better without the near field, and up to
+    # 10⁻¹⁰ with it, since the near field and the t′² term leave a bracket
+    # a hundred times smaller than those terms.
     m = ParticleModel(; Q=0.07, ℓ=1e-3, M=1.0)
     mbig = big_model()
-    for v in (SA[0.2, 0.0, 0.0], 0.2 * SA[1.0, 2.0, 2.0] / 3)
+    for v in (SA[0.2, 0.0, 0.0], 0.2 * SA[1.0, 2.0, 2.0] / 3, 0.05 * SA[1.0, 2.0, 2.0] / 3)
         traj = Trajectory(; z=SA[0.1, 0.2, 0.3], v, a=SA[0.03, 0.1, -0.02],
                           ȧ=SA[0.01, 0.0, 0.02], ä=SA[-0.01, 0.02, 0.03])
         trajbig = Trajectory(; z=big.(traj.z), v=big.(traj.v), a=big.(traj.a),
                              ȧ=big.(traj.ȧ), ä=big.(traj.ä))
-        for xbig in sample_points(trajbig.z, mbig.ℓ), order in (0, 3)
+        scale = m.Q * sqrt(dot(traj.a, traj.a)) / m.ℓ^2
+        for xbig in sample_points(trajbig.z, mbig.ℓ), order in (0, 1, 3)
             x = Float64.(xbig)
             exact = naive_bracket(mbig, big.(x), trajbig; order)
-            @test source_bracket(m, x, traj; order) ≈ exact rtol = 1e-12
+            @test abs(source_bracket(m, x, traj; order) - exact) < 1e-15 * scale
+            order == 0 && @test source_bracket(m, x, traj; order) ≈ exact rtol = 1e-12
         end
     end
 end

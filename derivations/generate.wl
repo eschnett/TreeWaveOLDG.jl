@@ -1,7 +1,8 @@
 (* Writes src/particle_forms.jl from the derivations: the radial functions
    of the profile, the near-field terms of orders 1-3 and their
-   Laplacians, and the self-force coefficients. CODE.md, "The particle"
-   and "The near field".
+   Laplacians, the t′² term of Φ_C's lab-slice re-expansion and its
+   Laplacian, and the self-force coefficients. CODE.md, "The particle",
+   "The near field" and "Prescribed paths".
 
        wolframscript -file derivations/generate.wl [output]
 
@@ -22,7 +23,7 @@
 If[!ValueQ[$derivationsDirectory],
     $derivationsDirectory = DirectoryName[$InputFileName]];
 Get[FileNameJoin[{$derivationsDirectory, "common.wl"}]];
-needs["selfforce"];
+needs["labslice"];
 
 Print["generate.wl"];
 
@@ -152,6 +153,23 @@ nearFieldCode[nOrder_] := Module[{fin, fout, lin, lout, nb = Length[basis[nOrder
             StringRepeat[" ", 16]], ")\n",
         "end\n"]];
 
+(* The t′² term of Φ_C (labslice.wl): (v·y)²(α′·y) times a radial
+   function, and its Laplacian over the basis v²(α′·y), (v·y)(v·α′),
+   (v·y)²(α′·y), as functions of q and the invariants ay = α′·y,
+   vy = v·y, vv = v² and va = v·α′. *)
+tp2Names = {"vv * ay", "vy * va", "vy * vy * ay"};
+tprime2Code = StringJoin[
+    radialFunction["_TP2", "The t′² term of Φ_C, radial factor of (v·y)²(α′·y): -Φ₀′(q).",
+        tp2Radial["in"], tp2Radial["out"]], "\n",
+    Table[radialFunction["_TP2L_" <> ToString[j], "Its Laplacian, radial factor of " <>
+        tp2Names[[j]] <> ".", tp2LapRadial["in"][[j]], tp2LapRadial["out"][[j]]] <> "\n",
+        {j, 3}],
+    "@inline _tprime2_term(Q, ℓ, q, ay, vy) = Q * (vy * vy * ay * _TP2(q, ℓ))\n\n",
+    "@inline function _tprime2_laplacian(Q, ℓ, q, ay, vy, vv, va)\n",
+    "    return Q * (", StringRiffle[Table[tp2Names[[j]] <> " * _TP2L_" <> ToString[j] <>
+        "(q, ℓ)", {j, 3}], " +\n" <> StringRepeat[" ", 16]], ")\n",
+    "end\n"];
+
 (* A constant times Q^qp ℓ^lp / π. *)
 constantCode[name_String, doc_String, c_, qp_Integer] := Module[{k = piPower[c], e, p},
     e = Expand[Pi^k c];
@@ -171,9 +189,10 @@ code = StringJoin[
     "#     $TREEWAVEOLDG_WOLFRAMSCRIPT -file derivations/generate.wl\n",
     "#\n",
     "# (CLAUDE.md, \"Commands\"). The derivations are derivations/profile.wl,\n",
-    "# nearfield.wl and selfforce.wl; CODE.md, \"The particle\" and \"The near\n",
-    "# field\", say what these functions are. Radial functions take q = |y|²\n",
-    "# and the particle size ℓ, and are per unit charge.\n",
+    "# nearfield.wl, selfforce.wl and labslice.wl; CODE.md, \"The particle\",\n",
+    "# \"The near field\" and \"Prescribed paths\" say what these functions are.\n",
+    "# Radial functions take q = |y|² and the particle size ℓ, and are per\n",
+    "# unit charge.\n",
     "\n",
     "# An exact rational, rounded once to the model's type.\n",
     "@inline _q(::Type{T}, n, d) where {T} = T(n) / T(d)\n",
@@ -195,6 +214,7 @@ code = StringJoin[
     "\n",
     profileCode,
     Table[nearFieldCode[n] <> "\n", {n, 3}],
+    tprime2Code, "\n",
     constantCode["self_inertia", "δm: the self-inertia, the order-1 force -δm a.",
         deltaM, 2], "\n",
     constantCode["rho_rho_r", "∬ ρ₀ρ₀′ |x - x′|.", rhoRhoR, 2], "\n",
@@ -204,7 +224,11 @@ code = StringJoin[
     constantCode["self_force_a2a", "See `self_force_addot`.", cA2A, 2], "\n",
     constantCode["self_potential_a2",
         "Order 2's potential average: Φ̄⁽²⁾ = self_potential_a2 · a².",
-        cPotential2, 1]];
+        cPotential2, 1], "\n",
+    constantCode["self_force_tprime2_v2",
+        "The t′² term's force at rest: self_force_tprime2_v2 · v² α′ + " <>
+        "self_force_tprime2_va · (v·α′) v.", cTp2V2, 2], "\n",
+    constantCode["self_force_tprime2_va", "See `self_force_tprime2_v2`.", cTp2VA, 2]];
 
 If[!StringQ[code], Print["FAILED: the code did not evaluate to a string"]; Exit[1]];
 

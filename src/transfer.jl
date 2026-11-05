@@ -513,15 +513,18 @@ end
 
 # The far rule, pass 1: `S` at every Gauss point of every far element, one
 # work item per point, into `scratch`, whose extent per dimension is `E·Q`.
-# Other elements' points are not written.
+# Other elements' points are not written. The launch runs over the blocks
+# in `active`, those the source's ball meets, and not over every block of
+# the forest: on nested boxes the ball's blocks are a few percent of the
+# forest's and belong to a few threads, which would do all the work.
 @kernel function source_points_kernel!(scratch, S, @Const(origins), @Const(spacings),
-                                       @Const(blockmask), t::TransferTables, ball,
+                                       @Const(active), t::TransferTables, ball,
                                        particles, rfar, ::Val{D},
                                        ::Val{P1}) where {D,P1}
-    I = @index(Global, NTuple)                 # (j1..jD, block)
-    b = I[D + 1]
+    I = @index(Global, NTuple)                 # (j1..jD, active block)
     Q = length(t.gauss)
-    @inbounds if blockmask[b]
+    @inbounds begin
+        b = active[I[D + 1]]
         h = spacings[b]
         e = ntuple(d -> (I[d] - 1) ÷ Q, Val(D))
         lo, hi = element_box(origins[b], h, e, Val(P1), Val(D))
@@ -540,12 +543,12 @@ end
 # `P S` at the element's nodes. `factor` times that is added to variable
 # `var` of `du`.
 @kernel function contract_kernel!(du, scratch, @Const(origins), @Const(spacings),
-                                  @Const(blockmask), t::TransferTables, ball, particles,
+                                  @Const(active), t::TransferTables, ball, particles,
                                   rfar, factor, var, ::Val{D}, ::Val{P1}) where {D,P1}
-    J = @index(Global, NTuple)                 # (e1..eD, block)
-    b = J[D + 1]
+    J = @index(Global, NTuple)                 # (e1..eD, active block)
     Q = length(t.gauss)
-    @inbounds if blockmask[b]
+    @inbounds begin
+        b = active[J[D + 1]]
         e = ntuple(d -> J[d] - 1, Val(D))
         lo, hi = element_box(origins[b], spacings[b], e, Val(P1), Val(D))
         if element_class(lo, hi, ball, particles, rfar) == FAR_ELEMENT
@@ -660,7 +663,7 @@ subtract it from `v`'s rate, as the remainder equations want.
 - `particles` is a tuple of [`ParticleSupport`](@ref)s: where `S` is
   sharply peaked.
 - `ball = (centre, R)` holds `S`'s support; elements that miss it are
-  skipped, and blocks that miss it by a per-block mask.
+  skipped, and blocks that miss it are left out of the launch.
 - `rnear` is in units of the element width `hₑ`: elements closer than
   `rnear·hₑ` to a particle use the nested rule, those closer than
   `t.rfar·hₑ` the graded rule, and the others the far one. At the
@@ -721,25 +724,30 @@ function projection_plan(p::WaveProblem{T,D}, t::TransferTables{T,P1}, particles
     return (; fs, backend, hₑ, rn, rf, region, particles, origins, spacings,
             dev_origins=to_backend(backend, origins),
             dev_spacings=to_backend(backend, spacings),
-            dev_mask=to_backend(backend, mask), near, graded)
+            active=to_backend(backend, Int32.(findall(mask))), near, graded)
 end
 
 # The far elements: the source at their Gauss points, then the
-# contraction into `dua`.
+# contraction into `dua`. Both run over the ball's blocks only, which the
+# launch splits evenly over the threads rather than giving each block to
+# its owner: the ball's blocks are contiguous runs in the forest's order,
+# owned by a few threads. Each block's results are those of the same
+# arithmetic whichever thread runs it.
 function project_far!(dua, plan, t::TransferTables{T,P1,Q}, S, scratch, factor,
                       var) where {T,P1,Q}
     (; fs, backend) = plan
     D = length(plan.region[1])
     E = fs.forest.N ÷ P1
+    n = length(plan.active)
     TreeAMR.launch_by_owner!(source_points_kernel!, backend, scratch, S, plan.dev_origins,
-                             plan.dev_spacings, plan.dev_mask, t, plan.region,
+                             plan.dev_spacings, plan.active, t, plan.region,
                              plan.particles, plan.rf, Val(D), Val(P1);
-                             ndrange=(ntuple(_ -> E * Q, D)..., nblocks(fs)))
+                             ndrange=(ntuple(_ -> E * Q, D)..., n))
     synchronize(backend)
     TreeAMR.launch_by_owner!(contract_kernel!, backend, dua, scratch, plan.dev_origins,
-                             plan.dev_spacings, plan.dev_mask, t, plan.region,
+                             plan.dev_spacings, plan.active, t, plan.region,
                              plan.particles, plan.rf, factor, var, Val(D), Val(P1);
-                             ndrange=(ntuple(_ -> E, D)..., nblocks(fs)))
+                             ndrange=(ntuple(_ -> E, D)..., n))
     synchronize(backend)
     return nothing
 end
@@ -884,6 +892,136 @@ function element_values(ua, b, e::NTuple{D}, var, ::Val{P1}) where {D,P1}
     end)
 end
 
+# The same, with every node on the element's boundary replaced by the
+# average over the elements that share it, two on a face, four on an edge
+# and eight at a corner in 3D: the paper's averaging, which makes the
+# reconstruction continuous, as `average_shared!` does to the source. The
+# neighbours must be on the element's level, where coincident nodes have
+# equal weights and the averaging is the `⟨,⟩_w`-orthogonal projection
+# onto continuous fields.
+function continuous_values(fs::FieldSet{T,D}, ua, b, e::NTuple{D}, var,
+                           ::Val{P1}) where {T,D,P1}
+    E = fs.forest.N ÷ P1
+    key = blockkey(fs, b)
+    lo, hi = element_box(block_origin(T, fs.forest, key), spacing(T, fs.forest, key), e,
+                         Val(P1), Val(D))
+    function neighbour(s)
+        en = e .+ s
+        all(d -> 0 <= en[d] < E, 1:D) && return b, en
+        x = (lo + hi) / 2 + SVector(s) .* (hi - lo)
+        all(d -> first(fs.forest.extents[d]) < x[d] < last(fs.forest.extents[d]), 1:D) ||
+            throw(ArgumentError(
+                "the element at $(Tuple(lo)) is on the domain's face; the continuous " *
+                "reconstruction, like the transfer, does not look for periodic images"))
+        bn, en, lon, hin = locate_element(fs, Val(P1), x)
+        hin - lon ≈ hi - lo || throw(ArgumentError(
+            "the element at $(Tuple(lo)) has a neighbour on another level; the " *
+            "continuous reconstruction needs the same level across every face"))
+        return bn, en
+    end
+    return SVector{P1^D}(ntuple(Val(P1^D)) do n
+        K = CartesianIndices(ntuple(_ -> P1, Val(D)))[n]
+        dirs = ntuple(d -> K[d] == 1 ? -1 : K[d] == P1 ? 1 : 0, Val(D))
+        acc = zero(T)
+        count = 0
+        for J in CartesianIndices(ntuple(d -> dirs[d] == 0 ? 1 : 2, Val(D)))
+            s = ntuple(d -> J[d] == 1 ? 0 : dirs[d], Val(D))
+            bn, en = neighbour(s)
+            Kn = ntuple(d -> s[d] == 0 ? K[d] : s[d] < 0 ? P1 : 1, Val(D))
+            acc += ua[ntuple(d -> en[d] * P1 + Kn[d], Val(D))..., var, bn]
+            count += 1
+        end
+        acc / count
+    end)
+end
+
+"""
+    SharedNodes(fs::FieldSet, ball)
+
+Where [`average_shared!`](@ref) averages: the blocks that the source's
+`ball = (centre, R)` meets, the ones [`project_source!`](@ref) writes,
+and for each of them and each dimension the block across its upper face,
+or 0 where that block is not among them or not on the same level (the
+ball's blocks are all on the finest level, [`check_finest`](@ref)). No
+periodic images are looked for. Built once, since the ball does not
+move.
+"""
+struct SharedNodes{D}
+    blocks::Vector{Int}
+    upper::Vector{NTuple{D,Int}}
+end
+
+function SharedNodes(fs::FieldSet{T,D}, ball) where {T,D}
+    forest = fs.forest
+    N = forest.N
+    origins = block_origins(forest, T)
+    spacings = block_spacings(forest, T)
+    centre, R = SVector{D,T}(ball[1]), T(ball[2])
+    meets(b) = box_distance2(centre, SVector(origins[b]),
+                             SVector(origins[b]) .+ spacings[b] * N, 1:D) < R^2
+    blocks = filter(meets, collect(1:nblocks(fs)))
+    member = falses(nblocks(fs))
+    member[blocks] .= true
+    upper = map(blocks) do b
+        lo, h = SVector(origins[b]), spacings[b]
+        ntuple(Val(D)) do d
+            x = ntuple(k -> k == d ? lo[k] + h * (N + 1 // 2) : lo[k] + h * N / 2, D)
+            all(k -> first(forest.extents[k]) < x[k] < last(forest.extents[k]), 1:D) ||
+                return 0
+            bn = locate_point(forest, x)
+            (bn !== nothing && member[bn] && spacings[bn] == h) ? bn : 0
+        end
+    end
+    return SharedNodes{D}(blocks, upper)
+end
+
+"""
+    average_shared!(ua, sn::SharedNodes, var, ::Val{P1})
+
+Variable `var` of the block array `ua`, in the blocks of `sn`, with every
+node that elements share replaced by the mean over them: two on a face,
+four on an edge and eight at a corner in 3D, the paper's averaging,
+which makes the reconstruction continuous. One dimension at a time, each
+pair of coincident nodes across a face along it takes their mean; since
+the elements' weights at coincident nodes are equal, the passes together
+give the mean over each group, the `⟨,⟩_w`-orthogonal projection onto
+continuous fields, which [`pairing`](@ref)`(…; continuous = true)` reads
+through. A face to a block outside `sn` is left alone, so at the ball's
+outermost blocks a node some of whose sharers are outside gets no exact
+mean; the ball's source has fallen to zero there with the window.
+
+Each pass is threaded over blocks: a block averages its own inner faces
+and its upper face with the block across it, whose lower face no other
+block writes in that pass.
+"""
+function average_shared!(ua, sn::SharedNodes{D}, var, ::Val{P1}) where {D,P1}
+    N = size(ua, 1)
+    E = N ÷ P1
+    for d in 1:D
+        Threads.@threads :static for i in eachindex(sn.blocks)
+            b = sn.blocks[i]
+            rest = CartesianIndices(ntuple(k -> k == d ? 1 : N, Val(D)))
+            for k in 1:(E - 1), J in rest
+                I₁ = ntuple(m -> m == d ? k * P1 : J[m], Val(D))
+                I₂ = ntuple(m -> m == d ? k * P1 + 1 : J[m], Val(D))
+                @inbounds mean = (ua[I₁..., var, b] + ua[I₂..., var, b]) / 2
+                @inbounds ua[I₁..., var, b] = mean
+                @inbounds ua[I₂..., var, b] = mean
+            end
+            bn = sn.upper[i][d]
+            bn == 0 && continue
+            for J in rest
+                I₁ = ntuple(m -> m == d ? N : J[m], Val(D))
+                I₂ = ntuple(m -> m == d ? 1 : J[m], Val(D))
+                @inbounds mean = (ua[I₁..., var, b] + ua[I₂..., var, bn]) / 2
+                @inbounds ua[I₁..., var, b] = mean
+                @inbounds ua[I₂..., var, bn] = mean
+            end
+        end
+    end
+    return ua
+end
+
 """
     support_elements(p::WaveProblem, s::ParticleSupport)
 
@@ -932,9 +1070,17 @@ is exact up to the inner Gauss rule's order inside it, and the state is
 read directly on the host. A `mesh_fold` of `wₙ (P K)ₙ gₙ` over every
 node gives the same, at the cost of a pass over the mesh; the tests keep
 it as the reference.
+
+With `continuous = true` the field is first made continuous by averaging
+the nodes that elements share (the paper's averaging post-processing),
+so that a support straddling a face no longer reads the jump `[g_h]`
+there (CODE.md, "The averaging"). It is the adjoint of the transfer
+followed by the same averaging, [`average_shared!`](@ref), as
+[`inspiral_rhs!`](@ref) writes the source.
 """
 function pairing(p::WaveProblem{T,D}, t::TransferTables{T,P1}, u, K,
-                 s::ParticleSupport{D}; var::Int=1) where {T,D,P1}
+                 s::ParticleSupport{D}; var::Int=1,
+                 continuous::Bool=false) where {T,D,P1}
     check_tables(p, t)
     ua = statearray(u, p.fs)
     acc = zero(K(s.z))
@@ -942,7 +1088,8 @@ function pairing(p::WaveProblem{T,D}, t::TransferTables{T,P1}, u, K,
         key = blockkey(p.fs, b)
         lo, hi = element_box(block_origin(T, p.fs.forest, key),
                              spacing(T, p.fs.forest, key), e, Val(P1), Val(D))
-        g = element_values(ua, b, e, var, Val(P1))
+        g = continuous ? continuous_values(p.fs, ua, b, e, var, Val(P1)) :
+            element_values(ua, b, e, var, Val(P1))
         acc += nested_rule(x -> K(x) * dot(g, element_basis(t, lo, hi, x)), zero(acc), s,
                            t, lo, hi, SVector{0,T}(), Val(D), true)
     end

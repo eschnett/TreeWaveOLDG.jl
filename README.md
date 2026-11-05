@@ -132,6 +132,20 @@ source, which moves the box's faces out: a particle at rest on five
 levels stays clean to the end of a run of `t = 20`, and the coarse-fine
 faces send back nothing above the discretization error.
 
+A particle on a prescribed path with known acceleration, a slow circle
+or hyperbolic motion, runs against the retarded field of a point
+charge. On the circle the remainder's force converges to the
+radiation-reaction force along the motion and to zero across it, now
+that the particle field carries the second-order term of the boosted
+static field's lab-slice re-expansion. The source is written and the
+force read through the field made continuous by averaging the nodes
+that elements share, so that the force stays smooth when the particle
+crosses an element face:
+
+```bash
+julia --project=. -t 4,0 bin/prescribed.jl --path=hyperbolic --hdiv=2 --levels=3 --tend=0.25
+```
+
 ## Design
 
 See [CODE.md](CODE.md) for the design and the measured results, and

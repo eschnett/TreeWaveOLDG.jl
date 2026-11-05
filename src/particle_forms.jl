@@ -3,9 +3,10 @@
 #     $TREEWAVEOLDG_WOLFRAMSCRIPT -file derivations/generate.wl
 #
 # (CLAUDE.md, "Commands"). The derivations are derivations/profile.wl,
-# nearfield.wl and selfforce.wl; CODE.md, "The particle" and "The near
-# field", say what these functions are. Radial functions take q = |y|²
-# and the particle size ℓ, and are per unit charge.
+# nearfield.wl, selfforce.wl and labslice.wl; CODE.md, "The particle",
+# "The near field" and "Prescribed paths" say what these functions are.
+# Radial functions take q = |y|² and the particle size ℓ, and are per
+# unit charge.
 
 # An exact rational, rounded once to the model's type.
 @inline _q(::Type{T}, n, d) where {T} = T(n) / T(d)
@@ -252,6 +253,58 @@ end
                 ay * ay * ay * _L3_3(q, ℓ))
 end
 
+# The t′² term of Φ_C, radial factor of (v·y)²(α′·y): -Φ₀′(q).
+@inline function _TP2(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -1, 8), _q(T, -3, 16), _q(T, -15, 64), _q(T, -35, 128), _q(T, -315, 1024))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -1, 8),)) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vv * ay.
+@inline function _TP2L_1(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -1, 4), _q(T, -3, 8), _q(T, -15, 32), _q(T, -35, 64), _q(T, -315, 512))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -1, 4),)) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy * va.
+@inline function _TP2L_2(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -1, 2), _q(T, -3, 4), _q(T, -15, 16), _q(T, -35, 32), _q(T, -315, 256))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -1, 2),)) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy * vy * ay.
+@inline function _TP2L_3(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 3, 2), _q(T, 15, 4), _q(T, 105, 16), _q(T, 4725, 128))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, 3, 2),)) / T(π)
+    end
+end
+
+@inline _tprime2_term(Q, ℓ, q, ay, vy) = Q * (vy * vy * ay * _TP2(q, ℓ))
+
+@inline function _tprime2_laplacian(Q, ℓ, q, ay, vy, vv, va)
+    return Q * (vv * ay * _TP2L_1(q, ℓ) +
+                vy * va * _TP2L_2(q, ℓ) +
+                vy * vy * ay * _TP2L_3(q, ℓ))
+end
+
 # δm: the self-inertia, the order-1 force -δm a.
 function self_inertia(Q, ℓ)
     T = typeof(ℓ)
@@ -280,4 +333,16 @@ end
 function self_potential_a2(Q, ℓ)
     T = typeof(ℓ)
     return _q(T, 2541, 193154) * Q^1 * ℓ^1 / T(π)
+end
+
+# The t′² term's force at rest: self_force_tprime2_v2 · v² α′ + self_force_tprime2_va · (v·α′) v.
+function self_force_tprime2_v2(Q, ℓ)
+    T = typeof(ℓ)
+    return _q(T, 2541, 83980) * Q^2 * ℓ^(-1) / T(π)
+end
+
+# See `self_force_tprime2_v2`.
+function self_force_tprime2_va(Q, ℓ)
+    T = typeof(ℓ)
+    return _q(T, 2541, 41990) * Q^2 * ℓ^(-1) / T(π)
 end

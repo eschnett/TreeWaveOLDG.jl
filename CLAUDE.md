@@ -50,7 +50,7 @@ julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--check-bounds=yes"])
 julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--threads=4"])'
 ```
 
-The first takes about 4m50 on the laptop, the third about 3m25. The
+The first takes about 6m30 on the laptop, the third about 4m25. The
 kernels are `@inbounds`, so run the second one too after touching a
 kernel or the layout.
 
@@ -96,6 +96,19 @@ its `setup`. The smallest runs take under half a minute on four threads:
 ```bash
 julia --project=. -t 4,0 bin/uniform_motion.jl --hdiv=4 --levels=2 --tend=0.0625
 julia --project=. -t 4,0 bin/nested_waves.jl --levels=2 --w0=2 --hdiv=4 --lambda=4 --tend=1
+```
+
+A particle on a prescribed path, the slow circle or hyperbolic motion
+("Prescribed paths"), in the package environment; on Symmetry
+`sbatch bin/symmetry/prescribed.sh` after its `setup`, with the runs in
+`TREEWAVEOLDG_RUNS`. The smallest runs, on three levels at `hₑ = 1/2`,
+take about half a minute on four threads; `--reading` reads the exact
+remainder's force without evolving it:
+
+```bash
+julia --project=. -t 4,0 bin/prescribed.jl --path=hyperbolic --hdiv=2 --levels=3 --tend=0.25
+julia --project=. -t 4,0 bin/prescribed.jl --path=circle --data=retarded --rx1=10 --rx2=14 --hdiv=2 --levels=3 --tend=0.25
+julia --project=. -t 4,0 bin/prescribed.jl --path=circle --data=retarded --levels=1 --hdiv=4 --rx1=3 --rx2=3.75 --reading
 ```
 
 From M1 of `INSPIRAL-PLAN.md` on, `src/particle_forms.jl` is generated
@@ -180,6 +193,17 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   of the invariants' rates are written out term by term, never as `İ`
   minus its uniform part, and near-field Laplacians are generated closed
   forms ("The split").
+- **The particle field carries the `t′²` term of `Φ_C`'s lab slice from
+  order 1 on** (`lab_slice`, generated from `derivations/labslice.wl`).
+  Without it the remainder holds an `r⁰` structure proportional to `v²a`
+  whose force the grid reads more strongly the finer the elements; do
+  not drop it from `Ψ`, `𝒟Ψ` or the bracket ("The near field").
+- **The source is written and the forces read through the averaging
+  over shared nodes** (`InspiralProblem`'s `continuous`, the default):
+  the transfer alone reads the jump of the field across a face the
+  support straddles, times `1/ℓ`, as impulses far above radiation
+  reaction. Keep the write and the read together, and the support's
+  elements' neighbours on the finest level ("The averaging").
 - **A particle's support is a breakpoint.** Integrate `ρ`, `∇ρ` or the
   source near a particle with the nested rule, never a Gauss or sinh rule
   across the support's edge, where the profile is only `C³`
@@ -196,6 +220,11 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   a point at `r` from the centre from `t ≈ (L/2 - r)/2` on ("Uniform
   motion"); on nested boxes it crosses the coarse levels at about 1.5
   times, from `t ≈ (L/2 - r)/1.5` on ("Nested boxes").
+- **Sample a particle's force every step when looking for anything
+  smaller than an impulse.** A face crossing lasts `2ℓ` over the speed
+  across the face, a few steps, and its impulse is tens to hundreds of
+  times radiation reaction; a sample every `1/8` misses it, as M3's did
+  ("Prescribed paths").
 - **The asserted rates are measurements.** If one moves, re-measure and
   update "Measured results" rather than widen a tolerance.
 

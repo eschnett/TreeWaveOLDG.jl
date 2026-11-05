@@ -28,7 +28,9 @@ and `blast.jl`. The analytic particle of the inspiral (`INSPIRAL.md`) is
 in `particle.jl`, on top of the closed forms that `derivations/` generates
 into `particle_forms.jl`, and its transfer to and from the grid in
 `transfer.jl`; the coupled problem, the remainder stepped with the
-particles, is in `inspiral.jl`. See `CODE.md` in the
+particles, is in `inspiral.jl`, and the prescribed paths of its
+validation, with the retarded field of a point charge, in
+`prescribed.jl`. See `CODE.md` in the
 package root for the design and the measurements.
 """
 module TreeWaveOLDG
@@ -69,18 +71,21 @@ export blast_initial, blast_reference, blast_radial_table, blast_exact,
 
 # The analytic particle
 export ParticleModel, Trajectory, trajectory_at, self_inertia, particle_density,
-       boosted_static, near_field, particle_field, particle_rate, source_bracket,
-       Window, window_terms, ParticleSource, particle_source
+       boosted_static, near_field, lab_slice, particle_field, particle_rate,
+       source_bracket, Window, window_terms, ParticleSource, particle_source
 
 # The transfer between particles and grid
 export TransferTables, gauss_nodes_weights, sinh_rule, ParticleSupport, project_source!,
        projection_scratch, support_elements, pairing, reconstruct, reconstruct_gradient,
-       ball_rule
+       ball_rule, SharedNodes, average_shared!
 
 # The coupled problem
 export InspiralProblem, Prescribed, uniform_motion, field_state, particle_state,
        inspiral_initial_state, inspiral_rhs!, inspiral_stage!, inspiral_partition,
        inspiral_integrator, particle_forces, ball_norm
+
+# Prescribed paths
+export circular_motion, hyperbolic_motion, retarded_field, point_model
 
 include("precision.jl")
 include("device.jl")
@@ -95,5 +100,6 @@ include("particle_forms.jl")
 include("particle.jl")
 include("transfer.jl")
 include("inspiral.jl")
+include("prescribed.jl")
 
 end

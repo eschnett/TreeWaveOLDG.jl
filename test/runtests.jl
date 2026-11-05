@@ -19,4 +19,5 @@ include("reference.jl")
     include("transfer_tests.jl")
     include("inspiral_tests.jl")
     include("nested_tests.jl")
+    include("prescribed_tests.jl")
 end
