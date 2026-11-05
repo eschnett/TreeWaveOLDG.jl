@@ -6,3 +6,4 @@
 Manifest.toml
 TODO.md
 /bin/output/
+.claude/worktrees/
