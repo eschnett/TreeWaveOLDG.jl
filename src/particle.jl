@@ -157,6 +157,11 @@ with `y = Λ(v)(x - z)` and `α′ = γ²Λ(v)a`. Outside the particle it is
 `-(Q/8π) v²(v̂·n̂)²(α′·n̂)`, of order `r⁰`, and a grid cannot follow it near
 the particle, so it is carried with the near field from order 1 on
 (CODE.md, "The near field" and "Prescribed paths").
+
+It is the part of [`lab_slice(m, Val(1), x, traj)`](@ref) that the
+particle field carries until it switches to M5's lab slice. Alone it
+leaves the bracket a residual `Q(v·y)²(α′·y)ρ₀′` inside the particle,
+linear in the acceleration.
 """
 @inline function lab_slice(m::ParticleModel, x, traj::Trajectory)
     y, α′ = rest_frame(traj, x)
@@ -166,6 +171,60 @@ end
 @inline function rest_frame(traj::Trajectory, x)
     (; z, v, a) = traj
     return boost(v, x - z), lorentz_factor(v)^2 * boost(v, a)
+end
+
+"""
+    rest_frame_derivatives(traj)
+
+`(α′, B, C)`: the second, third and fourth derivatives of the particle's
+worldline in its instantaneous rest frame, with respect to that frame's
+coordinate time `t′`, at the moment `traj` describes. The rest frame is
+the lab boosted by `v`, `t′ = γ(t - v·r)` and `y = Λ(v)r - γvt`, and
+`α′ = γ²Λ(v)a` is the proper acceleration. These are the `a`, `ȧ` and
+`ä` of the near field and the lab slice (`derivations/nearfield.wl`,
+`labslice.wl`), which hold in that frame.
+
+Along the worldline `r(t) = vt + ½at² + ⅙ȧt³ + (1/24)ät⁴`, `y(t)` has no
+linear term and `t′(t) = t/γ - ½γ(v·a)t² - ⅙γ(v·ȧ)t³ + …`. Inverting
+`t′(t)` as a series, `t = s₁t′ + s₂t′² + s₃t′³`, and composing gives the
+derivatives of `y` in `t′`. Generic in the number type, so that it
+works on dual numbers along the motion.
+"""
+@inline function rest_frame_derivatives(traj::Trajectory)
+    (; v, a, ȧ, ä) = traj
+    γ = lorentz_factor(v)
+    y₂, y₃, y₄ = boost(v, a) / 2, boost(v, ȧ) / 6, boost(v, ä) / 24
+    τ₂, τ₃ = -γ * dot(v, a) / 2, -γ * dot(v, ȧ) / 6
+    s₁ = γ
+    s₂ = -τ₂ * γ^3
+    s₃ = γ^5 * (2τ₂^2 - τ₃ / γ)
+    α′ = 2s₁^2 * y₂
+    B = 6 * (2s₁ * s₂ * y₂ + s₁^3 * y₃)
+    C = 24 * ((s₂^2 + 2s₁ * s₃) * y₂ + 3s₁^2 * s₂ * y₃ + s₁^4 * y₄)
+    return α′, B, C
+end
+
+"""
+    lab_slice(m, Val(N), x, traj)
+
+`Λ_N`, the lab slice of order `N = 1, 2, 3`: what the particle field of
+order `N` on the lab's time slice adds to the rest-frame term
+[`near_field`](@ref) (`INSPIRAL.md`, "Moving particles and the lab
+slice"; `derivations/labslice.wl`). It is the time-symmetric field of
+the lab-sliced density in the instantaneous rest frame, at rest-frame
+time `t′ = -v·y`, from which the rest-frame term at `t′ = 0` is taken
+away. It vanishes at `v = 0`, and `Λ₁` is the `t′²` term of
+[`lab_slice(m, x, traj)`](@ref) plus the field of the density by which
+the lab-sliced particle differs from the rest-frame-sliced one.
+
+The rest-frame term it belongs with takes `C` of
+[`rest_frame_derivatives`](@ref) for `ä`; [`near_field`](@ref) still
+takes the lab's `ä` until the particle field switches to the lab slice.
+"""
+@inline function lab_slice(m::ParticleModel, ::Val{N}, x, traj::Trajectory) where {N}
+    y = boost(traj.v, x - traj.z)
+    α′, B, C = rest_frame_derivatives(traj)
+    return lab_slice_term(Val(N), m.Q, m.ℓ, y, traj.v, α′, B, C)
 end
 
 function check_order(order)

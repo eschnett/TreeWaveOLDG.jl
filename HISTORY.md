@@ -714,6 +714,34 @@ How the package got where it is, by topic in `CODE.md`'s order.
   and 0.17 `F_RR` from `d/4` to `d/16`, 5–15% below the read-only
   runs', at 2% of a step or less. The gate passes, and M4 is done on its
   branch.
+- 2026-11-05: M5 of `INSPIRAL-PLAN.md`, the lab slice, started on branch
+  `inspiral-m5-labslice`, with its derivation and the exact check first.
+  Found, and at odds with `INSPIRAL.md`'s "Moving particles and the lab
+  slice": the re-expansion of the rest-frame near field at `t′` describes
+  a particle whose density is rigid on the rest frame's slices, but the
+  model's `ρ₀(|Λ(v)(x - z)|)` is rigid on the lab's. They differ inside
+  the particle at order 1 by `½(v·y)²(α′·∇ρ₀)`, so that with `T₂` alone
+  the bracket keeps `Q(v·y)²(α′·y)ρ₀′`, linear in the acceleration; on
+  `main` the bracket divided by `|a|` tends to `8.4·10⁻⁴` as `a → 0` at a
+  point inside, at `v = (0.2, 0.1, 0)`, against `8.42·10⁻⁴` for that
+  term. It is also what M1 found an extended particle's bracket to keep
+  at rest, in `(ℓ/r)²`. `labslice.wl` therefore takes the time-symmetric
+  field of the lab-sliced density's history in the rest frame, from the
+  same retardation series at any `t′`, at `t′ = -v·y`; its order 1 is
+  `T₂` plus the field of that density. The point limits are the same
+  either way, and the Born field of uniform acceleration on the tilted
+  slice agrees with them through order 3. Decided here: the rest-frame
+  `ä` of the near field is the worldline's fourth derivative in the rest
+  frame's coordinate time, `C`, not the lab's `ä`, and the lab slice
+  takes the third, `B`, which orders 1–3 at rest did not need;
+  `rest_frame_derivatives` gives both. Also found: `Λ₁` exerts no force
+  on the particle at rest, where `T₂` alone exerts
+  `(11/60)δm v²α′ + (11/30)δm (v·α′)v`. `generate.wl` emits the lab slice
+  as 98 invariant terms and 98 Laplacian terms, about 2400 lines of
+  `particle_forms.jl`, and takes the exterior power of `r` from the
+  homogeneity degree, so that a finite-size term without a point limit
+  has one; the existing forms are unchanged byte for byte. The particle
+  field and the bracket still carry `T₂` and the lab's `ä`.
 - 2026-11-06: CI failed on main from M4 on, on every job, on one
   assertion: the retarded field's `∂ₜΦ` at `t = 0` of hyperbolic motion,
   bounded by `10⁻¹⁵|Φ|`, is `1.2·10⁻¹⁵|Φ|` at `r = 3`. It vanishes

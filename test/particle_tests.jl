@@ -216,6 +216,129 @@ end
     @test convergence_rate(Float64.(rs), Float64.(residual)) ≈ 3 atol = 0.1
 end
 
+# The lab's trajectory of a worldline given in a frame F as a function of
+# F's coordinate time, `X(τ) = (t_F(τ), x_F(τ))`, with F moving with -v
+# relative to the lab: the lab sees the event (t_F, x_F) at
+# t = γ(t_F + v·x_F), x = Λ(v)x_F + γv t_F, and its derivatives in t are
+# d/dt = (1/ṫ) d/dτ, by nested dual numbers.
+function lab_trajectory(X, v, τ₀)
+    γ = TW.lorentz_factor(v)
+    lab(τ) = (Xτ = X(τ); (γ * (Xτ[1] + dot(v, Xτ[2])), TW.boost(v, Xτ[2]) + γ * v * Xτ[1]))
+    ṫ(τ) = ForwardDiff.derivative(s -> lab(s)[1], τ)
+    d(f) = τ -> ForwardDiff.derivative(f, τ) / ṫ(τ)
+    z = τ -> lab(τ)[2]
+    ds = (z, d(z), d(d(z)), d(d(d(z))), d(d(d(d(z)))))
+    return Trajectory(; z=ds[1](τ₀), v=ds[2](τ₀), a=ds[3](τ₀), ȧ=ds[4](τ₀), ä=ds[5](τ₀))
+end
+
+@testset "The rest-frame derivatives invert the boost of the worldline" begin
+    # Guards `rest_frame_derivatives`, the series inversion that turns the
+    # lab's v, a, ȧ, ä into the rest frame's α′, B, C, which the near
+    # field and the lab slice take: a rest-frame worldline
+    # Z′(τ) = ½α′τ² + ⅙Bτ³ + (1/24)Cτ⁴ through rest at τ = 0, seen from a
+    # lab in which it moves with v, gives them back.
+    α′ = SA[big"0.3", big"-0.5", big"0.2"]
+    B = SA[big"0.1", big"0.4", big"-0.3"]
+    C = SA[big"-0.4", big"0.1", big"0.6"]
+    X(τ) = (τ, α′ * τ^2 / 2 + B * τ^3 / 6 + C * τ^4 / 24)
+    for v in (SA[big"0.2", 0, 0], SA[big"0.12", big"-0.1", big"0.1"],
+              big"0.6" * SA[1, 2, 2] / 3)
+        traj = lab_trajectory(X, v, zero(BigFloat))
+        @test traj.v ≈ v rtol = 1e-60
+        @test all(map((p, q) -> isapprox(p, q; rtol=1e-60),
+                      TW.rest_frame_derivatives(traj), (α′, B, C)))
+    end
+end
+
+@testset "Each lab-slice order's Laplacian is its generated closed form" begin
+    # Guards the generated Laplacians of the lab slice, which the bracket
+    # will use in place of differentiating twice, and the lab slice's
+    # rounding: the Float64 Hessian, and the Float64 closed forms of the
+    # term and its Laplacian, agree with the BigFloat closed forms to
+    # 10⁻¹³, inside, outside and at the particle's edge. (A BigFloat
+    # Hessian of order 3 takes minutes to compile.)
+    m = big_model()
+    v = SA[0.12, -0.1, 0.1]
+    α′ = SA[0.3, -0.5, 0.2]
+    B = SA[0.1, 0.4, -0.3]
+    C = SA[-0.4, 0.1, 0.6]
+    Q, ℓ = Float64(m.Q), Float64(m.ℓ)
+    exact(f, y) = f(m.Q, m.ℓ, big.(y), big.(v), big.(α′), big.(B), big.(C))
+    points = [σ * ℓ * n / sqrt(dot(n, n)) for σ in (0.3, 0.9, 0.999, 1.001, 1.5, 4.0)
+              for n in (SA[1.0, 0, 0], SA[1.0, 2, -2], SA[-3.0, 1, 1])]
+    for N in 1:3
+        term(Q, ℓ, y, v, α′, B, C) = TW.lab_slice_term(Val(N), Q, ℓ, y, v, α′, B, C)
+        lap(Q, ℓ, y, v, α′, B, C) = TW.lab_slice_laplacian(Val(N), Q, ℓ, y, v, α′, B, C)
+        for y in points
+            ∇² = exact(lap, y)
+            @test laplacian(ξ -> term(Q, ℓ, ξ, v, α′, B, C), y) ≈ ∇² rtol = 1e-13
+            @test lap(Q, ℓ, y, v, α′, B, C) ≈ ∇² rtol = 1e-13
+            @test term(Q, ℓ, y, v, α′, B, C) ≈ exact(term, y) rtol = 1e-13
+        end
+    end
+end
+
+@testset "The lab slice vanishes at rest and begins with the t′² term" begin
+    # Guards the lab slice's two limits: at v = 0 the lab's slice is the
+    # rest frame's and Λ_N = 0; and outside the particle Λ₁ is T₂ up to
+    # the field of the slicing density, a dipole of size ℓ²/r² against T₂.
+    m = big_model()
+    traj = big_trajectory()
+    rest = Trajectory(; traj.z, v=zero(traj.v), traj.a, traj.ȧ, traj.ä)
+    for x in sample_points(traj.z, m.ℓ), N in 1:3
+        @test lab_slice(m, Val(N), x, rest) == 0
+    end
+    point = ParticleModel{BigFloat}(big"0.07", big"1e-30", big"1e30")
+    for x in sample_points(traj.z, big"0.01")
+        @test lab_slice(point, Val(1), x, traj) ≈ lab_slice(point, x, traj) rtol = 1e-50
+    end
+end
+
+@testset "On the lab's slice the particle field is the field of uniform acceleration" begin
+    # Guards the lab slice and the rest-frame derivatives together against
+    # an exact solution (INSPIRAL-PLAN.md, M5): a point charge in uniform
+    # acceleration g, seen from a lab in which it moves with v. In the
+    # frame where it is momentarily at rest at the origin, with the
+    # acceleration along n, its time-symmetric field is the Born field
+    #     Φ = -Q/4πD,   D² = g²S²/4 - (X² - t²),
+    #     S = X² - t² + ρ⊥² + g⁻²,   X = n·x + 1/g,
+    # and the lab's slice through the particle is t = -v·y there. The
+    # rest-frame derivatives are α′ = gn, B = 0 and C = -3g²α′. Orders 0-3
+    # with the lab slice leave a residual falling as r³; without it, as r⁰.
+    Q = big"0.07"
+    point = ParticleModel{BigFloat}(Q, big"1e-40", big"1e40")
+    g = big"0.7"
+    n = SA[big"0.6", big"0.0", big"0.8"]
+    X(τ) = (sinh(g * τ) / g, n * (cosh(g * τ) - 1) / g)
+    function born(t, y)
+        Xn = dot(n, y) + 1 / g
+        S = Xn^2 - t^2 + dot(y, y) - dot(n, y)^2 + 1 / g^2
+        return -Q / (4big(π) * sqrt(g^2 * S^2 / 4 - (Xn^2 - t^2)))
+    end
+    for v in (SA[big"0.3", big"0.2", big"-0.4"], SA[big"0.1", big"0.5", big"0.0"])
+        traj = lab_trajectory(X, v, zero(BigFloat))
+        α′, B, C = TW.rest_frame_derivatives(traj)
+        @test α′ ≈ g * n rtol = 1e-60
+        @test sqrt(dot(B, B)) < 1e-50
+        @test C ≈ -3g^3 * n rtol = 1e-60
+        for dir in (SA[1, 0, 0], SA[1, 2, -2], SA[-3, 1, 1])
+            rs = [big"0.002" * 10^(j / big(4)) for j in 0:4]
+            residuals = map((true, false)) do with
+                map(rs) do r
+                    x = traj.z + r * dir / sqrt(big(dot(dir, dir)))
+                    y = TW.boost(v, x - traj.z)
+                    Ψ = boosted_static(point, x, traj.z, v) +
+                        sum(TW.near_field_term(Val(N), Q, point.ℓ, y, α′, C) +
+                            (with ? lab_slice(point, Val(N), x, traj) : 0) for N in 1:3)
+                    return abs(born(-dot(v, y), y) - Ψ)
+                end
+            end
+            @test convergence_rate(Float64.(rs), Float64.(residuals[1])) ≈ 3 atol = 0.1
+            @test convergence_rate(Float64.(rs), Float64.(residuals[2])) ≈ 0 atol = 0.1
+        end
+    end
+end
+
 @testset "The time derivatives are those of finite differences in t" begin
     # Guards 𝒟Ψ and the bracket against a wrong chain rule through the
     # boost, α′ or the Taylor polynomial: both agree with BigFloat central

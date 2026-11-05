@@ -305,6 +305,2389 @@ end
                 vy * vy * ay * _TP2L_3(q, ℓ))
 end
 
+@inline function _lab_invariants(y, v, a, b, c)
+    return (y[1]^2 + y[2]^2 + y[3]^2, dot(v, y), dot(a, y), dot(b, y), dot(c, y),
+            dot(v, v), dot(v, a), dot(a, a), dot(v, b), dot(a, b), dot(v, c))
+end
+
+# The lab slice of order N and its Laplacian at the rest-frame position y,
+# for lab velocity v and the rest-frame acceleration α′ and its derivatives
+# B and C, through the invariants.
+@inline lab_slice_term(::Val{N}, Q, ℓ, y, v, α′, B, C) where {N} =
+    _lab_slice_term(Val(N), Q, ℓ, _lab_invariants(y, v, α′, B, C)...)
+@inline lab_slice_laplacian(::Val{N}, Q, ℓ, y, v, α′, B, C) where {N} =
+    _lab_slice_laplacian(Val(N), Q, ℓ, _lab_invariants(y, v, α′, B, C)...)
+
+# Lab slice of order 1, radial factor of ay·vv.
+@inline function _LAB1_1(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 1, 130), _q(T, 1, 104), _q(T, 1, 104), _q(T, 7, 832), _q(T, 21, 3328), _q(T, 231, 66560))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 1, 104), _q(T, -1, 520))) / T(π)
+    end
+end
+
+# Lab slice of order 1, radial factor of vy·va.
+@inline function _LAB1_2(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 1, 65), _q(T, 1, 52), _q(T, 1, 52), _q(T, 7, 416), _q(T, 21, 1664), _q(T, 231, 33280))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 1, 52), _q(T, -1, 260))) / T(π)
+    end
+end
+
+# Lab slice of order 1, radial factor of vy^2·ay.
+@inline function _LAB1_3(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -3, 26), _q(T, -2, 13), _q(T, -33, 208), _q(T, -7, 52), _q(T, -21, 256))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -1, 8), T(0), _q(T, 1, 104))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·ay.
+@inline function _LABL1_1(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 3, 2), _q(T, 15, 4), _q(T, 105, 16), _q(T, 315, 32))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, 3, 2),)) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·va.
+@inline function _LABL1_2(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -1, 2), _q(T, -3, 4), _q(T, -15, 16), _q(T, -35, 32), _q(T, -315, 256))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -1, 2),)) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of ay·vv.
+@inline function _LABL1_3(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -1, 4), _q(T, -3, 8), _q(T, -15, 32), _q(T, -35, 64), _q(T, -315, 512))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -1, 4),)) / T(π)
+    end
+end
+
+@inline function _lab_slice_term(::Val{1}, Q, ℓ, q, vy, ay, by, cy, vv, va, aa, bv, ab, cv)
+    return Q * (ay * vv * _LAB1_1(q, ℓ) +
+                vy * va * _LAB1_2(q, ℓ) +
+                vy^2 * ay * _LAB1_3(q, ℓ))
+end
+
+@inline function _lab_slice_laplacian(::Val{1}, Q, ℓ, q, vy, ay, by, cy, vv, va, aa, bv, ab, cv)
+    return Q * (vy^2 * ay * _LABL1_1(q, ℓ) +
+                vy * va * _LABL1_2(q, ℓ) +
+                ay * vv * _LABL1_3(q, ℓ))
+end
+
+# Lab slice of order 2, radial factor of vv·va^2.
+@inline function _LAB2_1(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, -1036, 20995), _q(T, -147, 8398), _q(T, -297, 33592), _q(T, -155, 33592), _q(T, -609, 268736), _q(T, -5103, 5374720), _q(T, -1155, 4299776))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), _q(T, -3, 52), _q(T, 1, 104), _q(T, -3, 2210), _q(T, 3, 33592))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of vv^2·aa.
+@inline function _LAB2_2(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, 7, 20995), _q(T, 63, 167960), _q(T, 45, 134368), _q(T, 35, 134368), _q(T, 189, 1074944), _q(T, 2079, 21498880), _q(T, 231, 6615040))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, 1, 2080), _q(T, -3, 17680), _q(T, 3, 134368))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of ay^2·vv^2.
+@inline function _LAB2_3(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -63, 83980), _q(T, -45, 33592), _q(T, -105, 67184), _q(T, -189, 134368), _q(T, -2079, 2149888), _q(T, -693, 1653760))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, -3, 2080), _q(T, 3, 3536), _q(T, -21, 134368))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of vy·ay·vv·va.
+@inline function _LAB2_4(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 223, 41990), _q(T, 1, 33592), _q(T, -173, 33592), _q(T, -161, 20672), _q(T, -609, 82688), _q(T, -94017, 21498880))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 1, 52), _q(T, -11, 520), _q(T, 15, 1768), _q(T, -21, 16796))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of vy^2·va^2.
+@inline function _LAB2_5(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 336, 20995), _q(T, 63, 4199), _q(T, 45, 4199), _q(T, 105, 16796), _q(T, 189, 67184), _q(T, 2079, 2687360))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 3, 104), _q(T, -9, 520), _q(T, 9, 1768), _q(T, -21, 33592))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of vy^2·vv·aa.
+@inline function _LAB2_6(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -139, 41990), _q(T, -109, 33592), _q(T, -67, 33592), _q(T, -7, 20672), _q(T, 1113, 1074944), _q(T, 30261, 21498880))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, -1, 208), _q(T, 1, 1040), _q(T, 3, 3536), _q(T, -21, 67184))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of vy^2·ay^2·vv.
+@inline function _LAB2_7(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(q / ℓ^2, (_q(T, -3, 512), _q(T, 115, 1664), _q(T, -357, 3328), _q(T, 1827, 28288), _q(T, -30261, 2149888))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, 3, 208), _q(T, -1, 208), _q(T, -21, 3536), _q(T, 189, 67184))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of vy^3·ay·va.
+@inline function _LAB2_8(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, 87, 4199), _q(T, 165, 4199), _q(T, 777, 16796), _q(T, 2583, 67184), _q(T, 10395, 537472))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, 3, 104), T(0), _q(T, -21, 1768), _q(T, 63, 16796))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of vy^4·aa.
+@inline function _LAB2_9(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, 113, 4199), _q(T, 137, 4199), _q(T, 489, 16796), _q(T, 1337, 67184), _q(T, 21, 2432))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, 1, 32), T(0), _q(T, -1, 208), T(0), _q(T, 63, 134368))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of vy^4·ay^2.
+@inline function _LAB2_10(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, -274, 4199), _q(T, -489, 4199), _q(T, -4011, 33592), _q(T, -21, 304))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, -3, 32), T(0), _q(T, 7, 208), T(0), _q(T, -693, 134368))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of vv·bv.
+@inline function _LAB2_11(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, 56, 3315), _q(T, 7, 1105), _q(T, 3, 884), _q(T, 5, 2652), _q(T, 7, 7072), _q(T, 63, 141440), _q(T, 77, 565760))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), _q(T, 1, 52), _q(T, -1, 390), _q(T, 1, 4420))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of vy·by·vv.
+@inline function _LAB2_12(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -11, 2210), _q(T, -7, 1768), _q(T, -3, 1768), _q(T, 7, 14144), _q(T, 105, 56576), _q(T, 2079, 1131520))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, -1, 104), _q(T, 3, 520), _q(T, -1, 884))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of vy^2·bv.
+@inline function _LAB2_13(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -14, 1105), _q(T, -3, 221), _q(T, -5, 442), _q(T, -7, 884), _q(T, -63, 14144), _q(T, -231, 141440))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, -1, 52), _q(T, 1, 130), _q(T, -1, 884))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of vy^3·by.
+@inline function _LAB2_14(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, 23, 663), _q(T, 9, 221), _q(T, 31, 884), _q(T, 245, 10608), _q(T, 21, 2176))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, 1, 24), T(0), _q(T, -1, 104), _q(T, 7, 2652))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of va^2.
+@inline function _LAB2_15(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, 28, 1105), _q(T, 21, 2210), _q(T, 9, 1768), _q(T, 5, 1768), _q(T, 21, 14144), _q(T, 189, 282880), _q(T, 231, 1131520))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), _q(T, 3, 104), _q(T, -1, 260), _q(T, 3, 8840))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of vv·aa.
+@inline function _LAB2_16(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, 14, 1105), _q(T, 21, 4420), _q(T, 9, 3536), _q(T, 5, 3536), _q(T, 21, 28288), _q(T, 189, 565760), _q(T, 231, 2263040))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), _q(T, 3, 208), _q(T, -1, 520), _q(T, 3, 17680))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of ay^2·vv.
+@inline function _LAB2_17(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -2, 1105), _q(T, -1, 1768), _q(T, 1, 884), _q(T, 35, 14144), _q(T, 21, 7072), _q(T, 2541, 1131520))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, -1, 208), _q(T, 1, 260), _q(T, -3, 3536))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of vy·ay·va.
+@inline function _LAB2_18(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -67, 2210), _q(T, -55, 1768), _q(T, -43, 1768), _q(T, -217, 14144), _q(T, -399, 56576), _q(T, -1617, 1131520))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, -5, 104), _q(T, 11, 520), _q(T, -3, 884))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of vy^2·aa.
+@inline function _LAB2_19(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -157, 2210), _q(T, -69, 1768), _q(T, -49, 1768), _q(T, -271, 14144), _q(T, -665, 56576), _q(T, -6027, 1131520))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (_q(T, -1, 16), _q(T, -3, 208), _q(T, 7, 1040), _q(T, -3, 3536))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of vy^2·ay^2.
+@inline function _LAB2_20(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, 137, 884), _q(T, 83, 442), _q(T, 1221, 7072), _q(T, 903, 7072), _q(T, 7455, 113152))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, 3, 16), _q(T, -3, 208), _q(T, -5, 208), _q(T, 21, 3536))) / T(π)
+    end
+end
+
+# Lab slice of order 2, radial factor of vy·by.
+@inline function _LAB2_21(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -3, 26), _q(T, -5, 104), _q(T, -3, 104), _q(T, -15, 832), _q(T, -35, 3328), _q(T, -63, 13312))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (_q(T, -1, 8), _q(T, 1, 104))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^4·ay^2.
+@inline function _LABL2_1(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-7) * evalpoly(1 - q / ℓ^2, (_q(T, 33, 13), _q(T, 84, 13), _q(T, 63, 8))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-7) * evalpoly(ℓ^2 / q, (_q(T, 15, 4), T(0), _q(T, -63, 52))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^4·aa.
+@inline function _LABL2_2(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, -8, 13), _q(T, -33, 26), _q(T, -21, 13), _q(T, -21, 16))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, -3, 4), T(0), _q(T, 7, 52))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^3·ay·va.
+@inline function _LABL2_3(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, -20, 13), _q(T, -87, 26), _q(T, -231, 52), _q(T, -777, 208))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, -3, 2), _q(T, -15, 26), _q(T, 7, 13))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^3·by.
+@inline function _LABL2_4(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, -8, 13), _q(T, -33, 26), _q(T, -21, 13), _q(T, -21, 16))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, -3, 4), T(0), _q(T, 7, 52))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·ay^2·vv.
+@inline function _LABL2_5(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, -49, 52), _q(T, -177, 104), _q(T, -567, 416), _q(T, 903, 832))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, -9, 8), _q(T, -15, 52), _q(T, 49, 104))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·ay^2.
+@inline function _LABL2_6(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, -11, 4), _q(T, -615, 104), _q(T, -3465, 416), _q(T, -7455, 832))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, -27, 8), _q(T, 15, 52), _q(T, 35, 104))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·vv·aa.
+@inline function _LABL2_7(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, 19, 52), _q(T, 49, 104), _q(T, 177, 416), _q(T, 189, 832), _q(T, -903, 6656))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, 3, 8), _q(T, 3, 52), _q(T, -7, 104))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·aa.
+@inline function _LABL2_8(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, 33, 52), _q(T, 95, 104), _q(T, 435, 416), _q(T, 875, 832), _q(T, 6195, 6656))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, 5, 8), _q(T, 3, 52), _q(T, -5, 104))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·bv.
+@inline function _LABL2_9(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, 4, 13), _q(T, 6, 13), _q(T, 27, 52), _q(T, 49, 104), _q(T, 63, 208))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, 1, 4), _q(T, 3, 26), _q(T, -3, 52))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·ay·vv·va.
+@inline function _LABL2_10(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, 7, 52), _q(T, 31, 104), _q(T, 189, 416), _q(T, 483, 832), _q(T, 4389, 6656))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, 9, 52), _q(T, -1, 26))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·ay·va.
+@inline function _LABL2_11(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, 77, 52), _q(T, 209, 104), _q(T, 855, 416), _q(T, 105, 64), _q(T, 4935, 6656))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, 3, 2), _q(T, 9, 52), _q(T, -5, 26))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·by·vv.
+@inline function _LABL2_12(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, 1, 4), _q(T, 33, 104), _q(T, 111, 416), _q(T, 77, 832), _q(T, -1449, 6656))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, 1, 4), _q(T, 3, 52), _q(T, -3, 52))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·by.
+@inline function _LABL2_13(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, 23, 52), _q(T, 63, 104), _q(T, 285, 416), _q(T, 595, 832), _q(T, 4725, 6656))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, 1, 2), _q(T, -3, 52))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of ay^2·vv^2.
+@inline function _LABL2_14(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, 1, 52), _q(T, 1, 26), _q(T, 21, 416), _q(T, 21, 416), _q(T, 231, 6656))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, 3, 104), _q(T, -1, 104))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of ay^2·vv.
+@inline function _LABL2_15(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, 17, 52), _q(T, 41, 104), _q(T, 135, 416), _q(T, 105, 832), _q(T, -105, 512))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, 3, 8), T(0), _q(T, -5, 104))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vv^2·aa.
+@inline function _LABL2_16(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -1, 130), _q(T, -1, 104), _q(T, -1, 104), _q(T, -7, 832), _q(T, -21, 3328), _q(T, -231, 66560))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, -1, 104), _q(T, 1, 520))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vv·va^2.
+@inline function _LABL2_17(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 1, 13), _q(T, 5, 52), _q(T, 5, 52), _q(T, 35, 416), _q(T, 105, 1664), _q(T, 231, 6656))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 5, 52), _q(T, -1, 52))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vv·aa.
+@inline function _LABL2_18(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -2, 13), _q(T, -5, 52), _q(T, -1, 13), _q(T, -25, 416), _q(T, -35, 832), _q(T, -147, 6656))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (_q(T, -1, 8), _q(T, -1, 26), _q(T, 1, 104))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vv·bv.
+@inline function _LABL2_19(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -3, 65), _q(T, -3, 52), _q(T, -3, 52), _q(T, -21, 416), _q(T, -63, 1664), _q(T, -693, 33280))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, -3, 52), _q(T, 3, 260))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of va^2.
+@inline function _LABL2_20(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -1, 13), _q(T, -5, 52), _q(T, -5, 52), _q(T, -35, 416), _q(T, -105, 1664), _q(T, -231, 6656))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, -5, 52), _q(T, 1, 52))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of bv.
+@inline function _LABL2_21(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -3, 13), _q(T, -5, 52), _q(T, -3, 52), _q(T, -15, 416), _q(T, -35, 1664), _q(T, -63, 6656))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (_q(T, -1, 4), _q(T, 1, 52))) / T(π)
+    end
+end
+
+@inline function _lab_slice_term(::Val{2}, Q, ℓ, q, vy, ay, by, cy, vv, va, aa, bv, ab, cv)
+    return Q * (vv * va^2 * _LAB2_1(q, ℓ) +
+                vv^2 * aa * _LAB2_2(q, ℓ) +
+                ay^2 * vv^2 * _LAB2_3(q, ℓ) +
+                vy * ay * vv * va * _LAB2_4(q, ℓ) +
+                vy^2 * va^2 * _LAB2_5(q, ℓ) +
+                vy^2 * vv * aa * _LAB2_6(q, ℓ) +
+                vy^2 * ay^2 * vv * _LAB2_7(q, ℓ) +
+                vy^3 * ay * va * _LAB2_8(q, ℓ) +
+                vy^4 * aa * _LAB2_9(q, ℓ) +
+                vy^4 * ay^2 * _LAB2_10(q, ℓ) +
+                vv * bv * _LAB2_11(q, ℓ) +
+                vy * by * vv * _LAB2_12(q, ℓ) +
+                vy^2 * bv * _LAB2_13(q, ℓ) +
+                vy^3 * by * _LAB2_14(q, ℓ) +
+                va^2 * _LAB2_15(q, ℓ) +
+                vv * aa * _LAB2_16(q, ℓ) +
+                ay^2 * vv * _LAB2_17(q, ℓ) +
+                vy * ay * va * _LAB2_18(q, ℓ) +
+                vy^2 * aa * _LAB2_19(q, ℓ) +
+                vy^2 * ay^2 * _LAB2_20(q, ℓ) +
+                vy * by * _LAB2_21(q, ℓ))
+end
+
+@inline function _lab_slice_laplacian(::Val{2}, Q, ℓ, q, vy, ay, by, cy, vv, va, aa, bv, ab, cv)
+    return Q * (vy^4 * ay^2 * _LABL2_1(q, ℓ) +
+                vy^4 * aa * _LABL2_2(q, ℓ) +
+                vy^3 * ay * va * _LABL2_3(q, ℓ) +
+                vy^3 * by * _LABL2_4(q, ℓ) +
+                vy^2 * ay^2 * vv * _LABL2_5(q, ℓ) +
+                vy^2 * ay^2 * _LABL2_6(q, ℓ) +
+                vy^2 * vv * aa * _LABL2_7(q, ℓ) +
+                vy^2 * aa * _LABL2_8(q, ℓ) +
+                vy^2 * bv * _LABL2_9(q, ℓ) +
+                vy * ay * vv * va * _LABL2_10(q, ℓ) +
+                vy * ay * va * _LABL2_11(q, ℓ) +
+                vy * by * vv * _LABL2_12(q, ℓ) +
+                vy * by * _LABL2_13(q, ℓ) +
+                ay^2 * vv^2 * _LABL2_14(q, ℓ) +
+                ay^2 * vv * _LABL2_15(q, ℓ) +
+                vv^2 * aa * _LABL2_16(q, ℓ) +
+                vv * va^2 * _LABL2_17(q, ℓ) +
+                vv * aa * _LABL2_18(q, ℓ) +
+                vv * bv * _LABL2_19(q, ℓ) +
+                va^2 * _LABL2_20(q, ℓ) +
+                bv * _LABL2_21(q, ℓ))
+end
+
+# Lab slice of order 3, radial factor of ay·vv^2·va^2.
+@inline function _LAB3_1(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, 1073, 96577), _q(T, 8457, 772616), _q(T, 26175, 3090464), _q(T, 1025, 181792), _q(T, 79335, 24723712), _q(T, 144441, 98894848), _q(T, 12969, 30429184))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, 1, 52), _q(T, -3, 272), _q(T, 465, 134368), _q(T, -5, 8398), _q(T, 135, 3090464))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of ay·vv^3·aa.
+@inline function _LAB3_2(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, -9, 96577), _q(T, -15, 96577), _q(T, -525, 3090464), _q(T, -225, 1545232), _q(T, -2475, 24723712), _q(T, -99, 1901824), _q(T, -495, 30429184))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), T(0), T(0), _q(T, -3, 14144), _q(T, 45, 268736), _q(T, -15, 268736), _q(T, 45, 6180928))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of ay^3·vv^3.
+@inline function _LAB3_3(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 10, 96577), _q(T, 175, 772616), _q(T, 225, 772616), _q(T, 825, 3090464), _q(T, 165, 950912), _q(T, 495, 7607296))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), T(0), T(0), _q(T, 5, 14144), _q(T, -105, 268736), _q(T, 45, 268736), _q(T, -165, 6180928))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy·vv·va^3.
+@inline function _LAB3_4(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, -84172, 482885), _q(T, -9003, 193154), _q(T, -12849, 772616), _q(T, -4235, 772616), _q(T, -8193, 6180928), _q(T, -8631, 123618560), _q(T, 9141, 98894848))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), _q(T, -3, 13), _q(T, 1, 13), _q(T, -57, 2210), _q(T, 207, 33592), _q(T, -15, 16796), _q(T, 45, 772616))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy·vv^2·va·aa.
+@inline function _LAB3_5(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, 144, 482885), _q(T, -33, 101660), _q(T, -615, 772616), _q(T, -1465, 1545232), _q(T, -2529, 3090464), _q(T, -7623, 14543360), _q(T, -7887, 38036480))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, 1, 520), _q(T, -99, 35360), _q(T, 207, 134368), _q(T, -55, 134368), _q(T, 135, 3090464))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy·ay^2·vv^2·va.
+@inline function _LAB3_6(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 33, 50830), _q(T, 615, 193154), _q(T, 4395, 772616), _q(T, 2529, 386308), _q(T, 7623, 1454336), _q(T, 23661, 9509120))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, -3, 520), _q(T, 99, 7072), _q(T, -1449, 134368), _q(T, 495, 134368), _q(T, -1485, 3090464))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^2·ay·vv·va^2.
+@inline function _LAB3_7(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -7791, 482885), _q(T, -165, 7429), _q(T, -7335, 386308), _q(T, -1116, 96577), _q(T, -57123, 12361856), _q(T, -3663, 4754560))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, -27, 520), _q(T, 213, 3536), _q(T, -2163, 67184), _q(T, 45, 5168), _q(T, -1485, 1545232))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^2·ay·vv^2·aa.
+@inline function _LAB3_8(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 693, 965770), _q(T, 135, 193154), _q(T, -45, 772616), _q(T, -783, 772616), _q(T, -36531, 24723712), _q(T, -9801, 9509120))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, 9, 4160), _q(T, -9, 7072), _q(T, -63, 67184), _q(T, 135, 134368), _q(T, -1485, 6180928))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^2·ay^3·vv^2.
+@inline function _LAB3_9(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -45, 96577), _q(T, 15, 193154), _q(T, 783, 386308), _q(T, 12177, 3090464), _q(T, 3267, 950912))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, -3, 832), _q(T, 21, 7072), _q(T, 189, 67184), _q(T, -495, 134368), _q(T, 495, 475456))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^3·va^3.
+@inline function _LAB3_10(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 7024, 482885), _q(T, 957, 96577), _q(T, 35, 7429), _q(T, 35, 22724), _q(T, 27, 118864), _q(T, -2739, 61809280))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 1, 26), _q(T, -11, 260), _q(T, 47, 1768), _q(T, -343, 33592), _q(T, 75, 33592), _q(T, -165, 772616))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^3·vv·va·aa.
+@inline function _LAB3_11(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -1056, 482885), _q(T, 67, 96577), _q(T, 280, 96577), _q(T, 1295, 386308), _q(T, 141, 59432), _q(T, 56991, 61809280))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, -1, 104), _q(T, 11, 1040), _q(T, -3, 1768), _q(T, -49, 16796), _q(T, 15, 8398), _q(T, -495, 1545232))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^3·ay^2·vv·va.
+@inline function _LAB3_12(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -134, 96577), _q(T, -1120, 96577), _q(T, -3885, 193154), _q(T, -141, 7429), _q(T, -56991, 6180928))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, 3, 104), _q(T, -11, 208), _q(T, 21, 1768), _q(T, 441, 16796), _q(T, -165, 8398), _q(T, 495, 118864))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^4·ay·va^2.
+@inline function _LAB3_13(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, 1474, 96577), _q(T, 1970, 96577), _q(T, 90, 5681), _q(T, 3027, 386308), _q(T, 12111, 6180928))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, 9, 208), _q(T, -1, 32), _q(T, -21, 1768), _q(T, 1701, 67184), _q(T, -825, 67184), _q(T, 495, 237728))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^4·ay·vv·aa.
+@inline function _LAB3_14(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -321, 96577), _q(T, -165, 96577), _q(T, 1611, 386308), _q(T, 14265, 1545232), _q(T, 97119, 12361856))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, -9, 832), _q(T, 3, 832), _q(T, 63, 7072), _q(T, -567, 134368), _q(T, -495, 268736), _q(T, 495, 475456))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^4·ay^3·vv.
+@inline function _LAB3_15(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 110, 96577), _q(T, -537, 96577), _q(T, -14265, 772616), _q(T, -32373, 1545232))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (T(0), _q(T, 15, 832), _q(T, -7, 832), _q(T, -189, 7072), _q(T, 2079, 134368), _q(T, 165, 20672), _q(T, -2475, 475456))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^5·va·aa.
+@inline function _LAB3_16(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -524, 96577), _q(T, -940, 96577), _q(T, -1005, 96577), _q(T, -111, 14858), _q(T, -9339, 3090464))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, -3, 416), _q(T, -1, 416), _q(T, 21, 3536), _q(T, -63, 67184), _q(T, -165, 134368), _q(T, 99, 237728))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^5·ay^2·va.
+@inline function _LAB3_17(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 1880, 96577), _q(T, 4020, 96577), _q(T, 333, 7429), _q(T, 9339, 386308))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (T(0), _q(T, 15, 416), _q(T, 7, 416), _q(T, -189, 3536), _q(T, 693, 67184), _q(T, 165, 10336), _q(T, -1485, 237728))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^6·ay·aa.
+@inline function _LAB3_18(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 144, 5083), _q(T, 4350, 96577), _q(T, 3792, 96577), _q(T, 63, 3496))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, 3, 64), T(0), _q(T, -21, 832), T(0), _q(T, 2079, 268736), T(0), _q(T, -495, 475456))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^6·ay^3.
+@inline function _LAB3_19(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-7) * evalpoly(1 - q / ℓ^2, (_q(T, -2900, 96577), _q(T, -5056, 96577), _q(T, -63, 1748))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-7) * evalpoly(ℓ^2 / q, (_q(T, -5, 64), T(0), _q(T, 63, 832), T(0), _q(T, -693, 20672), T(0), _q(T, 165, 27968))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of by·vv^2·va.
+@inline function _LAB3_20(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, -4, 1235), _q(T, -11, 3230), _q(T, -5, 1768), _q(T, -205, 100776), _q(T, -339, 268736), _q(T, -3399, 5374720), _q(T, -341, 1653760))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, -1, 195), _q(T, 21, 8840), _q(T, -9, 16796), _q(T, 5, 100776))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of ay·vv^2·bv.
+@inline function _LAB3_21(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, -148, 62985), _q(T, -101, 41990), _q(T, -5, 2584), _q(T, -45, 33592), _q(T, -213, 268736), _q(T, -2013, 5374720), _q(T, -11, 97280))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, -1, 260), _q(T, 1, 520), _q(T, -2, 4199), _q(T, 5, 100776))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy·vv·va·bv.
+@inline function _LAB3_22(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, 1696, 12597), _q(T, 62, 1615), _q(T, 62, 4199), _q(T, 45, 8398), _q(T, 3, 1976), _q(T, 3, 15808), _q(T, -11, 167960))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), _q(T, 9, 52), _q(T, -1, 20), _q(T, 61, 4420), _q(T, -41, 16796), _q(T, 5, 25194))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy·vv^2·ab.
+@inline function _LAB3_23(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(q / ℓ^2, (_q(T, 11, 30720), _q(T, -17, 5120), _q(T, 155, 26624), _q(T, -35, 6656), _q(T, 1239, 452608), _q(T, -16863, 21498880), _q(T, 319, 3307520))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, -1, 1040), _q(T, 1, 1105), _q(T, -23, 67184), _q(T, 5, 100776))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy·ay·by·vv^2.
+@inline function _LAB3_24(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 1, 3230), _q(T, -5, 16796), _q(T, -45, 33592), _q(T, -141, 67184), _q(T, -2211, 1074944), _q(T, -957, 826880))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, 3, 1040), _q(T, -1, 221), _q(T, 161, 67184), _q(T, -15, 33592))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^2·by·vv·va.
+@inline function _LAB3_25(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -64, 20995), _q(T, 8, 4199), _q(T, 20, 4199), _q(T, 20, 4199), _q(T, 3, 988), _q(T, 363, 335920))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, -1, 52), _q(T, 2, 65), _q(T, -9, 442), _q(T, 28, 4199), _q(T, -15, 16796))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^2·ay·vv·bv.
+@inline function _LAB3_26(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 118, 20995), _q(T, 35, 4199), _q(T, 5, 646), _q(T, 87, 16796), _q(T, 33, 14144), _q(T, 99, 206720))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, 1, 65), _q(T, -1, 68), _q(T, 49, 8398), _q(T, -15, 16796))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^3·va·bv.
+@inline function _LAB3_27(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -32, 1615), _q(T, -194, 12597), _q(T, -110, 12597), _q(T, -5, 1326), _q(T, -37, 33592), _q(T, -11, 79040))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, -7, 156), _q(T, 31, 780), _q(T, -1, 52), _q(T, 259, 50388), _q(T, -5, 8398))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^3·vv·ab.
+@inline function _LAB3_28(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 1, 323), _q(T, 49, 25194), _q(T, 5, 50388), _q(T, -127, 100776), _q(T, -863, 537472), _q(T, -55, 56576))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 1, 156), _q(T, -1, 312), _q(T, -1, 884), _q(T, 7, 5304), _q(T, -5, 16796))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^3·ay·by·vv.
+@inline function _LAB3_29(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -49, 12597), _q(T, -5, 12597), _q(T, 127, 16796), _q(T, 863, 67184), _q(T, 275, 28288))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, -1, 52), _q(T, 5, 312), _q(T, 7, 884), _q(T, -21, 1768), _q(T, 55, 16796))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^4·by·va.
+@inline function _LAB3_30(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -92, 12597), _q(T, -160, 12597), _q(T, -55, 4199), _q(T, -2, 221), _q(T, -473, 134368))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, -1, 104), _q(T, -1, 156), _q(T, 7, 442), _q(T, -147, 16796), _q(T, 55, 33592))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^4·ay·bv.
+@inline function _LAB3_31(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -176, 12597), _q(T, -280, 12597), _q(T, -90, 4199), _q(T, -59, 4199), _q(T, -22, 4199))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, -3, 104), _q(T, 1, 78), _q(T, 7, 884), _q(T, -63, 8398), _q(T, 55, 33592))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^5·ab.
+@inline function _LAB3_32(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -206, 12597), _q(T, -224, 12597), _q(T, -115, 8398), _q(T, -97, 12597), _q(T, -53, 20672))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -1, 48), T(0), _q(T, 1, 156), _q(T, -7, 5304), _q(T, -63, 67184), _q(T, 11, 33592))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^5·ay·by.
+@inline function _LAB3_33(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 448, 12597), _q(T, 230, 4199), _q(T, 194, 4199), _q(T, 53, 2584))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, 1, 16), T(0), _q(T, -7, 156), _q(T, 21, 1768), _q(T, 693, 67184), _q(T, -11, 2584))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of ay·vv·va^2.
+@inline function _LAB3_34(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, -278, 20995), _q(T, -1161, 83980), _q(T, -45, 3952), _q(T, -545, 67184), _q(T, -2673, 537472), _q(T, -26433, 10749440), _q(T, -2607, 3307520))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, -11, 520), _q(T, 177, 17680), _q(T, -3, 1292), _q(T, 15, 67184))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of ay·vv^2·aa.
+@inline function _LAB3_35(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, -1, 1235), _q(T, -27, 41990), _q(T, -45, 134368), _q(T, -5, 67184), _q(T, 81, 1074944), _q(T, 297, 2687360), _q(T, 429, 6615040))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, -7, 4160), _q(T, 87, 70720), _q(T, -111, 268736), _q(T, 15, 268736))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of ay^3·vv^2.
+@inline function _LAB3_36(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -3, 41990), _q(T, -15, 33592), _q(T, -15, 16796), _q(T, -9, 7904), _q(T, -1089, 1074944), _q(T, -891, 1653760))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, 3, 4160), _q(T, -21, 14144), _q(T, 231, 268736), _q(T, -45, 268736))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy·va^3.
+@inline function _LAB3_37(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, 1868, 20995), _q(T, 1041, 41990), _q(T, 309, 33592), _q(T, 105, 33592), _q(T, 201, 268736), _q(T, 9, 5374720), _q(T, -1749, 21498880))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), _q(T, 3, 26), _q(T, -9, 260), _q(T, 87, 8840), _q(T, -15, 8398), _q(T, 5, 33592))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy·vv·va·aa.
+@inline function _LAB3_38(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, 1416, 20995), _q(T, 837, 41990), _q(T, 36, 4199), _q(T, 135, 33592), _q(T, 261, 134368), _q(T, 4833, 5374720), _q(T, 99, 316160))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), _q(T, 9, 104), _q(T, -27, 1040), _q(T, 9, 1040), _q(T, -135, 67184), _q(T, 15, 67184))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy·ay^2·vv·va.
+@inline function _LAB3_39(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -33, 4199), _q(T, -18, 4199), _q(T, -45, 16796), _q(T, -3, 988), _q(T, -1809, 537472), _q(T, -297, 134368))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, -3, 104), _q(T, 9, 208), _q(T, -9, 272), _q(T, 861, 67184), _q(T, -135, 67184))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^2·ay·va^2.
+@inline function _LAB3_40(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -711, 20995), _q(T, -99, 4199), _q(T, -15, 1292), _q(T, -18, 4199), _q(T, -675, 537472), _q(T, -1089, 2687360))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, -9, 104), _q(T, 93, 1040), _q(T, -177, 3536), _q(T, 1029, 67184), _q(T, -135, 67184))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^2·ay·vv·aa.
+@inline function _LAB3_41(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 18, 1235), _q(T, 9, 646), _q(T, 75, 8398), _q(T, 9, 2584), _q(T, -27, 268736), _q(T, -5247, 5374720))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 9, 416), _q(T, -3, 1040), _q(T, -15, 1768), _q(T, 21, 3952), _q(T, -135, 134368))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^2·ay^3·vv.
+@inline function _LAB3_42(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -24, 4199), _q(T, -15, 4199), _q(T, 18, 4199), _q(T, 711, 67184), _q(T, 297, 33592))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, -9, 416), _q(T, 3, 208), _q(T, 21, 1768), _q(T, -945, 67184), _q(T, 495, 134368))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^3·va·aa.
+@inline function _LAB3_43(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 288, 20995), _q(T, 69, 4199), _q(T, 60, 4199), _q(T, 165, 16796), _q(T, 9, 1768), _q(T, 4257, 2687360))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 3, 208), _q(T, 3, 520), _q(T, -9, 884), _q(T, 147, 33592), _q(T, -45, 67184))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^3·ay^2·va.
+@inline function _LAB3_44(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -222, 4199), _q(T, -360, 4199), _q(T, -705, 8398), _q(T, -18, 323), _q(T, -297, 14144))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, -21, 208), _q(T, 3, 104), _q(T, 21, 442), _q(T, -63, 1768), _q(T, 495, 67184))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^4·ay·aa.
+@inline function _LAB3_45(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -37, 247), _q(T, -3, 17), _q(T, -2517, 16796), _q(T, -6431, 67184), _q(T, -20493, 537472))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -11, 64), _q(T, -15, 832), _q(T, 21, 416), _q(T, -35, 7072), _q(T, -1953, 268736), _q(T, 495, 268736))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^4·ay^3.
+@inline function _LAB3_46(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 590, 4199), _q(T, 3, 13), _q(T, 555, 2584), _q(T, 7461, 67184))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, 15, 64), _q(T, -15, 832), _q(T, -49, 416), _q(T, 189, 7072), _q(T, 6237, 268736), _q(T, -165, 20672))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of cy·vv^2.
+@inline function _LAB3_47(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, 7, 20995), _q(T, 63, 167960), _q(T, 45, 134368), _q(T, 35, 134368), _q(T, 189, 1074944), _q(T, 2079, 21498880), _q(T, 231, 6615040))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, 1, 2080), _q(T, -3, 17680), _q(T, 3, 134368))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy·vv·cv.
+@inline function _LAB3_48(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, -196, 12597), _q(T, -203, 41990), _q(T, -69, 33592), _q(T, -5, 5928), _q(T, -77, 268736), _q(T, -63, 1074944), _q(T, 77, 21498880))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), _q(T, -1, 52), _q(T, 7, 1560), _q(T, -1, 1105), _q(T, 3, 33592))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^2·cy·vv.
+@inline function _LAB3_49(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(q / ℓ^2, (T(0), _q(T, 1, 128), _q(T, -5, 416), _q(T, 7, 832), _q(T, -21, 7072), _q(T, 231, 537472))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 1, 208), _q(T, -1, 208), _q(T, 7, 3536), _q(T, -21, 67184))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^3·cv.
+@inline function _LAB3_50(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 112, 20995), _q(T, 21, 4199), _q(T, 15, 4199), _q(T, 35, 16796), _q(T, 63, 67184), _q(T, 693, 2687360))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 1, 104), _q(T, -3, 520), _q(T, 3, 1768), _q(T, -7, 33592))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^4·cy.
+@inline function _LAB3_51(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -98, 12597), _q(T, -2, 247), _q(T, -25, 4199), _q(T, -161, 50388), _q(T, -21, 20672))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -1, 96), T(0), _q(T, 1, 208), _q(T, -7, 2652), _q(T, 63, 134368))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of by·vv·va.
+@inline function _LAB3_52(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, 392, 20995), _q(T, 35, 4199), _q(T, 87, 16796), _q(T, 55, 16796), _q(T, 259, 134368), _q(T, 2583, 2687360), _q(T, 693, 2149888))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), _q(T, 1, 52), T(0), _q(T, -3, 4420), _q(T, 1, 8398))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of ay·vv·bv.
+@inline function _LAB3_53(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, 112, 62985), _q(T, 42, 20995), _q(T, 15, 8398), _q(T, 35, 25194), _q(T, 63, 67184), _q(T, 693, 1343680), _q(T, 77, 413440))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, 1, 390), _q(T, -1, 1105), _q(T, 1, 8398))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy·va·bv.
+@inline function _LAB3_54(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, -112, 3705), _q(T, -14, 1615), _q(T, -27, 8398), _q(T, -25, 25194), _q(T, -7, 67184), _q(T, 189, 1343680), _q(T, 539, 5374720))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), _q(T, -1, 26), _q(T, 2, 195), _q(T, -1, 442), _q(T, 1, 4199))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy·vv·ab.
+@inline function _LAB3_55(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, -196, 4845), _q(T, -581, 41990), _q(T, -225, 33592), _q(T, -335, 100776), _q(T, -413, 268736), _q(T, -189, 316160), _q(T, -3311, 21498880))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), _q(T, -5, 104), _q(T, 7, 780), _q(T, -1, 680), _q(T, 1, 8398))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy·ay·by·vv.
+@inline function _LAB3_56(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 14, 1615), _q(T, 27, 4199), _q(T, 25, 8398), _q(T, 7, 16796), _q(T, -189, 268736), _q(T, -1617, 2687360))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 1, 52), _q(T, -1, 65), _q(T, 5, 884), _q(T, -7, 8398))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^2·by·va.
+@inline function _LAB3_57(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 448, 20995), _q(T, 84, 4199), _q(T, 60, 4199), _q(T, 35, 4199), _q(T, 63, 16796), _q(T, 693, 671840))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 1, 26), _q(T, -3, 130), _q(T, 3, 442), _q(T, -7, 8398))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^2·ay·bv.
+@inline function _LAB3_58(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 42, 1235), _q(T, 141, 4199), _q(T, 215, 8398), _q(T, 21, 1292), _q(T, 2205, 268736), _q(T, 7161, 2687360))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 3, 52), _q(T, -2, 65), _q(T, 7, 884), _q(T, -7, 8398))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^3·ab.
+@inline function _LAB3_59(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 1967, 20995), _q(T, 1213, 25194), _q(T, 517, 16796), _q(T, 619, 33592), _q(T, 14917, 1612416), _q(T, 16611, 5374720))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (_q(T, 1, 12), _q(T, 7, 312), _q(T, -1, 65), _q(T, 19, 5304), _q(T, -7, 25194))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^3·ay·by.
+@inline function _LAB3_60(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -2011, 12597), _q(T, -745, 4199), _q(T, -2427, 16796), _q(T, -1393, 15504), _q(T, -19005, 537472))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -5, 24), _q(T, 1, 52), _q(T, 5, 104), _q(T, -14, 663), _q(T, 21, 8398))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of ay·va^2.
+@inline function _LAB3_61(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, 63, 1615), _q(T, 2583, 167960), _q(T, 1161, 134368), _q(T, 675, 134368), _q(T, 2961, 1074944), _q(T, 27783, 21498880), _q(T, 2079, 5058560))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), _q(T, 9, 208), _q(T, -9, 2080), T(0), _q(T, 9, 134368))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of ay·vv·aa.
+@inline function _LAB3_62(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, -189, 20995), _q(T, -63, 20995), _q(T, -189, 134368), _q(T, -45, 67184), _q(T, -315, 1074944), _q(T, -567, 5374720), _q(T, -2079, 85995520))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), _q(T, -9, 832), _q(T, 9, 4160), _q(T, -27, 70720), _q(T, 9, 268736))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of ay^3·vv.
+@inline function _LAB3_63(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 42, 20995), _q(T, 63, 33592), _q(T, 45, 33592), _q(T, 105, 134368), _q(T, 189, 537472), _q(T, 2079, 21498880))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 3, 832), _q(T, -9, 4160), _q(T, 9, 14144), _q(T, -21, 268736))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy·va·aa.
+@inline function _LAB3_64(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, -1176, 20995), _q(T, -1701, 83980), _q(T, -27, 2584), _q(T, -375, 67184), _q(T, -189, 67184), _q(T, -13041, 10749440), _q(T, -7623, 21498880))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), _q(T, -27, 416), _q(T, 21, 2080), _q(T, -9, 7072), _q(T, 9, 134368))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy·ay^2·va.
+@inline function _LAB3_65(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 1701, 41990), _q(T, 27, 646), _q(T, 1125, 33592), _q(T, 189, 8398), _q(T, 13041, 1074944), _q(T, 22869, 5374720))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 27, 416), _q(T, -63, 2080), _q(T, 45, 7072), _q(T, -63, 134368))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^2·ay·aa.
+@inline function _LAB3_66(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 14217, 41990), _q(T, 672, 4199), _q(T, 3327, 33592), _q(T, 987, 16796), _q(T, 31857, 1074944), _q(T, 6741, 671840))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (_q(T, 21, 64), _q(T, 15, 416), _q(T, -33, 1040), _q(T, 45, 7072), _q(T, -63, 268736))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^2·ay^3.
+@inline function _LAB3_67(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -771, 4199), _q(T, -135, 646), _q(T, -2943, 16796), _q(T, -15141, 134368), _q(T, -24759, 537472))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -15, 64), _q(T, 9, 416), _q(T, 9, 208), _q(T, -105, 7072), _q(T, 189, 268736))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of cy·vv.
+@inline function _LAB3_68(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, -14, 3315), _q(T, -7, 4420), _q(T, -3, 3536), _q(T, -5, 10608), _q(T, -7, 28288), _q(T, -63, 565760), _q(T, -77, 2263040))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), _q(T, -1, 208), _q(T, 1, 1560), _q(T, -1, 17680))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy·cv.
+@inline function _LAB3_69(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, -28, 3315), _q(T, -7, 2210), _q(T, -3, 1768), _q(T, -5, 5304), _q(T, -7, 14144), _q(T, -63, 282880), _q(T, -77, 1131520))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), _q(T, -1, 104), _q(T, 1, 780), _q(T, -1, 8840))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy^2·cy.
+@inline function _LAB3_70(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 63, 1105), _q(T, 5, 221), _q(T, 11, 884), _q(T, 3, 442), _q(T, 7, 2176), _q(T, 147, 141440))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (_q(T, 1, 16), _q(T, -1, 208), _q(T, -1, 1040), _q(T, 1, 3536))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of by·va.
+@inline function _LAB3_71(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, -28, 1105), _q(T, -21, 2210), _q(T, -9, 1768), _q(T, -5, 1768), _q(T, -21, 14144), _q(T, -189, 282880), _q(T, -231, 1131520))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), _q(T, -3, 104), _q(T, 1, 260), _q(T, -3, 8840))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of ay·bv.
+@inline function _LAB3_72(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(1 - q / ℓ^2, (_q(T, -28, 1105), _q(T, -21, 2210), _q(T, -9, 1768), _q(T, -5, 1768), _q(T, -21, 14144), _q(T, -189, 282880), _q(T, -231, 1131520))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (T(0), _q(T, -3, 104), _q(T, 1, 260), _q(T, -3, 8840))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy·ab.
+@inline function _LAB3_73(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ * evalpoly(q / ℓ^2, (_q(T, -847, 10240), _q(T, -33, 5120), _q(T, -33, 2048), _q(T, 19, 1536), _q(T, -145, 26624), _q(T, 7, 5120), _q(T, -343, 2263040))) / T(π)
+    else
+        r = sqrt(q)
+        return r * evalpoly(ℓ^2 / q, (_q(T, -1, 16), _q(T, -1, 26), _q(T, 1, 240), _q(T, -3, 8840))) / T(π)
+    end
+end
+
+# Lab slice of order 3, radial factor of vy·ay·by.
+@inline function _LAB3_74(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 49, 170), _q(T, 103, 884), _q(T, 115, 1768), _q(T, 127, 3536), _q(T, 973, 56576), _q(T, 3171, 565760))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (_q(T, 5, 16), _q(T, -1, 52), _q(T, -7, 1040), _q(T, 3, 1768))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^6·ay^3.
+@inline function _LABL3_1(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-9) * evalpoly(1 - q / ℓ^2, (_q(T, 8022, 4199), _q(T, 63, 19))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-9) * evalpoly(ℓ^2 / q, (_q(T, 105, 16), T(0), _q(T, -693, 104), T(0), _q(T, 10395, 5168))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^6·ay·aa.
+@inline function _LABL3_2(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-7) * evalpoly(1 - q / ℓ^2, (_q(T, -5868, 4199), _q(T, -12033, 4199), _q(T, -189, 76))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-7) * evalpoly(ℓ^2 / q, (_q(T, -45, 16), T(0), _q(T, 189, 104), T(0), _q(T, -2079, 5168))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^5·ay^2·va.
+@inline function _LABL3_3(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-7) * evalpoly(1 - q / ℓ^2, (_q(T, -528, 247), _q(T, -19782, 4199), _q(T, -36477, 8398))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-7) * evalpoly(ℓ^2 / q, (_q(T, -45, 16), _q(T, -105, 52), _q(T, 189, 104), _q(T, 2079, 884), _q(T, -7623, 5168))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^5·ay·by.
+@inline function _LABL3_4(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-7) * evalpoly(1 - q / ℓ^2, (_q(T, -6268, 4199), _q(T, -12677, 4199), _q(T, -3339, 1292))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-7) * evalpoly(ℓ^2 / q, (_q(T, -25, 8), T(0), _q(T, 63, 26), _q(T, -231, 442), _q(T, -693, 2584))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^5·va·aa.
+@inline function _LABL3_5(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 2304, 4199), _q(T, 264, 247), _q(T, 9891, 8398), _q(T, 12159, 16796))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, 9, 16), _q(T, 15, 52), _q(T, -21, 104), _q(T, -189, 884), _q(T, 7623, 67184))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^5·ab.
+@inline function _LABL3_6(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 1780, 4199), _q(T, 3134, 4199), _q(T, 12677, 16796), _q(T, 1113, 2584))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, 5, 8), T(0), _q(T, -7, 26), _q(T, 21, 442), _q(T, 693, 33592))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^4·ay^3·vv.
+@inline function _LABL3_7(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-7) * evalpoly(q / ℓ^2, (_q(T, 3, 104), _q(T, -2163, 884), _q(T, 52353, 33592))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-7) * evalpoly(ℓ^2 / q, (_q(T, -75, 32), _q(T, -105, 104), _q(T, 567, 208), _q(T, 2079, 1768), _q(T, -14553, 10336))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^4·ay^3.
+@inline function _LABL3_8(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-7) * evalpoly(1 - q / ℓ^2, (_q(T, -25731, 4199), _q(T, -57351, 4199), _q(T, -470043, 33592))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-7) * evalpoly(ℓ^2 / q, (_q(T, -375, 32), _q(T, 105, 104), _q(T, 1323, 208), _q(T, -2079, 1768), _q(T, -6237, 10336))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^4·ay·vv·aa.
+@inline function _LABL3_9(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 3924, 4199), _q(T, 10827, 8398), _q(T, 4221, 8398), _q(T, -52353, 67184))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, 45, 32), _q(T, 45, 104), _q(T, -189, 208), _q(T, -567, 1768), _q(T, 43659, 134368))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^4·ay·va^2.
+@inline function _LABL3_10(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, -60, 4199), _q(T, 294, 4199), _q(T, 189, 988), _q(T, 6237, 33592))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (T(0), _q(T, -15, 26), _q(T, 63, 52), _q(T, -189, 221), _q(T, 3465, 16796))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^4·ay·aa.
+@inline function _LABL3_11(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 17772, 4199), _q(T, 67845, 8398), _q(T, 38724, 4199), _q(T, 434133, 67184))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, 177, 32), _q(T, 45, 104), _q(T, -441, 208), _q(T, 441, 1768), _q(T, 18711, 134368))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^4·ay·bv.
+@inline function _LABL3_12(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 3200, 4199), _q(T, 6284, 4199), _q(T, 406, 247), _q(T, 16821, 16796))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, 5, 8), _q(T, 45, 52), _q(T, -21, 26), _q(T, -21, 884), _q(T, 3465, 33592))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^4·by·va.
+@inline function _LABL3_13(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 2440, 4199), _q(T, 4688, 4199), _q(T, 10213, 8398), _q(T, 3108, 4199))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, 5, 8), _q(T, 15, 52), _q(T, -7, 26), _q(T, -147, 884), _q(T, 3465, 33592))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^4·cy.
+@inline function _LABL3_14(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 36, 221), _q(T, 62, 221), _q(T, 245, 884), _q(T, 21, 136))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, 1, 4), T(0), _q(T, -7, 52), _q(T, 21, 442))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^3·ay^2·vv·va.
+@inline function _LABL3_15(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 180, 323), _q(T, 6090, 4199), _q(T, 32697, 16796), _q(T, 46431, 33592))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (T(0), _q(T, 15, 52), _q(T, 21, 13), _q(T, -1701, 884), _q(T, 4851, 8398))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^3·ay^2·va.
+@inline function _LABL3_16(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 20700, 4199), _q(T, 38790, 4199), _q(T, 165123, 16796), _q(T, 196749, 33592))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, 45, 8), _q(T, 135, 52), _q(T, -189, 52), _q(T, -189, 884), _q(T, 18711, 33592))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^3·ay·by·vv.
+@inline function _LABL3_17(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 3284, 4199), _q(T, 7979, 8398), _q(T, 1351, 16796), _q(T, -71715, 67184))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, 5, 4), _q(T, 15, 26), _q(T, -35, 26), _q(T, 21, 221), _q(T, 3465, 16796))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^3·ay·by.
+@inline function _LABL3_18(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 764, 221), _q(T, 2879, 442), _q(T, 6601, 884), _q(T, 19005, 3536))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (T(5), _q(T, -15, 26), _q(T, -35, 26), _q(T, 84, 221))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^3·vv·va·aa.
+@inline function _LABL3_19(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -534, 4199), _q(T, -90, 323), _q(T, -3045, 8398), _q(T, -10899, 33592), _q(T, -46431, 268736))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, -3, 52), _q(T, -3, 13), _q(T, 189, 884), _q(T, -441, 8398))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^3·vv·ab.
+@inline function _LABL3_20(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -4649, 12597), _q(T, -1642, 4199), _q(T, -7979, 33592), _q(T, -1351, 100776), _q(T, 71715, 537472))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -5, 12), _q(T, -3, 26), _q(T, 5, 26), _q(T, -7, 663), _q(T, -315, 16796))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^3·va^3.
+@inline function _LABL3_21(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -6, 323), _q(T, -30, 4199), _q(T, 147, 8398), _q(T, 63, 1976), _q(T, 6237, 268736))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, -3, 26), _q(T, 9, 52), _q(T, -21, 221), _q(T, 315, 16796))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^3·va·aa.
+@inline function _LABL3_22(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -6238, 4199), _q(T, -8298, 4199), _q(T, -933, 494), _q(T, -45731, 33592), _q(T, -165627, 268736))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -11, 8), _q(T, -27, 52), _q(T, 21, 52), _q(T, 49, 884), _q(T, -1701, 33592))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^3·va·bv.
+@inline function _LABL3_23(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, 12, 323), _q(T, 60, 4199), _q(T, -147, 4199), _q(T, -63, 988), _q(T, -6237, 134368))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, 3, 13), _q(T, -9, 26), _q(T, 42, 221), _q(T, -315, 8398))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^3·ab.
+@inline function _LABL3_24(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -623, 663), _q(T, -280, 221), _q(T, -2267, 1768), _q(T, -2765, 2652), _q(T, -16863, 28288))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -11, 12), _q(T, -3, 13), _q(T, 1, 4), _q(T, -28, 663))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^3·cv.
+@inline function _LABL3_25(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -82, 663), _q(T, -38, 221), _q(T, -73, 442), _q(T, -623, 5304), _q(T, -735, 14144))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -1, 12), _q(T, -3, 26), _q(T, 5, 52), _q(T, -14, 663))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·ay^3·vv^2.
+@inline function _LABL3_26(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 9, 323), _q(T, -1575, 16796), _q(T, -30807, 67184), _q(T, -51975, 67184))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (T(0), _q(T, 45, 208), T(0), _q(T, -1323, 3536), _q(T, 6237, 33592))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·ay^3·vv.
+@inline function _LABL3_27(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 7614, 4199), _q(T, 23229, 8398), _q(T, 64575, 33592), _q(T, -189, 16796))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, 45, 16), _q(T, 45, 104), _q(T, -189, 104), _q(T, 189, 1768), _q(T, 18711, 67184))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·ay^3.
+@inline function _LABL3_28(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 891, 221), _q(T, 531, 68), _q(T, 32823, 3536), _q(T, 24759, 3536))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, 45, 8), _q(T, -135, 208), _q(T, -63, 52), _q(T, 945, 3536))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·ay·vv^2·aa.
+@inline function _LABL3_29(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -18, 323), _q(T, -27, 646), _q(T, 4725, 67184), _q(T, 30807, 134368), _q(T, 155925, 537472))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, -27, 208), T(0), _q(T, 441, 3536), _q(T, -1701, 33592))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·ay·vv·va^2.
+@inline function _LABL3_30(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, 1740, 4199), _q(T, 2787, 4199), _q(T, 21105, 33592), _q(T, 24129, 67184), _q(T, 693, 15808))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, 45, 52), _q(T, -51, 104), T(0), _q(T, 1323, 33592))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·ay·vv·aa.
+@inline function _LABL3_31(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -8445, 4199), _q(T, -10281, 4199), _q(T, -8604, 4199), _q(T, -77343, 67184), _q(T, -128205, 537472))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -33, 16), _q(T, -63, 104), _q(T, 75, 104), _q(T, 21, 1768), _q(T, -5103, 67184))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·ay·vv·bv.
+@inline function _LABL3_32(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -1172, 4199), _q(T, -2038, 4199), _q(T, -651, 1292), _q(T, -861, 2584), _q(T, -5775, 67184))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, -6, 13), _q(T, 5, 52), _q(T, 63, 442), _q(T, -945, 16796))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·ay·va^2.
+@inline function _LABL3_33(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -1272, 4199), _q(T, -2607, 4199), _q(T, -1449, 1976), _q(T, -36981, 67184), _q(T, -49203, 268736))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, -9, 52), _q(T, -57, 104), _q(T, 126, 221), _q(T, -5103, 33592))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·ay·aa.
+@inline function _LABL3_34(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -705, 221), _q(T, -1857, 442), _q(T, -14895, 3536), _q(T, -24255, 7072), _q(T, -28035, 14144))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -27, 8), _q(T, -63, 208), _q(T, 15, 26), _q(T, -315, 3536))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·ay·bv.
+@inline function _LABL3_35(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -300, 221), _q(T, -398, 221), _q(T, -1539, 884), _q(T, -2317, 1768), _q(T, -147, 221))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -5, 4), _q(T, -15, 26), _q(T, 31, 52), _q(T, -28, 221))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·by·vv·va.
+@inline function _LABL3_36(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -450, 4199), _q(T, -1050, 4199), _q(T, -2835, 8398), _q(T, -10395, 33592), _q(T, -3465, 20672))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, -15, 52), _q(T, 105, 442), _q(T, -945, 16796))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·by·va.
+@inline function _LABL3_37(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -266, 221), _q(T, -330, 221), _q(T, -591, 442), _q(T, -1603, 1768), _q(T, -5481, 14144))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -5, 4), _q(T, -9, 26), _q(T, 27, 52), _q(T, -28, 221))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·cy·vv.
+@inline function _LABL3_38(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -24, 221), _q(T, -23, 221), _q(T, -81, 1768), _q(T, 7, 272), _q(T, 861, 14144))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -1, 8), _q(T, -3, 52), _q(T, 11, 104), _q(T, -7, 221))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy^2·cy.
+@inline function _LABL3_39(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -4, 13), _q(T, -5, 13), _q(T, -3, 8), _q(T, -63, 208), _q(T, -147, 832))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -3, 8), _q(T, 3, 52), _q(T, 1, 104))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·ay^2·vv^2·va.
+@inline function _LABL3_40(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -108, 4199), _q(T, -1359, 8398), _q(T, -23877, 67184), _q(T, -66717, 134368), _q(T, -234927, 537472))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, 9, 52), _q(T, -63, 208), _q(T, 189, 1768), _q(T, -189, 67184))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·ay^2·vv·va.
+@inline function _LABL3_41(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -1386, 4199), _q(T, -2151, 4199), _q(T, -12663, 33592), _q(T, 1323, 67184), _q(T, 47817, 134368))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, -27, 52), _q(T, -9, 104), _q(T, 189, 442), _q(T, -5103, 33592))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·ay^2·va.
+@inline function _LABL3_42(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -594, 221), _q(T, -117, 34), _q(T, -891, 272), _q(T, -17451, 7072), _q(T, -36099, 28288))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -45, 16), _q(T, -27, 52), _q(T, 171, 208), _q(T, -315, 1768))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·ay·by·vv^2.
+@inline function _LABL3_43(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -241, 8398), _q(T, 2, 323), _q(T, 7413, 67184), _q(T, 3885, 16796), _q(T, 274197, 1074944))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, -3, 26), _q(T, 7, 104), _q(T, 21, 442), _q(T, -945, 33592))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·ay·by·vv.
+@inline function _LABL3_44(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -232, 221), _q(T, -262, 221), _q(T, -825, 884), _q(T, -889, 1768), _q(T, -777, 7072))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -5, 4), _q(T, -3, 26), _q(T, 23, 52), _q(T, -28, 221))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·ay·by.
+@inline function _LABL3_45(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -41, 26), T(-2), _q(T, -411, 208), _q(T, -21, 13), _q(T, -3171, 3328))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -15, 8), _q(T, 3, 13), _q(T, 7, 104))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·vv^2·va·aa.
+@inline function _LABL3_46(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -39, 3230), _q(T, 54, 4199), _q(T, 1359, 33592), _q(T, 7959, 134368), _q(T, 66717, 1074944), _q(T, 234927, 5374720))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, -3, 52), _q(T, 63, 1040), _q(T, -27, 1768), _q(T, 21, 67184))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·vv^2·ab.
+@inline function _LABL3_47(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 448, 20995), _q(T, 241, 16796), _q(T, -1, 646), _q(T, -2471, 134368), _q(T, -3885, 134368), _q(T, -274197, 10749440))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 1, 26), _q(T, -7, 520), _q(T, -3, 442), _q(T, 105, 33592))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·vv·va^3.
+@inline function _LABL3_48(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 1494, 4199), _q(T, 2559, 8398), _q(T, 1551, 8398), _q(T, 4977, 67184), _q(T, 63, 20672), _q(T, -21483, 1074944))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 9, 13), _q(T, -6, 13), _q(T, 63, 442), _q(T, -147, 8398))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·vv·va·aa.
+@inline function _LABL3_49(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -123, 20995), _q(T, 9, 4199), _q(T, -129, 16796), _q(T, -2163, 67184), _q(T, -30051, 537472), _q(T, -74151, 1343680))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, -3, 52), _q(T, 57, 520), _q(T, -33, 442), _q(T, 567, 33592))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·vv·va·bv.
+@inline function _LABL3_50(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -1572, 4199), _q(T, -1412, 4199), _q(T, -919, 4199), _q(T, -1701, 16796), _q(T, -2373, 134368), _q(T, 1155, 67184))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, -9, 13), _q(T, 11, 26), _q(T, -2, 17), _q(T, 105, 8398))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·vv·ab.
+@inline function _LABL3_51(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 734, 1105), _q(T, 181, 442), _q(T, 131, 442), _q(T, 703, 3536), _q(T, 1603, 14144), _q(T, 12747, 282880))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (_q(T, 1, 2), _q(T, 7, 26), _q(T, -8, 65), _q(T, 4, 221))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·vv·cv.
+@inline function _LABL3_52(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 6, 85), _q(T, 31, 442), _q(T, 23, 442), _q(T, 105, 3536), _q(T, 147, 14144), _q(T, -231, 282880))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 3, 26), _q(T, -7, 130), _q(T, 2, 221))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·va^3.
+@inline function _LABL3_53(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -6504, 20995), _q(T, -2325, 8398), _q(T, -753, 4199), _q(T, -5565, 67184), _q(T, -63, 4199), _q(T, 69993, 5374720))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, -15, 26), _q(T, 93, 260), _q(T, -45, 442), _q(T, 189, 16796))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·va·aa.
+@inline function _LABL3_54(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 687, 442), _q(T, 15, 17), _q(T, 1113, 1768), _q(T, 3045, 7072), _q(T, 14595, 56576), _q(T, 6363, 56576))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (_q(T, 21, 16), _q(T, 21, 52), _q(T, -3, 16), _q(T, 45, 1768))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·va·bv.
+@inline function _LABL3_55(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 24, 85), _q(T, 62, 221), _q(T, 46, 221), _q(T, 105, 884), _q(T, 147, 3536), _q(T, -231, 70720))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 6, 13), _q(T, -14, 65), _q(T, 8, 221))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·ab.
+@inline function _LABL3_56(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 2, 5), _q(T, 11, 52), _q(T, 2, 13), _q(T, 47, 416), _q(T, 63, 832), _q(T, 1281, 33280))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (_q(T, 3, 8), _q(T, 1, 26), _q(T, -7, 520))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of vy·cv.
+@inline function _LABL3_57(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 16, 65), _q(T, 3, 26), _q(T, 1, 13), _q(T, 11, 208), _q(T, 7, 208), _q(T, 21, 1280))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (_q(T, 1, 4), T(0), _q(T, -1, 260))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of ay^3·vv^3.
+@inline function _LABL3_58(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -45, 16796), _q(T, -105, 16796), _q(T, -567, 67184), _q(T, -2079, 268736), _q(T, -693, 165376))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, -3, 416), _q(T, 21, 3536), _q(T, -189, 134368))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of ay^3·vv^2.
+@inline function _LABL3_59(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -177, 16796), _q(T, 81, 16796), _q(T, 63, 1292), _q(T, 1575, 15808), _q(T, 234927, 2149888))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (T(0), _q(T, -9, 208), _q(T, 9, 416), _q(T, 21, 884), _q(T, -1701, 134368))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of ay^3·vv.
+@inline function _LABL3_60(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -345, 884), _q(T, -405, 884), _q(T, -1395, 3536), _q(T, -3675, 14144), _q(T, -945, 8704))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -15, 32), T(0), _q(T, 45, 416), _q(T, -105, 3536))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of ay·vv^3·aa.
+@inline function _LABL3_61(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 189, 83980), _q(T, 135, 33592), _q(T, 315, 67184), _q(T, 567, 134368), _q(T, 6237, 2149888), _q(T, 2079, 1653760))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, 9, 2080), _q(T, -9, 3536), _q(T, 63, 134368))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of ay·vv^2·va^2.
+@inline function _LABL3_62(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -2997, 41990), _q(T, -345, 2584), _q(T, -5565, 33592), _q(T, -43659, 268736), _q(T, -136521, 1074944), _q(T, -112959, 1653760))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, -33, 260), _q(T, 9, 136), _q(T, -21, 1976))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of ay·vv^2·aa.
+@inline function _LABL3_63(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 2727, 83980), _q(T, 1101, 33592), _q(T, 1353, 67184), _q(T, 315, 134368), _q(T, -27657, 2149888), _q(T, -362439, 21498880))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 9, 208), _q(T, -3, 2080), _q(T, -3, 221), _q(T, 567, 134368))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of ay·vv^2·bv.
+@inline function _LABL3_64(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 33, 1615), _q(T, 160, 4199), _q(T, 791, 16796), _q(T, 3087, 67184), _q(T, 19173, 537472), _q(T, 231, 12160))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), T(0), _q(T, 19, 520), _q(T, -1, 52), _q(T, 105, 33592))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of ay·vv·va^2.
+@inline function _LABL3_65(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, -84, 1615), _q(T, 1005, 16796), _q(T, 1389, 8398), _q(T, 29589, 134368), _q(T, 14049, 67184), _q(T, 1421343, 10749440))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, -15, 52), _q(T, 183, 520), _q(T, -9, 68), _q(T, 567, 33592))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of ay·vv·aa.
+@inline function _LABL3_66(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 3129, 4420), _q(T, 627, 1768), _q(T, 807, 3536), _q(T, 987, 7072), _q(T, 8169, 113152), _q(T, 28287, 1131520))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (_q(T, 21, 32), _q(T, 3, 26), _q(T, -159, 2080), _q(T, 45, 3536))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of ay·vv·bv.
+@inline function _LABL3_67(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 88, 1105), _q(T, 14, 221), _q(T, 6, 221), _q(T, -7, 884), _q(T, -105, 3536), _q(T, -2079, 70720))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 2, 13), _q(T, -6, 65), _q(T, 4, 221))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of ay·va^2.
+@inline function _LABL3_68(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(q / ℓ^2, (_q(T, -297, 5120), _q(T, 693, 1024), _q(T, -585, 512), _q(T, 5985, 6656), _q(T, -4725, 13312), _q(T, 64449, 1131520))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 9, 52), _q(T, -63, 520), _q(T, 45, 1768))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of ay·bv.
+@inline function _LABL3_69(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 41, 65), _q(T, 4, 13), _q(T, 11, 52), _q(T, 31, 208), _q(T, 161, 1664), _q(T, 399, 8320))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (_q(T, 5, 8), _q(T, 1, 52), _q(T, -7, 520))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of by·vv^2·va.
+@inline function _LABL3_70(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 25, 4199), _q(T, 141, 4199), _q(T, 943, 16796), _q(T, 4417, 67184), _q(T, 2457, 41344), _q(T, 9933, 268736))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, -1, 26), _q(T, 7, 104), _q(T, -23, 884), _q(T, 105, 33592))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of by·vv·va.
+@inline function _LABL3_71(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 4, 221), _q(T, -3, 221), _q(T, -11, 221), _q(T, -133, 1768), _q(T, -567, 7072), _q(T, -1617, 28288))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 1, 13), _q(T, -1, 13), _q(T, 4, 221))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of by·va.
+@inline function _LABL3_72(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 41, 65), _q(T, 4, 13), _q(T, 11, 52), _q(T, 31, 208), _q(T, 161, 1664), _q(T, 399, 8320))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (_q(T, 5, 8), _q(T, 1, 52), _q(T, -7, 520))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of cy·vv^2.
+@inline function _LABL3_73(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 1, 442), _q(T, -3, 1768), _q(T, -11, 1768), _q(T, -133, 14144), _q(T, -567, 56576), _q(T, -1617, 226304))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (T(0), _q(T, 1, 104), _q(T, -1, 104), _q(T, 1, 442))) / T(π)
+    end
+end
+
+# Its Laplacian, radial factor of cy·vv.
+@inline function _LABL3_74(q, ℓ)
+    T = typeof(ℓ)
+    if q < ℓ^2
+        return ℓ^(-1) * evalpoly(1 - q / ℓ^2, (_q(T, 8, 65), _q(T, 3, 52), _q(T, 1, 26), _q(T, 11, 416), _q(T, 7, 416), _q(T, 21, 2560))) / T(π)
+    else
+        r = sqrt(q)
+        return r^(-1) * evalpoly(ℓ^2 / q, (_q(T, 1, 8), T(0), _q(T, -1, 520))) / T(π)
+    end
+end
+
+@inline function _lab_slice_term(::Val{3}, Q, ℓ, q, vy, ay, by, cy, vv, va, aa, bv, ab, cv)
+    return Q * (ay * vv^2 * va^2 * _LAB3_1(q, ℓ) +
+                ay * vv^3 * aa * _LAB3_2(q, ℓ) +
+                ay^3 * vv^3 * _LAB3_3(q, ℓ) +
+                vy * vv * va^3 * _LAB3_4(q, ℓ) +
+                vy * vv^2 * va * aa * _LAB3_5(q, ℓ) +
+                vy * ay^2 * vv^2 * va * _LAB3_6(q, ℓ) +
+                vy^2 * ay * vv * va^2 * _LAB3_7(q, ℓ) +
+                vy^2 * ay * vv^2 * aa * _LAB3_8(q, ℓ) +
+                vy^2 * ay^3 * vv^2 * _LAB3_9(q, ℓ) +
+                vy^3 * va^3 * _LAB3_10(q, ℓ) +
+                vy^3 * vv * va * aa * _LAB3_11(q, ℓ) +
+                vy^3 * ay^2 * vv * va * _LAB3_12(q, ℓ) +
+                vy^4 * ay * va^2 * _LAB3_13(q, ℓ) +
+                vy^4 * ay * vv * aa * _LAB3_14(q, ℓ) +
+                vy^4 * ay^3 * vv * _LAB3_15(q, ℓ) +
+                vy^5 * va * aa * _LAB3_16(q, ℓ) +
+                vy^5 * ay^2 * va * _LAB3_17(q, ℓ) +
+                vy^6 * ay * aa * _LAB3_18(q, ℓ) +
+                vy^6 * ay^3 * _LAB3_19(q, ℓ) +
+                by * vv^2 * va * _LAB3_20(q, ℓ) +
+                ay * vv^2 * bv * _LAB3_21(q, ℓ) +
+                vy * vv * va * bv * _LAB3_22(q, ℓ) +
+                vy * vv^2 * ab * _LAB3_23(q, ℓ) +
+                vy * ay * by * vv^2 * _LAB3_24(q, ℓ) +
+                vy^2 * by * vv * va * _LAB3_25(q, ℓ) +
+                vy^2 * ay * vv * bv * _LAB3_26(q, ℓ) +
+                vy^3 * va * bv * _LAB3_27(q, ℓ) +
+                vy^3 * vv * ab * _LAB3_28(q, ℓ) +
+                vy^3 * ay * by * vv * _LAB3_29(q, ℓ) +
+                vy^4 * by * va * _LAB3_30(q, ℓ) +
+                vy^4 * ay * bv * _LAB3_31(q, ℓ) +
+                vy^5 * ab * _LAB3_32(q, ℓ) +
+                vy^5 * ay * by * _LAB3_33(q, ℓ) +
+                ay * vv * va^2 * _LAB3_34(q, ℓ) +
+                ay * vv^2 * aa * _LAB3_35(q, ℓ) +
+                ay^3 * vv^2 * _LAB3_36(q, ℓ) +
+                vy * va^3 * _LAB3_37(q, ℓ) +
+                vy * vv * va * aa * _LAB3_38(q, ℓ) +
+                vy * ay^2 * vv * va * _LAB3_39(q, ℓ) +
+                vy^2 * ay * va^2 * _LAB3_40(q, ℓ) +
+                vy^2 * ay * vv * aa * _LAB3_41(q, ℓ) +
+                vy^2 * ay^3 * vv * _LAB3_42(q, ℓ) +
+                vy^3 * va * aa * _LAB3_43(q, ℓ) +
+                vy^3 * ay^2 * va * _LAB3_44(q, ℓ) +
+                vy^4 * ay * aa * _LAB3_45(q, ℓ) +
+                vy^4 * ay^3 * _LAB3_46(q, ℓ) +
+                cy * vv^2 * _LAB3_47(q, ℓ) +
+                vy * vv * cv * _LAB3_48(q, ℓ) +
+                vy^2 * cy * vv * _LAB3_49(q, ℓ) +
+                vy^3 * cv * _LAB3_50(q, ℓ) +
+                vy^4 * cy * _LAB3_51(q, ℓ) +
+                by * vv * va * _LAB3_52(q, ℓ) +
+                ay * vv * bv * _LAB3_53(q, ℓ) +
+                vy * va * bv * _LAB3_54(q, ℓ) +
+                vy * vv * ab * _LAB3_55(q, ℓ) +
+                vy * ay * by * vv * _LAB3_56(q, ℓ) +
+                vy^2 * by * va * _LAB3_57(q, ℓ) +
+                vy^2 * ay * bv * _LAB3_58(q, ℓ) +
+                vy^3 * ab * _LAB3_59(q, ℓ) +
+                vy^3 * ay * by * _LAB3_60(q, ℓ) +
+                ay * va^2 * _LAB3_61(q, ℓ) +
+                ay * vv * aa * _LAB3_62(q, ℓ) +
+                ay^3 * vv * _LAB3_63(q, ℓ) +
+                vy * va * aa * _LAB3_64(q, ℓ) +
+                vy * ay^2 * va * _LAB3_65(q, ℓ) +
+                vy^2 * ay * aa * _LAB3_66(q, ℓ) +
+                vy^2 * ay^3 * _LAB3_67(q, ℓ) +
+                cy * vv * _LAB3_68(q, ℓ) +
+                vy * cv * _LAB3_69(q, ℓ) +
+                vy^2 * cy * _LAB3_70(q, ℓ) +
+                by * va * _LAB3_71(q, ℓ) +
+                ay * bv * _LAB3_72(q, ℓ) +
+                vy * ab * _LAB3_73(q, ℓ) +
+                vy * ay * by * _LAB3_74(q, ℓ))
+end
+
+@inline function _lab_slice_laplacian(::Val{3}, Q, ℓ, q, vy, ay, by, cy, vv, va, aa, bv, ab, cv)
+    return Q * (vy^6 * ay^3 * _LABL3_1(q, ℓ) +
+                vy^6 * ay * aa * _LABL3_2(q, ℓ) +
+                vy^5 * ay^2 * va * _LABL3_3(q, ℓ) +
+                vy^5 * ay * by * _LABL3_4(q, ℓ) +
+                vy^5 * va * aa * _LABL3_5(q, ℓ) +
+                vy^5 * ab * _LABL3_6(q, ℓ) +
+                vy^4 * ay^3 * vv * _LABL3_7(q, ℓ) +
+                vy^4 * ay^3 * _LABL3_8(q, ℓ) +
+                vy^4 * ay * vv * aa * _LABL3_9(q, ℓ) +
+                vy^4 * ay * va^2 * _LABL3_10(q, ℓ) +
+                vy^4 * ay * aa * _LABL3_11(q, ℓ) +
+                vy^4 * ay * bv * _LABL3_12(q, ℓ) +
+                vy^4 * by * va * _LABL3_13(q, ℓ) +
+                vy^4 * cy * _LABL3_14(q, ℓ) +
+                vy^3 * ay^2 * vv * va * _LABL3_15(q, ℓ) +
+                vy^3 * ay^2 * va * _LABL3_16(q, ℓ) +
+                vy^3 * ay * by * vv * _LABL3_17(q, ℓ) +
+                vy^3 * ay * by * _LABL3_18(q, ℓ) +
+                vy^3 * vv * va * aa * _LABL3_19(q, ℓ) +
+                vy^3 * vv * ab * _LABL3_20(q, ℓ) +
+                vy^3 * va^3 * _LABL3_21(q, ℓ) +
+                vy^3 * va * aa * _LABL3_22(q, ℓ) +
+                vy^3 * va * bv * _LABL3_23(q, ℓ) +
+                vy^3 * ab * _LABL3_24(q, ℓ) +
+                vy^3 * cv * _LABL3_25(q, ℓ) +
+                vy^2 * ay^3 * vv^2 * _LABL3_26(q, ℓ) +
+                vy^2 * ay^3 * vv * _LABL3_27(q, ℓ) +
+                vy^2 * ay^3 * _LABL3_28(q, ℓ) +
+                vy^2 * ay * vv^2 * aa * _LABL3_29(q, ℓ) +
+                vy^2 * ay * vv * va^2 * _LABL3_30(q, ℓ) +
+                vy^2 * ay * vv * aa * _LABL3_31(q, ℓ) +
+                vy^2 * ay * vv * bv * _LABL3_32(q, ℓ) +
+                vy^2 * ay * va^2 * _LABL3_33(q, ℓ) +
+                vy^2 * ay * aa * _LABL3_34(q, ℓ) +
+                vy^2 * ay * bv * _LABL3_35(q, ℓ) +
+                vy^2 * by * vv * va * _LABL3_36(q, ℓ) +
+                vy^2 * by * va * _LABL3_37(q, ℓ) +
+                vy^2 * cy * vv * _LABL3_38(q, ℓ) +
+                vy^2 * cy * _LABL3_39(q, ℓ) +
+                vy * ay^2 * vv^2 * va * _LABL3_40(q, ℓ) +
+                vy * ay^2 * vv * va * _LABL3_41(q, ℓ) +
+                vy * ay^2 * va * _LABL3_42(q, ℓ) +
+                vy * ay * by * vv^2 * _LABL3_43(q, ℓ) +
+                vy * ay * by * vv * _LABL3_44(q, ℓ) +
+                vy * ay * by * _LABL3_45(q, ℓ) +
+                vy * vv^2 * va * aa * _LABL3_46(q, ℓ) +
+                vy * vv^2 * ab * _LABL3_47(q, ℓ) +
+                vy * vv * va^3 * _LABL3_48(q, ℓ) +
+                vy * vv * va * aa * _LABL3_49(q, ℓ) +
+                vy * vv * va * bv * _LABL3_50(q, ℓ) +
+                vy * vv * ab * _LABL3_51(q, ℓ) +
+                vy * vv * cv * _LABL3_52(q, ℓ) +
+                vy * va^3 * _LABL3_53(q, ℓ) +
+                vy * va * aa * _LABL3_54(q, ℓ) +
+                vy * va * bv * _LABL3_55(q, ℓ) +
+                vy * ab * _LABL3_56(q, ℓ) +
+                vy * cv * _LABL3_57(q, ℓ) +
+                ay^3 * vv^3 * _LABL3_58(q, ℓ) +
+                ay^3 * vv^2 * _LABL3_59(q, ℓ) +
+                ay^3 * vv * _LABL3_60(q, ℓ) +
+                ay * vv^3 * aa * _LABL3_61(q, ℓ) +
+                ay * vv^2 * va^2 * _LABL3_62(q, ℓ) +
+                ay * vv^2 * aa * _LABL3_63(q, ℓ) +
+                ay * vv^2 * bv * _LABL3_64(q, ℓ) +
+                ay * vv * va^2 * _LABL3_65(q, ℓ) +
+                ay * vv * aa * _LABL3_66(q, ℓ) +
+                ay * vv * bv * _LABL3_67(q, ℓ) +
+                ay * va^2 * _LABL3_68(q, ℓ) +
+                ay * bv * _LABL3_69(q, ℓ) +
+                by * vv^2 * va * _LABL3_70(q, ℓ) +
+                by * vv * va * _LABL3_71(q, ℓ) +
+                by * va * _LABL3_72(q, ℓ) +
+                cy * vv^2 * _LABL3_73(q, ℓ) +
+                cy * vv * _LABL3_74(q, ℓ))
+end
+
 # δm: the self-inertia, the order-1 force -δm a.
 function self_inertia(Q, ℓ)
     T = typeof(ℓ)

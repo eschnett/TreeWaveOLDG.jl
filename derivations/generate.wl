@@ -1,7 +1,8 @@
 (* Writes src/particle_forms.jl from the derivations: the radial functions
    of the profile, the near-field terms of orders 1-3 and their
    Laplacians, the t′² term of Φ_C's lab-slice re-expansion and its
-   Laplacian, and the self-force coefficients. CODE.md, "The particle",
+   Laplacian, the lab slice of orders 1-3 and its Laplacians, and the
+   self-force coefficients. CODE.md, "The particle",
    "The near field" and "Prescribed paths".
 
        wolframscript -file derivations/generate.wl [output]
@@ -62,9 +63,14 @@ interiorForm[f_] := Module[{k = piPower[f], e, p, poly},
     With[{cs = CoefficientList[poly, s2], cw = CoefficientList[Expand[poly /. s2 -> 1 - w], w]},
         If[conditionNumber[cw, (1 - #^2) & /@ grid] < conditionNumber[cs, grid^2],
             {k, p, cw, "1 - q / ℓ^2"}, {k, p, cs, "q / ℓ^2"}]]];
-exteriorForm[f_] := Module[{k = piPower[f], e, p, poly},
+(* p is the degree of homogeneity in ℓ and r, which is the point limit's
+   power of r where there is one, and is still defined for a finite-size
+   term that vanishes in the point limit. *)
+exteriorForm[f_] := Module[{k = piPower[f], e, p, poly, degs},
     e = Expand[PowerExpand[Pi^k f /. q -> rr^2]];
-    p = Exponent[e /. ell -> 0, rr];
+    degs = Union[Exponent[#, rr] + Exponent[#, ell] & /@ If[Head[e] === Plus, List @@ e, {e}]];
+    If[Length[degs] != 1, Print["FAILED: not homogeneous in ℓ and r: ", f]; Exit[1]];
+    p = First[degs];
     poly = Expand[PowerExpand[(e/rr^p) /. ell -> Sqrt[u] rr]];
     If[!FreeQ[poly, rr] || !PolynomialQ[poly, u],
         Print["FAILED: not r^p times a polynomial in ℓ²/q: ", f]; Exit[1]];
@@ -76,14 +82,16 @@ piSuffix[1] = " / T(π)";
 (* A radial function of q = |y|² and ℓ, from its interior and exterior
    expressions in q. *)
 radialFunction[name_String, doc_String, fin_, fout_] := Module[{ki, pi, ci, xi, ke, pe, ce},
-    {ki, pi, ci, xi} = interiorForm[fin];
     StringJoin[
         "# ", doc, "\n",
         "@inline function ", name, "(q, ℓ)\n",
         "    T = typeof(ℓ)\n",
         "    if q < ℓ^2\n",
-        "        return ", jlPow["ℓ", pi], "evalpoly(", xi, ", ", jlTuple[ci], ")",
-            piSuffix[ki], "\n",
+        If[Expand[fin] === 0,
+            "        return zero(q / ℓ^2)\n",
+            {ki, pi, ci, xi} = interiorForm[fin];
+            StringJoin["        return ", jlPow["ℓ", pi], "evalpoly(", xi, ", ", jlTuple[ci], ")",
+                piSuffix[ki], "\n"]],
         "    else\n",
         If[Expand[fout] === 0,
             "        return zero(q / ℓ^2)\n",
@@ -170,6 +178,39 @@ tprime2Code = StringJoin[
         "(q, ℓ)", {j, 3}], " +\n" <> StringRepeat[" ", 16]], ")\n",
     "end\n"];
 
+(* The lab slice of order N (labslice.wl): a sum over monomials in the
+   invariants vy = v·y, ay = α′·y, by = B·y, cy = C·y, vv = v², va = v·α′,
+   aa = |α′|², bv = v·B, ab = α′·B and cv = v·C times radial functions,
+   and its Laplacian in y likewise. *)
+labArgs = "Q, ℓ, q, vy, ay, by, cy, vv, va, aa, bv, ab, cv";
+labMonomialCode[e_List] := StringJoin[MapThread[
+    Which[#2 == 0, "", #2 == 1, #1 <> " * ", True, #1 <> "^" <> ToString[#2] <> " * "] &,
+    {labInvNames, e}]];
+labMonomialDoc[e_List] := StringRiffle[DeleteCases[MapThread[
+    Which[#2 == 0, Nothing, #2 == 1, #1, True, #1 <> "^" <> ToString[#2]] &,
+    {labInvNames, e}], Nothing], "·"];
+labOrderCode[nOrder_] := Module[{terms = labTerms[nOrder], laps = labLapTerms[nOrder],
+        fname, lname, body},
+    fname[j_] := "_LAB" <> ToString[nOrder] <> "_" <> ToString[j];
+    lname[j_] := "_LABL" <> ToString[nOrder] <> "_" <> ToString[j];
+    body[ts_, name_] := StringRiffle[Table[labMonomialCode[ts[[j, 1]]] <> name[j] <> "(q, ℓ)",
+        {j, Length[ts]}], " +\n" <> StringRepeat[" ", 16]];
+    StringJoin[
+        Table[radialFunction[fname[j], "Lab slice of order " <> ToString[nOrder] <>
+            ", radial factor of " <> labMonomialDoc[terms[[j, 1]]] <> ".",
+            labRadial[terms[[j, 2]], "in"], labRadial[terms[[j, 2]], "out"]] <> "\n",
+            {j, Length[terms]}],
+        Table[radialFunction[lname[j], "Its Laplacian, radial factor of " <>
+            labMonomialDoc[laps[[j, 1]]] <> ".",
+            labRadial[laps[[j, 2]], "in"], labRadial[laps[[j, 2]], "out"]] <> "\n",
+            {j, Length[laps]}],
+        "@inline function _lab_slice_term(::Val{", ToString[nOrder], "}, ", labArgs, ")\n",
+        "    return Q * (", body[terms, fname], ")\n",
+        "end\n\n",
+        "@inline function _lab_slice_laplacian(::Val{", ToString[nOrder], "}, ", labArgs, ")\n",
+        "    return Q * (", body[laps, lname], ")\n",
+        "end\n"]];
+
 (* A constant times Q^qp ℓ^lp / π. *)
 constantCode[name_String, doc_String, c_, qp_Integer] := Module[{k = piPower[c], e, p},
     e = Expand[Pi^k c];
@@ -215,6 +256,20 @@ code = StringJoin[
     profileCode,
     Table[nearFieldCode[n] <> "\n", {n, 3}],
     tprime2Code, "\n",
+    "@inline function _lab_invariants(y, v, a, b, c)\n",
+    "    return (y[1]^2 + y[2]^2 + y[3]^2, dot(v, y), dot(a, y), dot(b, y), dot(c, y),\n",
+    "            dot(v, v), dot(v, a), dot(a, a), dot(v, b), dot(a, b), dot(v, c))\n",
+    "end\n",
+    "\n",
+    "# The lab slice of order N and its Laplacian at the rest-frame position y,\n",
+    "# for lab velocity v and the rest-frame acceleration α′ and its derivatives\n",
+    "# B and C, through the invariants.\n",
+    "@inline lab_slice_term(::Val{N}, Q, ℓ, y, v, α′, B, C) where {N} =\n",
+    "    _lab_slice_term(Val(N), Q, ℓ, _lab_invariants(y, v, α′, B, C)...)\n",
+    "@inline lab_slice_laplacian(::Val{N}, Q, ℓ, y, v, α′, B, C) where {N} =\n",
+    "    _lab_slice_laplacian(Val(N), Q, ℓ, _lab_invariants(y, v, α′, B, C)...)\n",
+    "\n",
+    Table[labOrderCode[n] <> "\n", {n, 3}],
     constantCode["self_inertia", "δm: the self-inertia, the order-1 force -δm a.",
         deltaM, 2], "\n",
     constantCode["rho_rho_r", "∬ ρ₀ρ₀′ |x - x′|.", rhoRhoR, 2], "\n",

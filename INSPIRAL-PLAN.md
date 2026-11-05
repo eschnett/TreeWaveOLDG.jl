@@ -13,7 +13,7 @@ also brings the binary's warm-up and orbits back as M7. M4's go/no-go
 gate fired on 2026-11-02, and passes since the owner had the `t′²` term
 of `Φ_C`'s lab slice carried ahead of M5 and the source written and the
 forces read through the averaging over shared nodes (2026-11-03).
-Nothing else is started. The decisions below were settled with the
+M5 is started (2026-11-05). Nothing else is started. The decisions below were settled with the
 owner on 2026-10-30, 2026-11-01, 2026-11-02 and 2026-11-03. A milestone's status line changes here when its work starts
 and when its pull request merges.
 
@@ -626,7 +626,13 @@ force to zero. If not, stop and take it to the owner before M5; see
 
 ## M5: The lab slice
 
-**Status:** not started. `derivations/labslice.wl` exists since M4,
+**Status:** started on 2026-11-05 on branch `inspiral-m5-labslice`.
+The derivation, the regenerated `particle_forms.jl` and the exact
+hyperbolic check are done; the particle field and the bracket do not
+carry the lab slice yet, and the circle at `v = 0.2` is not run. The
+lab slice is that of the lab-sliced density, not of `INSPIRAL.md`'s
+re-expansion of the rest-frame near field (`CODE.md`, "The near field";
+`HISTORY.md`, 2026-11-05). `derivations/labslice.wl` exists since M4,
 with the `t′²` term of `Φ_C` that the owner had carried ahead of this
 milestone; M5 extends it. `INSPIRAL.md`: "Moving particles and the lab
 slice"; validation step 5.

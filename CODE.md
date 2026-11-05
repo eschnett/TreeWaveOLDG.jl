@@ -946,7 +946,7 @@ Julia:
 
 - `derivations/profile.wl`, `nearfield.wl`, `selfforce.wl` and
   `labslice.wl` derive the profile's potentials, the near field and its
-  self-force, and the `t′²` term of the lab slice, and assert
+  self-force, and the `t′²` term and the lab slice of orders 1–3, and assert
   every identity they rely on, so that a wrong derivation stops the
   script (`check` in `derivations/common.wl` exits with status 1).
 - `derivations/generate.wl` writes `src/particle_forms.jl`, which is not
@@ -1051,11 +1051,13 @@ which `INSPIRAL.md` does not mention, enters the mass
 generated `self_inertia`, `self_force_addot`, `self_force_a2a` and
 `self_potential_a2` hold these coefficients for M6.
 
-**Moving particles.** Until the lab-slice re-expansion (M5),
+**Moving particles.** Until the particle field switches to the lab
+slice of M5 (**The lab slice** below),
 `near_field(m, Val(N), x, traj)` is the rest-frame term at the
 rest-frame position `y = Λ(v)(x - z)`, with the proper acceleration
-`α′ = γ²Λ(v)a` for `a` and with `ä` as given. At rest it is the
-time-symmetric field order by order. Moving, it lacks the re-expansion.
+`α′ = γ²Λ(v)a` for `a` and with the lab's `ä` as given. At rest it is the
+time-symmetric field order by order. Moving, it lacks the re-expansion,
+and its `ä` should be the rest frame's `C`.
 
 **The `t′²` term of `Φ_C`,** the one part of the re-expansion carried
 ahead of M5, decided by the owner on 2026-11-02 after M4's first series
@@ -1097,7 +1099,74 @@ rest the bracket with orders 1–3 carried keeps `(a·r)²(a·∇Φ₀)` at orde
 and behaves like `r⁰`, so that carrying order 3 removed only the `ä`
 part of the order-3 residual. With `T₂` carried, a point particle's
 bracket has no order-3 part along a trajectory through rest, and an
-extended one's keeps only terms in `(ℓ/r)²` (`particle_tests.jl`).
+extended one's keeps only terms in `(ℓ/r)²` (`particle_tests.jl`). Those
+are the second time derivative of the field of the slicing density of
+**The lab slice** below, which `T₂` alone lacks.
+
+**The lab slice** (M5; derived and generated,
+not yet carried by the particle field **(open)**). `labslice.wl`
+derives the whole re-expansion of orders 1–3, `Λ_N`, what the field of
+order `N` on the lab's slice adds to the rest-frame term `near_field`.
+It is not `T₂` and the `t′` terms of the rest-frame near field alone.
+The model's density `ρ₀(|Λ(v)(x - z)|)` is rigid on the lab's slices
+("Fields and particles"), not on the rest frame's, and the two differ
+inside the particle already at order 1, by `½(v·y)²(α′·∇ρ₀)`. With `T₂`
+alone the bracket keeps that difference, `Q(v·y)²(α′·y)ρ₀′`, linear in
+the acceleration and of size `Q v²|a|/ℓ²` inside the particle; on `main`
+at `v = (0.2, 0.1, 0)` the bracket divided by `|a|` tends to `8.4·10⁻⁴`
+as `a → 0` at a point inside, which is that term, where at rest it
+tends to zero. So `labslice.wl` takes the lab-sliced density's history
+in the instantaneous rest frame: the density at a rest-frame event
+`P = (t′, s)` is `ρ₀` of `P`'s distance from the worldline in the rest
+frame of the worldline's event `E` that the lab sees simultaneous with
+`P`, `τ_E = t′ + v·s - v·Z′(τ_E)`. Its time-symmetric field is the
+retardation series of `nearfield.wl` at any `t′`, evaluated at
+`t′ = -v·y`, and `Λ_N` is that minus `phiN[N]`. Everything is
+polynomial in `v`, which enters only through the slicing.
+`INSPIRAL.md`'s formula, which re-expands the rest-frame near field at
+`t′` with the particle at its position and velocity then, is the same
+with a rest-frame-sliced density.
+
+The worldline in the rest frame is `Z′(τ) = ½α′τ² + ⅙Bτ³ + (1/24)Cτ⁴`
+in its coordinate time; these are `nearfield.wl`'s `a`, `ȧ` and `ä`.
+`rest_frame_derivatives(traj)` gives them from the lab's `v`, `a`, `ȧ`,
+`ä` by inverting `t′(t)` along the boosted worldline as a series,
+generically, so that it works on dual numbers. `B` vanishes at rest but
+not in general: constant lab acceleration is not constant proper
+acceleration.
+
+`Λ_N` and `∇²Λ_N` are generated as sums over monomials in ten
+invariants, `v·y`, `α′·y`, `B·y`, `C·y`, `v²`, `v·α′`, `|α′|²`, `v·B`,
+`α′·B` and `v·C`, times radial functions (`lab_slice_term`,
+`lab_slice_laplacian`): 3, 21 and 74 terms at orders 1, 2, 3, with up to
+six powers of `v`, and as many in the Laplacians but one of order 2's,
+which vanishes once the `B_k` are their closed forms. They use the
+`B_k` up to `k = 11`. Some radial factors vanish as `ℓ → 0`, finite-size
+terms. The Laplacians come from the invariant form,
+`∇²(fM) = (4qf″ + 6f′ + 4kf′)M + f Σᵢⱼ ∂ᵢ∂ⱼM (uᵢ·uⱼ)` with `k` the
+degree of `M` in `y`, and are asserted against `∇²` of the terms.
+`lab_slice(m, Val(N), x, traj)` evaluates `Λ_N`. In `Float64` the
+generated terms and Laplacians agree with `BigFloat` to `10⁻¹⁴`,
+inside, outside and at `σ = 0.999` and `1.001`. Compiling a `BigFloat`
+Hessian of order 3 takes over two minutes, against 4 s in `Float64`,
+which is why its test differentiates in `Float64`.
+
+`labslice.wl` asserts: the density's displacement against the lab's own
+formula at `γ = 5/4`; that the construction at `t′ = 0` and `v = 0` is
+`nearfield.wl`'s; `Λ_N = 0` at `v = 0`; `Λ₁ = T₂` plus the field of the
+slicing density; the decompositions and Laplacians, inside and outside,
+at random exact points; and orders 0–3 of the point limit against the
+series of the exact field of uniform acceleration, the Born field
+`-Q/4πD` with `D² = g²S²/4 - (X² - t²)`, on the tilted slice
+`t′ = -v·y`, at three points and velocities, exactly. That is the
+independent check `INSPIRAL-PLAN.md` asks for at `t ≠ 0`. `Λ₁` exerts
+no force on the particle at rest: the slicing field's cancels `T₂`'s
+`(11/60)δm v²α′ + (11/30)δm (v·α′)v`. So M6a's self-force needs no
+order-1 lab-slice term.
+
+The particle field and the bracket still carry `T₂` and the lab's `ä`.
+Switching them to `Λ_N` and `C` means new invariants with their rates in
+`ParticleJets`, and is the rest of M5.
 
 ### The split
 
@@ -1787,10 +1856,11 @@ written without the averaging and the force read both ways, are
   TreeWave.
 - `src/particle_forms.jl`: generated by `derivations/generate.wl`, not
   edited by hand; the profile's radial functions, the near-field terms
-  and their Laplacians, the `t′²` term and its Laplacian, and the
-  self-force coefficients.
-- `src/particle.jl`: `ParticleModel`, `Trajectory`, the boost, the
-  `t′²` term of the lab slice (`lab_slice`), `Ψ`, `𝒟Ψ`, `ParticleJets`
+  and their Laplacians, the `t′²` term and its Laplacian, the lab slice
+  of orders 1–3 and its Laplacians, and the self-force coefficients.
+- `src/particle.jl`: `ParticleModel`, `Trajectory`, the boost,
+  `rest_frame_derivatives`, the `t′²` term (`lab_slice(m, x, traj)`) and
+  the lab slice (`lab_slice(m, Val(N), x, traj)`), `Ψ`, `𝒟Ψ`, `ParticleJets`
   and the source bracket, `Window`, and `ParticleSource`.
 - `src/transfer.jl`: `gauss_nodes_weights`, `GaussRule`,
   `TransferTables`, `sinh_rule`, `ParticleSupport`, the far, graded and
@@ -1809,7 +1879,7 @@ written without the averaging and the force read both ways, are
   `retarded_field`, and `point_model`.
 - `derivations/`: the Wolfram Language derivations (`profile.wl`,
   `nearfield.wl`, `selfforce.wl`, and `labslice.wl`, the `t′²` term of
-  `Φ_C` that M5 extends), each runnable alone with
+  `Φ_C` and M5's lab slice), each runnable alone with
   `wolframscript -file` and asserting its identities, the generator
   `generate.wl`, and `common.wl`, which they load.
 - `bin/visualize2d.jl`, `bin/Project.toml`: the viewer and its
@@ -1940,7 +2010,15 @@ tests about 40 s on one.
   `-∇²Φ⁽³⁾`, and a point particle's bracket has no order-3 part, where
   without the `t′²` term it would keep `(a·r)²(a·∇Φ₀)`; the
   point limits are the hyperbolic-motion terms and leave a residual
-  falling as `r³`; `𝒟Ψ` and the bracket equal `BigFloat` finite
+  falling as `r³`; `rest_frame_derivatives` gives back the `α′`, `B`, `C`
+  of a rest-frame worldline seen from a moving lab; each lab-slice
+  order's `Float64` Hessian, and its `Float64` closed forms, equal its
+  `BigFloat` closed forms to `1e-13`, inside, outside and at the edge;
+  the lab slice vanishes at `v = 0`, and for a point `Λ₁` is the `t′²`
+  term; and for uniform acceleration seen from a lab where the particle
+  moves, the rest-frame derivatives are `gn`, 0 and `-3g³n`, and orders
+  0–3 with the lab slice leave a residual against the Born field on the
+  lab's slice falling as `r³`, and without it as `r⁰`; `𝒟Ψ` and the bracket equal `BigFloat` finite
   differences in `t` and `x`; the `Float64` bracket equals the naive
   difference in `BigFloat` to `1e-15 Q|a|/ℓ²` at `v = 0.2` and `0.05`,
   and to `1e-12` relative without the near field, and vanishes to
