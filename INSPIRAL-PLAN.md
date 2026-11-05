@@ -6,16 +6,15 @@ merged pull request and a green suite. The milestones follow
 knows it is done. Section names of `INSPIRAL.md` and `CODE.md` are used
 below without links.
 
-**Status.** M0 to M3b are done. M2's cost gate fired, and the cost is
+**Status.** M0 to M4 are done. M2's cost gate fired, and the cost is
 accepted for now. M3's clean-time gate fired, and the owner answered it
 on 2026-11-01 with a static forest of nested boxes, which is M3b; it
-also brings the binary's warm-up and orbits back as M7. M4 is done on
-its branch: its go/no-go gate fired on 2026-11-02, and passes since the
-owner had the `t′²` term of `Φ_C`'s lab slice carried ahead of M5 and
-the source written and the forces read through the averaging over
-shared nodes (2026-11-03). Nothing else is started. The decisions
-below were settled with the owner on 2026-10-30, 2026-11-01 and
-2026-11-02. A milestone's status line changes here when its work starts
+also brings the binary's warm-up and orbits back as M7. M4's go/no-go
+gate fired on 2026-11-02, and passes since the owner had the `t′²` term
+of `Φ_C`'s lab slice carried ahead of M5 and the source written and the
+forces read through the averaging over shared nodes (2026-11-03).
+Nothing else is started. The decisions below were settled with the
+owner on 2026-10-30, 2026-11-01, 2026-11-02 and 2026-11-03. A milestone's status line changes here when its work starts
 and when its pull request merges.
 
 **Contents**
@@ -586,7 +585,7 @@ On Symmetry:
 
 ## M4: Prescribed paths
 
-**Status:** done on branch `inspiral-m4-prescribed`, not merged. The
+**Status:** done; on `main`. The
 go/no-go gate fired on 2026-11-02: the radial force did not converge to
 zero, and face crossings gave impulses far above the radiation-reaction
 force. The owner chose to carry the `t′²` term of `Φ_C`'s lab slice
