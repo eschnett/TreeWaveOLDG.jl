@@ -744,3 +744,19 @@ How the package got where it is, by topic in `CODE.md`'s order.
   (eschnett/TreeAMR.jl#32) through `[sources]`, until it is; the
   viewer's environment needs its own entry, since its direct TreeAMR
   dependency would otherwise resolve from the registry.
+- 2026-11-06: CI builds precompiled code for `x86-64-v3` on Linux and
+  `apple-m1` on macOS rather than `native`, puts the target into the
+  cache key and prints each runner's CPU, carried over from TreeWave
+  (whose `HISTORY.md`, "Precompiled code and mixed runners", has the
+  runs). GitHub's Linux runners have several CPUs, and TreeWave's and
+  TreeHydro's viewer jobs had restored a cache and rebuilt nearly every
+  package anyway. Here the viewer's cache hits had held so far, with 4
+  to 33 of 323 packages rebuilt, most likely because consecutive runs
+  happened to land on the same CPU model.
+- 2026-11-06: confirmed on the pull request's run 42281957473. Its
+  first attempt found no cache under the new key and rebuilt everything,
+  the viewer 284 packages in 299 s on an AMD EPYC 9V74. The re-run
+  restored that cache on an Intel Xeon 6973P-C and rebuilt nothing: the
+  viewer's instantiate step took 8 s, and the viewer job 1 m 53 in all.
+  In TreeWave the macOS cache held across an Apple M1 and an M2 Pro,
+  although GitHub documents every arm64 macOS runner as an M1.
