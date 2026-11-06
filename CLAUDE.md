@@ -251,8 +251,11 @@ guards.
   eschnett/TreeAMR.jl#32 is merged and gone). Remove those
   three entries once 0.2.7 is registered, and update both Manifests.
 - CI (`.github/workflows/CI.yml`) runs the suite with
-  `--check-bounds=yes` on Linux and macOS, and on four threads on Linux.
-  Do not drop its `check_bounds: 'yes'` line ("The right-hand side").
+  `--check-bounds=yes` on Linux at one and four threads, and on `main`,
+  weekly and on dispatch also on macOS, with the coverage; Markdown-only
+  changes and tags run nothing. So run the full suite locally before
+  opening a pull request: that is the macOS run the pull request does not
+  get. Do not drop its `check_bounds: 'yes'` line ("The right-hand side").
 - `Manifest.toml` (root and `bin/`), `bin/output/` and `TODO.md` are
   gitignored. `bin/` has its own Manifest, so after a dependency change
   update both, or the viewer fails on an API the tests already use. `TODO.md` is the owner's
