@@ -744,6 +744,14 @@ How the package got where it is, by topic in `CODE.md`'s order.
   (eschnett/TreeAMR.jl#32) through `[sources]`, until it is; the
   viewer's environment needs its own entry, since its direct TreeAMR
   dependency would otherwise resolve from the registry.
+- 2026-11-05: CI in two tiers, as in every Tree* repository (TreeAMR's
+  `HISTORY.md`, "Development environment and CI", has the measurements):
+  a pull request runs the Linux cells only, uninstrumented; `main`, a
+  weekly schedule and a manual dispatch add macOS and its coverage;
+  Markdown and `docs/` changes and tags run nothing. The serial Linux
+  cell is new: the threaded `include` entry, against a matrix with no
+  `threads` key, had merged into it, so CI had run macOS at one thread
+  and Linux at four only.
 - 2026-11-06: CI builds precompiled code for `x86-64-v3` on Linux and
   `apple-m1` on macOS rather than `native`, puts the target into the
   cache key and prints each runner's CPU, carried over from TreeWave

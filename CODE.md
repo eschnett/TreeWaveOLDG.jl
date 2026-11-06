@@ -1854,8 +1854,9 @@ its release pull request (eschnett/TreeAMR.jl#32) through `[sources]`,
 and those entries go once it is. The particle needs
 ForwardDiff 1 (time and space derivatives by dual numbers), StaticArrays
 1.9 (`isbits` 3-vectors) and LinearAlgebra. `.github/workflows/CI.yml` is TreeWave's test job:
-Julia 1.13 on Linux and macOS with `--check-bounds=yes`, plus a
-four-thread cell on Linux, with coverage to Codecov, and a viewer job
+Julia 1.13 with `--check-bounds=yes` on Linux at one and four threads,
+and off pull requests on macOS too, with coverage to Codecov (two tiers,
+the same in every Tree* repository), and a viewer job
 that renders both blast-wave figures and uploads them, as TreeWave's
 does.
 Both jobs build precompiled code for one fixed CPU per OS,
