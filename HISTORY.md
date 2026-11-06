@@ -753,3 +753,10 @@ How the package got where it is, by topic in `CODE.md`'s order.
   package anyway. Here the viewer's cache hits had held so far, with 4
   to 33 of 323 packages rebuilt, most likely because consecutive runs
   happened to land on the same CPU model.
+- 2026-11-06: confirmed on the pull request's run 42281957473. Its
+  first attempt found no cache under the new key and rebuilt everything,
+  the viewer 284 packages in 299 s on an AMD EPYC 9V74. The re-run
+  restored that cache on an Intel Xeon 6973P-C and rebuilt nothing: the
+  viewer's instantiate step took 8 s, and the viewer job 1 m 53 in all.
+  In TreeWave the macOS cache held across an Apple M1 and an M2 Pro,
+  although GitHub documents every arm64 macOS runner as an M1.
