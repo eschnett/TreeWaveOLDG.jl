@@ -1859,6 +1859,14 @@ and off pull requests on macOS too, with coverage to Codecov (two tiers,
 the same in every Tree* repository), and a viewer job
 that renders both blast-wave figures and uploads them, as TreeWave's
 does.
+Both jobs build precompiled code for one fixed CPU per OS,
+`JULIA_CPU_TARGET=x86-64-v3` on Linux and `apple-m1` on macOS, and put
+that target into the cache key, as TreeWave's do: GitHub's Linux runners
+have several CPUs, and code built for `native` is refused by a runner
+with a different one, so a cache hit could still mean rebuilding
+everything. Julia does not refuse a cached file built for a different
+target as long as the CPU can run it, which is why the target is in the
+key. Each job prints its runner's CPU before the cache step.
 
 ## Tests
 
