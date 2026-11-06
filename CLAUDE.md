@@ -193,11 +193,21 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   of the invariants' rates are written out term by term, never as `İ`
   minus its uniform part, and near-field Laplacians are generated closed
   forms ("The split").
-- **The particle field carries the `t′²` term of `Φ_C`'s lab slice from
-  order 1 on** (`lab_slice`, generated from `derivations/labslice.wl`).
-  Without it the remainder holds an `r⁰` structure proportional to `v²a`
-  whose force the grid reads more strongly the finer the elements; do
-  not drop it from `Ψ`, `𝒟Ψ` or the bracket ("The near field").
+- **The particle field carries the lab slice of each order it carries**
+  (`lab_slice(m, Val(N), …)`, generated from `derivations/labslice.wl`),
+  and the near field takes the rest frame's `C` for `ä`
+  (`rest_frame_derivatives`). The lab slice is the field of the
+  lab-sliced density, not `INSPIRAL.md`'s re-expansion of the rest-frame
+  near field: its order 1 is the `t′²` term of `Φ_C` plus the field of
+  the slicing density, without which the bracket keeps `O(a)` inside the
+  particle, and without the `t′²` term the remainder an `r⁰` structure
+  whose force the grid reads the more strongly the finer it is. Do not
+  drop it from `Ψ`, `𝒟Ψ` or the bracket ("The near field").
+- **The generated lab slice sums with `+=`, is not inlined, and the
+  bracket reads its coefficients in place** (`_coefficient`). One long
+  `a + b + …` allocates, inlining makes a `BigFloat` Hessian take minutes
+  to compile, and wrapping the tables per point copies kilobytes ("The
+  near field").
 - **The source is written and the forces read through the averaging
   over shared nodes** (`InspiralProblem`'s `continuous`, the default):
   the transfer alone reads the jump of the field across a face the

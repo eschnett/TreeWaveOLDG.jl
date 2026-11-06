@@ -1051,13 +1051,13 @@ which `INSPIRAL.md` does not mention, enters the mass
 generated `self_inertia`, `self_force_addot`, `self_force_a2a` and
 `self_potential_a2` hold these coefficients for M6.
 
-**Moving particles.** Until the particle field switches to the lab
-slice of M5 (**The lab slice** below),
-`near_field(m, Val(N), x, traj)` is the rest-frame term at the
-rest-frame position `y = Λ(v)(x - z)`, with the proper acceleration
-`α′ = γ²Λ(v)a` for `a` and with the lab's `ä` as given. At rest it is the
-time-symmetric field order by order. Moving, it lacks the re-expansion,
-and its `ä` should be the rest frame's `C`.
+**Moving particles.** `near_field(m, Val(N), x, traj)` is the rest-frame
+term at the rest-frame position `y = Λ(v)(x - z)`, with the rest frame's
+derivatives of the worldline of `rest_frame_derivatives`: the proper
+acceleration `α′ = γ²Λ(v)a` for `a` and `C` for `ä` (**The lab slice**
+below). At rest it is the time-symmetric field order by order. Moving,
+the particle field adds the lab slice of each order it carries,
+`lab_slice(m, Val(N), x, traj)`.
 
 **The `t′²` term of `Φ_C`,** the one part of the re-expansion carried
 ahead of M5, decided by the owner on 2026-11-02 after M4's first series
@@ -1078,17 +1078,15 @@ is
     ∇²T₂ = -[2v²(α′·y)Φ₀′ + 4(v·y)(v·α′)Φ₀′ + (v·y)²(α′·y)(8Φ₀″ + ρ₀′)],
 
 with `∇²Φ₀ = ρ₀` differentiated in `q` so that no term of size `Q/ℓ³`
-appears, and `generate.wl` emits both (`_tprime2_term`,
-`_tprime2_laplacian`). `lab_slice(m, x, traj)` evaluates it.
-`particle_field` carries it **from order 1 on**, gated with the order-1
-term rather than always on: it holds one acceleration, so it counts as
-order 1, and `INSPIRAL.md`'s table asks each order carried to come with
-its lab-slice corrections; order 0 stays the particle paper's `Φ_C`
-alone. Its own force on the particle at rest, which M6a's analytic
-self-force will need, is `(11/60)δm v²α′ + (11/30)δm (v·α′)v`
-(`self_force_tprime2_v2`, `self_force_tprime2_va`). The rest of the
-re-expansion, the `t′` and `t′²` terms of the near-field orders, which
-count as order 2 and above, are M5's.
+appears. From M4 to M5 the particle field carried `T₂` alone, from order
+1 on, gated with the order-1 term: it holds one acceleration, so it
+counts as order 1, and `INSPIRAL.md`'s table asks each order carried to
+come with its lab-slice corrections; order 0 stays the particle paper's
+`Φ_C` alone. Since M5, `T₂` is part of the lab slice of order 1, `Λ₁`,
+which the particle field carries with order 1 in the same way, and it is
+no longer generated on its own; `labslice.wl` still derives it, as a
+check of `Λ₁`. Its own force on the particle at rest is
+`(11/60)δm v²α′ + (11/30)δm (v·α′)v`; `Λ₁`'s is zero.
 
 It also removes something at rest, which `INSPIRAL.md` does not say.
 The bracket of [The split](#the-split) takes `∂ₜ²`, which sees the field
@@ -1103,8 +1101,7 @@ extended one's keeps only terms in `(ℓ/r)²` (`particle_tests.jl`). Those
 are the second time derivative of the field of the slicing density of
 **The lab slice** below, which `T₂` alone lacks.
 
-**The lab slice** (M5; derived and generated,
-not yet carried by the particle field **(open)**). `labslice.wl`
+**The lab slice** (M5). `labslice.wl`
 derives the whole re-expansion of orders 1–3, `Λ_N`, what the field of
 order `N` on the lab's slice adds to the rest-frame term `near_field`.
 It is not `T₂` and the `t′` terms of the rest-frame near field alone.
@@ -1147,9 +1144,54 @@ terms. The Laplacians come from the invariant form,
 degree of `M` in `y`, and are asserted against `∇²` of the terms.
 `lab_slice(m, Val(N), x, traj)` evaluates `Λ_N`. In `Float64` the
 generated terms and Laplacians agree with `BigFloat` to `10⁻¹⁴`,
-inside, outside and at `σ = 0.999` and `1.001`. Compiling a `BigFloat`
-Hessian of order 3 takes over two minutes, against 4 s in `Float64`,
-which is why its test differentiates in `Float64`.
+inside, outside and at `σ = 0.999` and `1.001`.
+
+The source evaluates them some `10⁷` times per right-hand side for the
+same particle, so the generator emits each order and kind (the term, its
+Laplacian) in two steps. The terms are gathered by their monomial in the
+four invariants linear in `y` and their power of `ℓ` or `r`; the six
+others do not depend on the point, so each group's radial polynomial with
+them folded in is one polynomial, whose coefficients
+`_lab_coefficients` computes once per particle and step, and
+`_lab_evaluate` sums one polynomial per group: 3, 10 and 23 groups at
+orders 1–3 on each side of the particle's edge, where there are 3, 21
+and 74 terms. `_lab_slice_term` and `_lab_slice_laplacian` chain the
+two. The branch on `σ < 1` is taken once per evaluation, and `r`, `ℓ²/q`
+or `σ²`, `1 - σ²` are formed once; inside, a group's polynomial is in
+`σ²` or `1 - σ²`, whichever is better conditioned for the worst of its
+terms. Three things the generated code must keep, each found the hard
+way:
+
+- **Running sums.** Julia parses `a + b + …` as one call of `+` with as
+  many arguments, which allocates beyond about 30 of them: the order-3
+  sum written as one expression allocated even in `Float64`.
+- **No inlining.** A `BigFloat` Hessian of the order-3 lab slice with
+  every radial function inlined took 178 s to compile, against 4 s in
+  `Float64`, and 17 s with them out of line. `_lab_coefficients` and
+  `_lab_evaluate` are not inlined; the polynomials inside them are.
+- **No copies of the tables.** The bracket reads a coefficient in place
+  through `_coefficient(c, i, d)`, which lifts it from its rates there;
+  wrapping the tables for every point copied them, about 10 KB per
+  evaluation, and order 0 cost ten times what it did.
+
+One evaluation of the source's bracket per point, one particle, `Float64`
+on the laptop (`source_terms`, inside and outside the particle):
+
+| order | 0 | 1 | 2 | 3 |
+|---|---|---|---|---|
+| before M5 (`T₂` alone), ns | 8.5 | 48 | 69 | 102 |
+| each term on its own, inlined, ns | 17 | 129 | 1044 | 4413 |
+| one function per order, ns | 17 | 72 | 380 | 1867 |
+| grouped, as now, ns | 15 | 71 | 315 | 1017 |
+
+So carrying the lab slice costs ten times what the source cost at
+order 3, and the projection is mostly source evaluations ([The
+transfer's cost](#the-transfers-cost)) **(open)**: on Symmetry the
+projection costs 8.2 times what it did at order 3 and a step 4.9 times
+([Prescribed paths](#prescribed-paths-1) under "Measured results"). The
+grouped form
+costs more to compile in `BigFloat`: the particle tests take 5m46 on the
+laptop, against 1m53 one function per order and 43 s before M5.
 
 `labslice.wl` asserts: the density's displacement against the lab's own
 formula at `γ = 5/4`; that the construction at `t′ = 0` and `v = 0` is
@@ -1164,18 +1206,22 @@ no force on the particle at rest: the slicing field's cancels `T₂`'s
 `(11/60)δm v²α′ + (11/30)δm (v·α′)v`. So M6a's self-force needs no
 order-1 lab-slice term.
 
-The particle field and the bracket still carry `T₂` and the lab's `ä`.
-Switching them to `Λ_N` and `C` means new invariants with their rates in
-`ParticleJets`, and is the rest of M5.
+The particle field carries `Λ_N` with order `N`, and the near field
+takes `C` for `ä`; the bracket follows ([The split](#the-split)). With
+them, along any motion, the bracket with orders up to `N` carried is
+`O(ε^{N+1})` when the derivatives of the velocity scale as `εᴺ`, inside
+the particle and out (`particle_tests.jl`); before, `T₂` alone left
+`Q(v·y)²(α′·y)ρ₀′` at `O(ε)` inside it.
 
 ### The split
 
 The particle field and its time derivative, `INSPIRAL.md`'s "The
 particle field":
 
-- `particle_field(m, x, traj; order)` is `Ψ = Φ_C + Σ_{N ≤ order} Φ⁽ᴺ⁾`,
-  `order` from 0 (the particle paper's `Φ_C` alone) to 3, so that M4
-  can measure what each order buys.
+- `particle_field(m, x, traj; order)` is
+  `Ψ = Φ_C + Σ_{N ≤ order} (Φ⁽ᴺ⁾ + Λ_N)`, the near field and the lab
+  slice of each order, `order` from 0 (the particle paper's `Φ_C`
+  alone) to 3, so that M4 can measure what each order buys.
 - `particle_rate(m, x, traj; order)` is `𝒟Ψ`, a dual-number derivative
   in `t` of `Ψ` along the trajectory's Taylor polynomial.
 
@@ -1188,16 +1234,18 @@ the bracket is assembled without subtracting them:
   `γ²(v·∇_y)² = (v·∇_x)² = (v·∂_z)²`. So the bracket is
   `𝒟²Ψ - (v·∂_z)²Ψ`, the part of `Ψ`'s second time derivative the
   acceleration causes, minus `∇²_y` of the near-field terms and of the
-  `t′²` term, which is their generated closed form. The `t′²` term obeys
+  lab slice, which is their generated closed form. The lab slice obeys
   the same `∇²_x = ∇²_y + (v·∂_z)²`, as every function of `y` at fixed
-  `v` does.
-- `Ψ` depends on `x` and `t` only through five invariants: `q = |y|²`,
-  `α′·y`, `|α′|²`, `ä·y` and `v·y`, the last for the `t′²` term. With
-  `r = x - z` and `M = Λ(v)² = I + γ²vvᵀ` they are `rᵀMr`, `k·r` with
-  `k = γ²Ma`, `γ⁴aᵀMa`, `e·r` with `e = Λ(v)ä`, and `w·r` with `w = γv`,
-  so their dependence on time is through `r`, with `ṙ = -v` and
-  `r̈ = -a`, and through `M`, `k`, `γ⁴aᵀMa`, `e` and `w`, which do not
-  depend on `x`. Of each invariant `I` the bracket needs the rate `İᵤ`
+  `v` and rest-frame derivatives does.
+- `Ψ` depends on `x` and `t` only through eleven invariants: `q = |y|²`,
+  the four `u·y` for the rest-frame vectors `u = v, α′, B, C`, and their
+  six dot products that the lab slice reads, `v²`, `v·α′`, `|α′|²`,
+  `v·B`, `α′·B` and `v·C`. With `r = x - z` and `M = Λ(v)² = I + γ²vvᵀ`
+  they are `rᵀMr`, `(Λ(v)u)·r` with `Λ(v)v = γv`, and numbers that do not
+  depend on `x`, so their dependence on time is through `r`, with
+  `ṙ = -v` and `r̈ = -a`, and through `M`, the `Λ(v)u` and the dot
+  products. The lab slice reads the dot products only through its
+  groups' coefficients, which `ParticleJets` holds with their rates. Of each invariant `I` the bracket needs the rate `İᵤ`
   of uniform motion (`r` moving with `-v`, everything else held) and the
   acceleration's parts `δİ = İ - İᵤ` and `δÏ = Ï - Ïᵤ`, written out term
   by term: for `q`, `δq̇ = rᵀṀr` and `δq̈ = -2aᵀMr - 4vᵀṀr + rᵀM̈r`.
@@ -1221,15 +1269,19 @@ several particles, a callable `S(x)`,
 
 zero beyond the window, and `particle_source(models, w, x, trajs; order)`
 is the same at one point. It holds each particle's `ParticleJets`, the
-`x`-independent `M`, `k`, `|α′|²` and `e` with their first two time
-derivatives, by dual numbers along the trajectory, once per source and
-not per point, and is `isbits`, so that it can be a kernel argument. In
-the window's transition the same evaluation of `Ψ` carries a second
-outer partial seeded with `∇W·∇I`, which gives `∇W·∇Ψ`, and its value
-gives `Ψ`. On the laptop a point inside the window costs 0.14 µs for
-both particles and one in the transition 0.22 µs, of which 11 ns is
-`window_terms`; building the jets costs 0.8 µs per particle
-([The transfer's cost](#the-transfers-cost)).
+`x`-independent `M`, the `Λ(v)u`, the dot products and the lab slice's
+coefficients (the term's with their first two time derivatives, the
+Laplacian's alone), by dual numbers along the trajectory, once per
+source and not per point, and is `isbits`, so that it can be a kernel
+argument; with the coefficients it is about 18 KB per particle. In the
+window's transition the same evaluation of `Ψ` carries a second outer
+partial seeded with `∇W·∇I`, which gives `∇W·∇Ψ`, and its value gives
+`Ψ`. Before M5, on the laptop, a point inside the window cost 0.14 µs
+for both particles and one in the transition 0.22 µs, of which 11 ns is
+`window_terms`, and building the jets 0.8 µs per particle ([The
+transfer's cost](#the-transfers-cost)); the lab slice multiplies the
+first two by about ten (**The lab slice** in [The near
+field](#the-near-field)).
 
 ### The window
 
@@ -1856,11 +1908,12 @@ written without the averaging and the force read both ways, are
   TreeWave.
 - `src/particle_forms.jl`: generated by `derivations/generate.wl`, not
   edited by hand; the profile's radial functions, the near-field terms
-  and their Laplacians, the `t′²` term and its Laplacian, the lab slice
-  of orders 1–3 and its Laplacians, and the self-force coefficients.
+  and their Laplacians, the lab slice of orders 1–3 and its Laplacians
+  (coefficients per group, then the groups' sum), and the self-force
+  coefficients.
 - `src/particle.jl`: `ParticleModel`, `Trajectory`, the boost,
-  `rest_frame_derivatives`, the `t′²` term (`lab_slice(m, x, traj)`) and
-  the lab slice (`lab_slice(m, Val(N), x, traj)`), `Ψ`, `𝒟Ψ`, `ParticleJets`
+  `rest_frame_derivatives`, the lab slice (`lab_slice(m, Val(N), x, traj)`),
+  `Ψ`, `𝒟Ψ`, `ParticleJets`
   and the source bracket, `Window`, and `ParticleSource`.
 - `src/transfer.jl`: `gauss_nodes_weights`, `GaussRule`,
   `TransferTables`, `sinh_rule`, `ParticleSupport`, the far, graded and
@@ -2002,24 +2055,25 @@ tests about 40 s on one.
   in `Float64`, and so do `δm` and `∬ρρ′|x - x′|`; a particle below
   its classical radius is refused; `□_vΦ_C = ρ` at `v = 0.2` in several
   directions; each order's generated Laplacian is its nested-dual
-  Laplacian; the `t′²` term is the `t′²` coefficient of the displaced
-  `Φ₀` at the boosted position, inside and outside, its Laplacian is its
-  generated closed form, and outside it is `-(Q/8π)v²(v̂·n̂)²(α′·n̂)`;
-  along a motion through rest the bracket is `∇²Φ⁽ᴺ⁺¹⁾` at the first
-  order not carried, for orders 0 and 1, order 3 enters through
-  `-∇²Φ⁽³⁾`, and a point particle's bracket has no order-3 part, where
-  without the `t′²` term it would keep `(a·r)²(a·∇Φ₀)`; the
-  point limits are the hyperbolic-motion terms and leave a residual
-  falling as `r³`; `rest_frame_derivatives` gives back the `α′`, `B`, `C`
-  of a rest-frame worldline seen from a moving lab; each lab-slice
-  order's `Float64` Hessian, and its `Float64` closed forms, equal its
-  `BigFloat` closed forms to `1e-13`, inside, outside and at the edge;
-  the lab slice vanishes at `v = 0`, and for a point `Λ₁` is the `t′²`
-  term; and for uniform acceleration seen from a lab where the particle
-  moves, the rest-frame derivatives are `gn`, 0 and `-3g³n`, and orders
-  0–3 with the lab slice leave a residual against the Born field on the
-  lab's slice falling as `r³`, and without it as `r⁰`; `𝒟Ψ` and the bracket equal `BigFloat` finite
-  differences in `t` and `x`; the `Float64` bracket equals the naive
+  Laplacian; `Λ₁` minus the `t′²` coefficient of the displaced `Φ₀` at
+  the boosted position has the Laplacian `Q(v·y)²(α′·y)ρ₀′` inside and
+  none outside, every `Λ_N` vanishes at `v = 0`, and for a point `Λ₁` is
+  `-(Q/8π)v²(v̂·n̂)²(α′·n̂)`; along a motion through rest the bracket is
+  `∇²Φ⁽ᴺ⁺¹⁾` at the first order not carried, for orders 0 and 1, order 3
+  enters through `-∇²Φ⁽³⁾`, and a point particle's bracket has no
+  order-3 part, where without `Λ₁` it would keep `(a·r)²(a·∇Φ₀)`; along
+  a motion at `v = 0.19`, inside and outside, the bracket with orders up
+  to `N` carried falls as `ε^{N+1}`; the point limits are the
+  hyperbolic-motion terms and leave a residual falling as `r³`;
+  `rest_frame_derivatives` gives back the `α′`, `B`, `C` of a rest-frame
+  worldline seen from a moving lab; each lab-slice order's `Float64`
+  Hessian, and its `Float64` closed forms, equal its `BigFloat` closed
+  forms to `1e-13`, inside, outside and at the edge; and for uniform
+  acceleration seen from a lab where the particle moves, the rest-frame
+  derivatives are `gn`, 0 and `-3g³n`, and orders 0–3 with the lab slice
+  leave a residual against the Born field on the
+  lab's slice falling as `r³`, and without it as `r⁰`; `𝒟Ψ` and the
+  bracket equal `BigFloat` finite differences in `t` and `x`; the `Float64` bracket equals the naive
   difference in `BigFloat` to `1e-15 Q|a|/ℓ²` at `v = 0.2` and `0.05`,
   and to `1e-12` relative without the near field, and vanishes to
   `1e-15 Q/ℓ³` without acceleration; the window's step is exactly
@@ -2511,6 +2565,8 @@ What it says:
 
 ### The source bracket
 
+Measured before M5, with `T₂` alone; the suite's check, `10⁻¹⁵ Q|a|/ℓ²`
+against the naive difference, holds with the lab slice carried.
 `source_bracket` with orders 1–3 carried, against the naive difference
 `∂ₜ²Ψ - ∇²Ψ + ρ` evaluated in `BigFloat`: the largest error over twelve
 points at `σ = 0.3, 0.9, 1.5, 4` in three directions, for `Q = 0.07`,
@@ -3105,8 +3161,9 @@ layout, so the convergence series starts from the retarded field.
   every resolution from `d/6` on, `-1.34·10⁻⁹` at `t = 1/4`: a
   continuum force of the remainder, not a grid error, from the parts of
   the lab slice not carried yet (M5's) or the finite-size terms beyond
-  them. Without the term the force grew as `v²` and with resolution until
-  `d/12`, the term's reading.
+  them. M5 settled it: it was the lab slice (below). Without the term
+  the force grew as `v²` and with resolution until `d/12`, the term's
+  reading.
 - **At `t = 0` the rates are those of "Why the near field must be
   analytic".** There the remainder is the time-symmetric field beyond
   the orders carried, and nothing has evolved: with order 2 the force
@@ -3160,6 +3217,76 @@ first series' (7543, but `d/16` on a 7532):
   ([Nested boxes](#nested-boxes-1)).
 - **A circle to `t = 8`** takes 2048 steps at `d/8`, about 30 minutes,
   and 4096 at `d/16`, about 5.5 hours.
+
+**Hyperbolic motion with the lab slice** (M5; branch
+`inspiral-m5-labslice` against `main` at `16217a9`, 2026-11-05,
+Julia 1.13.3, 64 threads, EPYC 7543 throughout: readings jobs 590189–91
+and 590195–97, evolutions 590192–94 and 590198–200, on `cn097`, `cn106`
+and `cn110`). The layout and `g = 0.1` as above, at the times where
+`v = 0.05`, 0.1 and 0.2 (`t = 0.501`, 1.005 and 2.041). The exact
+remainder's force along the acceleration, read without evolving it
+(`--reading`), with the lab slice carried and on `main`:
+
+| `hₑ` | order | `v = 0.05` | 0.1 | 0.2 | `main`, 0.05 | 0.1 | 0.2 |
+|---|---|---|---|---|---|---|---|
+| `d/4` | 3 | -4.2e-12 | -7.0e-12 | 2.3e-12 | -5.7e-10 | -8.2e-10 | 3.7e-9 |
+| `d/6` | 3 | -1.4e-12 | -5.9e-12 | -4.0e-12 | -6.0e-11 | -2.9e-9 | -9.9e-9 |
+| `d/8` | 3 | -6.0e-13 | -1.3e-12 | 2.5e-12 | -2.4e-10 | -1.3e-9 | 1.3e-8 |
+| `d/12` | 3 | -6.6e-13 | 1.5e-12 | 7.3e-13 | -7.9e-10 | 3.6e-9 | 1.0e-8 |
+| `d/4` | 2 | 1.1e-9 | -2.1e-9 | -3.3e-10 | 5.0e-10 | -3.6e-9 | 1.7e-9 |
+| `d/6` | 2 | 4.9e-10 | -1.2e-9 | -1.5e-9 | 3.7e-10 | -4.6e-9 | -1.3e-8 |
+| `d/8` | 2 | -6.8e-11 | -1.6e-10 | -1.1e-9 | -3.7e-10 | -1.7e-9 | 1.1e-8 |
+| `d/12` | 2 | -6.9e-10 | -7.7e-10 | -2.2e-10 | -1.5e-9 | 2.6e-9 | 9.5e-9 |
+
+- **The `v²` force is gone at order 3.** With the lab slice the reading
+  is a few `10⁻¹²` at every speed and resolution, the size of the
+  `t = 0` reading above, where `main`'s grows with `v` to `10⁻⁸` at
+  `v = 0.2` and does not fall with resolution. So `main`'s force was the
+  continuum force of the lab slice it did not carry, as M4 guessed. The
+  force across the acceleration reads the same: at most `5·10⁻¹²` with
+  the lab slice, up to `4·10⁻⁸` on `main`.
+- **Order 2 reads about `10⁻⁹`** at every speed, with or without, since
+  it does not carry `Λ₃`; with the lab slice it no longer grows with `v`.
+
+**The evolutions** to `t = 2.041` (`v = 0.2`) at `d/4` and `d/8`, orders
+2 and 3, from the retarded field. The field's error is `main`'s to
+three digits at every time (`err_R1` `2.4·10⁻⁷` at `t = 1/2` and
+`6.1·10⁻⁷` at the end at `d/8`, order 3), so the lab slice's terms are
+below the evolution's own error away from the particle. The force along
+the acceleration, every step, order 3:
+
+| `t` | 0.125 | 0.25 | 0.5 | 1.0 | 1.5 | 2.04 |
+|---|---|---|---|---|---|---|
+| `d/8`, lab slice | -1.9e-11 | -1.5e-10 | 8.5e-10 | -1.0e-8 | -6.9e-8 | -2.5e-8 |
+| `d/8`, `main` | -2.1e-10 | -8.2e-10 | -7.4e-10 | -9.6e-9 | -5.1e-8 | -2.3e-8 |
+| `d/4`, lab slice | 2.8e-11 | 1.3e-9 | -2.3e-8 | -6.6e-8 | -1.7e-7 | -4.9e-8 |
+| `d/4`, `main` | -2.3e-10 | 4.1e-10 | -2.6e-8 | -6.8e-8 | -1.7e-7 | -1.9e-8 |
+
+- **Up to `t ≈ 1/4` the evolved force is the reading's,** five to ten
+  times below `main`'s at `d/8`. After that both grow alike to
+  `10⁻⁸`–`10⁻⁷`, and the force across the acceleration with them,
+  `3·10⁻⁷` at `d/4` and `3.5·10⁻⁸` at `d/8` averaged over `t = 1/2` to 2,
+  falling by 8.5 from `d/4` to `d/8`: the evolved field's
+  discretization error, which the exact remainder does not have. The
+  evolutions therefore cannot show the lab slice beyond `t ≈ 1/4` at
+  these resolutions; the readings do.
+- **The cost**, seconds per call at 64 threads after a warm-up (each
+  job's own node; the order-3 `d/8` pair on `cn097` and `cn110`):
+
+| `hₑ`, order | `project_source!` | `main` | RK4 step | `main` |
+|---|---|---|---|---|
+| `d/4`, 3 | 0.394 | 0.053 | 1.64 | 0.25 |
+| `d/4`, 2 | 0.133 | 0.038 | 0.59 | 0.21 |
+| `d/8`, 3 | 0.845 | 0.103 | 3.71 | 0.75 |
+| `d/8`, 2 | 0.273 | 0.074 | 1.44 | 0.63 |
+
+  The source costs 8.2 times `main`'s at order 3 and a step 4.9 times,
+  as the per-point measurement above predicts ([The near
+  field](#the-near-field)). A circle to `t = 8` at `d/8` would take
+  about 2.1 hours rather than 30 minutes, and at `d/16` about a day.
+- **The full suite on Symmetry** (job 590202, `cn108`, EPYC 7543) took
+  60 minutes on one thread, 61 with `--check-bounds=yes` and 28 on four
+  threads, mostly compiling the `BigFloat` particle tests.
 
 ## What carried over from TreeWave, and what did not
 
@@ -3244,13 +3371,6 @@ and the device and threading test files.
 - Whether truncation should stay the default for a linear problem,
   where it costs accuracy in `u` and buys no stability (both schemes are
   linearly stable).
-- What the force left in hyperbolic motion with the `t′²` term carried
-  is: `-1.34·10⁻⁹` at `v = 0.025`, growing as `v²` and the same at every
-  resolution, so a continuum force of the remainder, from the parts of
-  the lab slice not carried (M5's) or finite-size terms beyond them. At
-  `t = 0` the force falls at first order with order 2 and second with
-  order 3, as `INSPIRAL.md` expects; afterwards this `v²` force covers
-  that.
 - Whether the bracket should hold `d⁴a·∂_äΦ⁽³⁾`. It is of order 5 near
   the particle but polynomial in `r` across the window, and in
   hyperbolic motion at `g = 0.1` it leaves an error in `Φ_r` of 3.5% of
@@ -3261,8 +3381,6 @@ and the device and threading test files.
   apart at all: its order-3 terms are too small for the grid to see, and
   the two agree to 1% in both series. A smaller radius, or M5's circle at
   `v = 0.2`, would.
-- Which `ä` the order-3 term should take for a moving particle. M1 takes
-  the lab one; the rest-frame proper-time derivative is M5's.
 - What to do about the cost of the projection, about 90 times the wave
   equation's work where `INSPIRAL-PLAN.md`'s "Gates and fallbacks" asks
   for ten (see [The transfer's cost](#the-transfers-cost)). It is

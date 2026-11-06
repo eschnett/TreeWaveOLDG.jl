@@ -126,49 +126,63 @@ end
     end
 end
 
-@testset "The t′² term is the lab slice's second-order term of Φ_C" begin
-    # Guards the generated t′² term and its Laplacian against a wrong
-    # derivation or a wrong argument: in the rest frame the static field of
-    # the particle accelerating from rest is Φ₀(|y - α′t′²/2|), at the lab
-    # slice's t′ = -v·y, and its t′² term, inside and outside, is what
-    # `lab_slice` gives at the boosted position with the proper
-    # acceleration; its Laplacian in y is the generated closed form; and
-    # outside it is -(Q/8π)v²(v̂·n̂)²(α′·n̂).
+@testset "Order 1 of the lab slice is the t′² term and the slicing density's field" begin
+    # Guards Λ₁ against a wrong derivation or a wrong argument. In the rest
+    # frame the static field of the particle accelerating from rest is
+    # Φ₀(|y - α′t′²/2|), and its t′² term at the lab slice's t′ = -v·y is
+    # T₂; Λ₁ - T₂ is the field of the density ½(v·y)²(α′·∇ρ₀) by which the
+    # lab-sliced particle differs from the rest-frame-sliced one, so its
+    # Laplacian in y is Q(v·y)²(α′·y)ρ₀′ inside and zero outside, and for
+    # a point Λ₁ is T₂, -(Q/8π)v²(v̂·n̂)²(α′·n̂). At v = 0 every Λ_N vanishes.
     m = big_model()
     traj = big_trajectory(; v=SA[big"0.2", big"0.05", big"-0.1"])
+    (; v) = traj
+    α′, B, C = TW.rest_frame_derivatives(traj)
+    T₂(η) = (t′ = -dot(v, η);
+             Φ(τ) = m.Q * TW._phi0(dot(η - α′ * τ^2 / 2, η - α′ * τ^2 / 2), m.ℓ);
+             t′^2 / 2 * TW.second_derivative(Φ, zero(t′)))
+    Λ₁(η) = TW.lab_slice_term(Val(1), m.Q, m.ℓ, η, v, α′, B, C)
+    scale = m.Q * dot(v, v) * sqrt(dot(α′, α′)) / m.ℓ^2
     for x in sample_points(traj.z, m.ℓ)
-        y, α′ = TW.rest_frame(traj, x)
-        t′ = -dot(traj.v, y)
-        Φ(τ) = m.Q * TW._phi0(dot(y - α′ * τ^2 / 2, y - α′ * τ^2 / 2), m.ℓ)
-        @test lab_slice(m, x, traj) ≈ t′^2 / 2 * TW.second_derivative(Φ, zero(t′)) rtol = 1e-60
-        v = traj.v
-        T(η) = TW._tprime2_term(m.Q, m.ℓ, dot(η, η), dot(α′, η), dot(v, η))
-        @test laplacian(T, y) ≈ TW._tprime2_laplacian(m.Q, m.ℓ, dot(y, y), dot(α′, y),
-                                                      dot(v, y), dot(v, v), dot(v, α′)) rtol = 1e-60
-        if dot(y, y) > m.ℓ^2
-            n = y / sqrt(dot(y, y))
-            @test lab_slice(m, x, traj) ≈ -m.Q / 8big(π) * dot(v, n)^2 * dot(α′, n) rtol = 1e-60
-        end
+        y = TW.boost(v, x - traj.z)
+        @test lab_slice(m, Val(1), x, traj) ≈ Λ₁(y) rtol = 1e-60
+        q = dot(y, y)
+        ρ₀′ = ForwardDiff.derivative(s -> TW._rho0(s, m.ℓ), q)
+        expected = q < m.ℓ^2 ? m.Q * dot(v, y)^2 * dot(α′, y) * ρ₀′ : zero(q)
+        @test abs(laplacian(η -> Λ₁(η) - T₂(η), y) - expected) < 1e-60 * scale
+    end
+    rest = Trajectory(; traj.z, v=zero(traj.v), traj.a, traj.ȧ, traj.ä)
+    for x in sample_points(traj.z, m.ℓ), N in 1:3
+        @test lab_slice(m, Val(N), x, rest) == 0
+    end
+    point = ParticleModel{BigFloat}(big"0.07", big"1e-30", big"1e30")
+    for x in sample_points(traj.z, big"0.01")
+        y = TW.boost(v, x - traj.z)
+        n = y / sqrt(dot(y, y))
+        @test lab_slice(point, Val(1), x, traj) ≈
+              -point.Q / 8big(π) * dot(v, n)^2 * dot(α′, n) rtol = 1e-50
     end
 end
 
+# A trajectory with the derivatives of its velocity scaled as a → εa,
+# ȧ → ε²ȧ, ä → ε³ä, a⃛ → ε⁴a⃛, so that a term of order N scales as εᴺ.
+scaled(traj, ε) = Trajectory(; traj.z, traj.v, a=ε * traj.a, ȧ=ε^2 * traj.ȧ,
+                             ä=ε^3 * traj.ä, a⃛=ε^4 * traj.a⃛)
+
 @testset "Along a motion through rest, the bracket is the first order not carried" begin
     # Guards the hierarchy ∇²Φₙ = ∂ₜ²Φₙ₋₂ as the bracket sees it. With the
-    # derivatives of the velocity scaled as a → εa, ȧ → ε²ȧ, ä → ε³ä, the
-    # bracket with orders up to N carried is O(ε^{N+1}), and for N = 0, 1
-    # its leading part is ∇²Φ⁽ᴺ⁺¹⁾. Carrying order 3 changes the bracket by
-    # -∇²Φ⁽³⁾. The rest-frame terms alone would leave (a·r)²(a·∇Φ₀) at
-    # order 3 for a point, which does not vanish at rest; the t′² term of
-    # Φ_C's lab slice, carried from order 1 on, removes it, and what is
-    # left are finite-size terms in (ℓ/r)² (CODE.md, "The near field").
+    # trajectory scaled, the bracket with orders up to N carried is
+    # O(ε^{N+1}), and for N = 0, 1 its leading part is ∇²Φ⁽ᴺ⁺¹⁾. Carrying
+    # order 3 changes the bracket by -∇²Φ⁽³⁾. The rest-frame terms alone
+    # would leave (a·r)²(a·∇Φ₀) at order 3 for a point, which does not
+    # vanish at rest: ∂ₜ² of Λ₁, whose t′² term does not vanish at
+    # neighbouring times (CODE.md, "The near field").
     ε = big"1e-20"
-    scale(traj) = Trajectory(; traj.z, traj.v, a=ε * traj.a, ȧ=ε^2 * traj.ȧ,
-                             ä=ε^3 * traj.ä, a⃛=ε^4 * traj.a⃛)
     traj = big_trajectory(; v=SA[big(0), big(0), big(0)])
     (; z, a, ä) = traj
     m = big_model()
     for x in sample_points(z, m.ℓ)
-        bracket(order) = source_bracket(m, x, scale(traj); order)
+        bracket(order) = source_bracket(m, x, scaled(traj, ε); order)
         lap(N) = TW.near_field_laplacian(Val(N), m.Q, m.ℓ, x - z, a, ä)
         @test bracket(0) / ε ≈ lap(1) rtol = 1e-18
         @test bracket(1) / ε^2 ≈ lap(2) rtol = 1e-18
@@ -180,11 +194,28 @@ end
     for x in sample_points(z, big"0.01")[9:end]
         ∇Φ₀ = ForwardDiff.gradient(ξ -> boosted_static(point, ξ, z, zero(z)), x)
         missing3 = dot(a, x - z)^2 * dot(a, ∇Φ₀)
-        bracket3 = source_bracket(point, x, scale(traj); order=3) / ε^3
+        bracket3 = source_bracket(point, x, scaled(traj, ε); order=3) / ε^3
         @test abs(bracket3) < 1e-15 * abs(missing3)
-        # Without the t′² term the bracket keeps it.
-        T₂(t) = lab_slice(point, x, trajectory_at(scale(traj), t))
-        @test bracket3 - TW.second_derivative(T₂, zero(ε)) / ε^3 ≈ missing3 rtol = 1e-15
+        # Without the lab slice of order 1 the bracket keeps it.
+        Λ₁(t) = lab_slice(point, Val(1), x, trajectory_at(scaled(traj, ε), t))
+        @test bracket3 - TW.second_derivative(Λ₁, zero(ε)) / ε^3 ≈ missing3 rtol = 1e-15
+    end
+end
+
+@testset "Along any motion, the bracket is the first order not carried" begin
+    # Guards the lab slice and the rest-frame derivatives in the bracket:
+    # the particle field with orders up to N carried solves its wave
+    # equation with the lab-sliced density through order N, inside the
+    # particle and out, so that along a scaled trajectory with v = 0.19
+    # the bracket is O(ε^{N+1}). Before the lab slice, with the t′² term
+    # alone, order 1 left a bracket of O(ε) inside the particle, the
+    # slicing density's Q(v·y)²(α′·y)ρ₀′ (CODE.md, "The near field").
+    m = big_model()
+    traj = big_trajectory()
+    ε = big"1e-8"
+    for x in sample_points(traj.z, m.ℓ)[1:3:end], order in 0:3
+        b(ε) = source_bracket(m, x, scaled(traj, ε); order)
+        @test b(ε) / b(ε / 2) ≈ 2^(order + 1) rtol = 1e-5
     end
 end
 
@@ -275,22 +306,6 @@ end
             @test lap(Q, ℓ, y, v, α′, B, C) ≈ ∇² rtol = 1e-13
             @test term(Q, ℓ, y, v, α′, B, C) ≈ exact(term, y) rtol = 1e-13
         end
-    end
-end
-
-@testset "The lab slice vanishes at rest and begins with the t′² term" begin
-    # Guards the lab slice's two limits: at v = 0 the lab's slice is the
-    # rest frame's and Λ_N = 0; and outside the particle Λ₁ is T₂ up to
-    # the field of the slicing density, a dipole of size ℓ²/r² against T₂.
-    m = big_model()
-    traj = big_trajectory()
-    rest = Trajectory(; traj.z, v=zero(traj.v), traj.a, traj.ȧ, traj.ä)
-    for x in sample_points(traj.z, m.ℓ), N in 1:3
-        @test lab_slice(m, Val(N), x, rest) == 0
-    end
-    point = ParticleModel{BigFloat}(big"0.07", big"1e-30", big"1e30")
-    for x in sample_points(traj.z, big"0.01")
-        @test lab_slice(point, Val(1), x, traj) ≈ lab_slice(point, x, traj) rtol = 1e-50
     end
 end
 

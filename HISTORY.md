@@ -742,6 +742,35 @@ How the package got where it is, by topic in `CODE.md`'s order.
   homogeneity degree, so that a finite-size term without a point limit
   has one; the existing forms are unchanged byte for byte. The particle
   field and the bracket still carry `T₂` and the lab's `ä`.
+- 2026-11-05: the owner asked for the lab slice to be wired in and
+  hyperbolic motion studied before the circle at `v = 0.2`, and for large
+  tests and benchmarks to run on Symmetry. The particle field carries
+  `Λ_N` with order `N`, the near field takes `C` for `ä`, and the
+  bracket's invariants are now eleven: `q`, the four `u·y` and the six
+  dot products of the rest-frame vectors. `T₂` is no longer generated on
+  its own, nor its self-force coefficients. Along a motion at `v = 0.19`
+  the bracket with orders up to `N` carried now falls as `ε^{N+1}`,
+  inside the particle and out. Found on the way, each in the generated
+  code: a sum of 74 terms written as one expression allocates, since
+  Julia makes it one call of `+`; a `BigFloat` Hessian of order 3 with
+  every radial function inlined takes 178 s to compile, 17 s without;
+  and wrapping the coefficient tables for every point copied about 10 KB
+  per evaluation. The source's cost per point at order 3 went from
+  102 ns to 4.4 µs with each term on its own, 1.9 µs with one function
+  per order, and 1.0 µs with the terms grouped by their monomial in the
+  invariants linear in `y` and the other invariants folded into
+  coefficients computed once per particle and step. The particle tests
+  take 5m46 on the laptop, against 43 s before M5, mostly `BigFloat`
+  compilation.
+- 2026-11-05: hyperbolic motion with the lab slice, on Symmetry against
+  `main`. The exact remainder's force read at `v = 0.05`, 0.1 and 0.2 is
+  a few `10⁻¹²` at order 3 from `d/4` to `d/12`, where `main`'s grows
+  with `v` to `10⁻⁸`; M4's `v²` force was the lab slice, not finite-size
+  terms. The evolutions to `v = 0.2` match the reading to `t ≈ 1/4` and
+  are then covered by the evolved field's own discretization error,
+  the same as `main`'s. The projection costs 8.2 times `main`'s at order
+  3 and a step 4.9 times. The full suite took 60 minutes on one thread
+  of an EPYC 7543. The circle at `v = 0.2` waits for the owner.
 - 2026-11-06: CI failed on main from M4 on, on every job, on one
   assertion: the retarded field's `∂ₜΦ` at `t = 0` of hyperbolic motion,
   bounded by `10⁻¹⁵|Φ|`, is `1.2·10⁻¹⁵|Φ|` at `r = 3`. It vanishes

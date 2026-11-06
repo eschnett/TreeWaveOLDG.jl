@@ -628,8 +628,10 @@ force to zero. If not, stop and take it to the owner before M5; see
 
 **Status:** started on 2026-11-05 on branch `inspiral-m5-labslice`.
 The derivation, the regenerated `particle_forms.jl` and the exact
-hyperbolic check are done; the particle field and the bracket do not
-carry the lab slice yet, and the circle at `v = 0.2` is not run. The
+hyperbolic check are done, and the particle field and the bracket carry
+the lab slice; in hyperbolic motion the remainder's force is a few
+`10⁻¹²` at order 3 up to `v = 0.2` (`CODE.md`, "Prescribed paths" under
+"Measured results"), and the circle at `v = 0.2` waits for the owner. The
 lab slice is that of the lab-sliced density, not of `INSPIRAL.md`'s
 re-expansion of the rest-frame near field (`CODE.md`, "The near field";
 `HISTORY.md`, 2026-11-05). `derivations/labslice.wl` exists since M4,

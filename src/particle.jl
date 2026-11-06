@@ -1,6 +1,6 @@
 # The analytic particle of INSPIRAL.md: a scalar charge `Q` of physical
 # size `ℓ`, its field `Ψ` (the boosted static field plus the near-field
-# terms of orders 1–3), the field's time derivative `𝒟Ψ` along the
+# terms and the lab slice of orders 1–3), the field's time derivative `𝒟Ψ` along the
 # particle's motion, the residual of its wave equation, and the window
 # that cuts it off far from the particles. See "The particle", "The near
 # field" and "The window" in `CODE.md`.
@@ -12,11 +12,11 @@
 # particle's state, the boost, and the time derivatives, which are dual
 # numbers along the trajectory's Taylor polynomial.
 #
-# Until the lab-slice re-expansion (INSPIRAL-PLAN.md, M5), the near-field
-# terms are the rest-frame ones evaluated at the rest-frame position
-# `y = Λ(v)(x - z)` with the proper acceleration `α′ = γ²Λ(v)a`. Of the
-# re-expansion, only the `t′²` term of `Φ_C` is carried, with order 1 and
-# above ([`lab_slice`](@ref); CODE.md, "The near field").
+# The near-field terms are the rest-frame ones, evaluated at the
+# rest-frame position `y = Λ(v)(x - z)` with the rest frame's derivatives
+# of the worldline (`rest_frame_derivatives`); the lab slice of each order
+# is what the field on the lab's time slice adds to them
+# ([`lab_slice`](@ref); CODE.md, "The near field").
 
 """
     ParticleModel(; Q, ℓ, M)
@@ -135,42 +135,16 @@ end
 
 The near-field term of order `N = 1, 2, 3` of a particle on `traj`
 (INSPIRAL.md, "The near field of an accelerated particle"): the
-rest-frame term at `y = Λ(v)(x - z)`, with the proper acceleration
-`α′ = γ²Λ(v)a` in place of `a`, and `ä` as given. At rest this is the
-time-symmetric field of the extended particle, order by order. Moving,
-it lacks the lab-slice re-expansion, which is `INSPIRAL-PLAN.md`'s M5.
+rest-frame term at `y = Λ(v)(x - z)`, with the rest frame's derivatives
+of the worldline, [`rest_frame_derivatives`](@ref): the proper
+acceleration `α′ = γ²Λ(v)a` for `a` and `C` for `ä`. At rest this is
+the time-symmetric field of the extended particle, order by order.
+Moving, the particle field adds the lab slice, [`lab_slice`](@ref).
 """
 @inline function near_field(m::ParticleModel, ::Val{N}, x, traj::Trajectory) where {N}
-    y, α′ = rest_frame(traj, x)
-    return near_field_term(Val(N), m.Q, m.ℓ, y, α′, traj.ä)
-end
-
-"""
-    lab_slice(m, x, traj)
-
-The part of the lab-slice re-expansion of the particle field that is
-carried ahead of `INSPIRAL-PLAN.md`'s M5: the `t′²` term of `Φ_C`,
-
-    T₂ = -½ t′² (α′·∇Φ₀(y)) = -(v·y)² (α′·y) Φ₀′(|y|²),   t′ = -v·y,
-
-with `y = Λ(v)(x - z)` and `α′ = γ²Λ(v)a`. Outside the particle it is
-`-(Q/8π) v²(v̂·n̂)²(α′·n̂)`, of order `r⁰`, and a grid cannot follow it near
-the particle, so it is carried with the near field from order 1 on
-(CODE.md, "The near field" and "Prescribed paths").
-
-It is the part of [`lab_slice(m, Val(1), x, traj)`](@ref) that the
-particle field carries until it switches to M5's lab slice. Alone it
-leaves the bracket a residual `Q(v·y)²(α′·y)ρ₀′` inside the particle,
-linear in the acceleration.
-"""
-@inline function lab_slice(m::ParticleModel, x, traj::Trajectory)
-    y, α′ = rest_frame(traj, x)
-    return _tprime2_term(m.Q, m.ℓ, dot(y, y), dot(α′, y), dot(traj.v, y))
-end
-
-@inline function rest_frame(traj::Trajectory, x)
-    (; z, v, a) = traj
-    return boost(v, x - z), lorentz_factor(v)^2 * boost(v, a)
+    y = boost(traj.v, x - traj.z)
+    α′, _, C = rest_frame_derivatives(traj)
+    return near_field_term(Val(N), m.Q, m.ℓ, y, α′, C)
 end
 
 """
@@ -213,13 +187,13 @@ order `N` on the lab's time slice adds to the rest-frame term
 slice"; `derivations/labslice.wl`). It is the time-symmetric field of
 the lab-sliced density in the instantaneous rest frame, at rest-frame
 time `t′ = -v·y`, from which the rest-frame term at `t′ = 0` is taken
-away. It vanishes at `v = 0`, and `Λ₁` is the `t′²` term of
-[`lab_slice(m, x, traj)`](@ref) plus the field of the density by which
-the lab-sliced particle differs from the rest-frame-sliced one.
+away. It vanishes at `v = 0`. `Λ₁` is the `t′²` term of `Φ_C`,
 
-The rest-frame term it belongs with takes `C` of
-[`rest_frame_derivatives`](@ref) for `ä`; [`near_field`](@ref) still
-takes the lab's `ä` until the particle field switches to the lab slice.
+    T₂ = -½ t′² (α′·∇Φ₀(y)) = -(v·y)² (α′·y) Φ₀′(|y|²),
+
+which outside the particle is `-(Q/8π) v²(v̂·n̂)²(α′·n̂)`, of order `r⁰`,
+plus the field of the density `½(v·y)²(α′·∇ρ₀)` by which the lab-sliced
+particle differs from the rest-frame-sliced one, a dipole outside.
 """
 @inline function lab_slice(m::ParticleModel, ::Val{N}, x, traj::Trajectory) where {N}
     y = boost(traj.v, x - traj.z)
@@ -236,17 +210,17 @@ end
 """
     particle_field(m, x, traj; order = 3)
 
-`Ψ`: the boosted static field plus the near-field terms of orders `1` to
-`order` (INSPIRAL.md, "The particle field"), and from order 1 on the
-`t′²` term of the lab slice, [`lab_slice`](@ref). `order = 0` is the
-particle paper's boosted static field alone.
+`Ψ`: the boosted static field plus, for each order `N` from `1` to
+`order`, the near-field term and the lab slice of order `N`
+([`near_field`](@ref), [`lab_slice`](@ref); INSPIRAL.md, "The particle
+field"). `order = 0` is the particle paper's boosted static field alone.
 """
 @inline function particle_field(m::ParticleModel, x, traj::Trajectory; order::Int=3)
     check_order(order)
     Ψ = boosted_static(m, x, traj.z, traj.v)
-    order >= 1 && (Ψ += near_field(m, Val(1), x, traj) + lab_slice(m, x, traj))
-    order >= 2 && (Ψ += near_field(m, Val(2), x, traj))
-    order >= 3 && (Ψ += near_field(m, Val(3), x, traj))
+    order >= 1 && (Ψ += near_field(m, Val(1), x, traj) + lab_slice(m, Val(1), x, traj))
+    order >= 2 && (Ψ += near_field(m, Val(2), x, traj) + lab_slice(m, Val(2), x, traj))
+    order >= 3 && (Ψ += near_field(m, Val(3), x, traj) + lab_slice(m, Val(3), x, traj))
     return Ψ
 end
 
@@ -283,12 +257,13 @@ end
 struct SourceOuterTag end
 struct SourceInnerTag end
 
-# A field that depends on `x` through `q = |y|²`, `α′·y`, `|α′|²`, `ä·y`
-# and `v·y`, and on `t` through them along the motion. Of each invariant `I`
+# A field that depends on `x` through `q = |y|²` and the four invariants
+# `u·y` linear in `y`, and on `t` through them and six `x`-independent
+# ones along the motion ([`ParticleJets`](@ref)). Of each invariant `I`
 # the bracket needs its value, its rate `İᵤ` in uniform motion (`z`
-# moving with `v`, and `v`, `a`, `ä` held), and the acceleration's parts
-# `δİ = İ - İᵤ` and `δÏ = Ï - Ïᵤ`, each formed directly and not as a
-# difference. With them,
+# moving with `v`, and `v` and the worldline's rest-frame derivatives
+# held), and the acceleration's parts `δİ = İ - İᵤ` and `δÏ = Ï - Ïᵤ`,
+# each formed directly and not as a difference. With them,
 #
 #     𝒟²G - (v·∂_z)²G = Σᵢ G_i δÏᵢ + Σᵢⱼ G_ij δİᵢ (2İᵤ + δİ)ⱼ,
 #
@@ -302,19 +277,29 @@ struct SourceInnerTag end
                                            map(dᵢ -> Inner(oftype(I, dᵢ), zero(I)), d)...)
 end
 
+# The pairs of rest-frame vectors `(v, α′, B, C)` whose dot products are
+# the `x`-independent invariants, in the generated forms' order:
+# `v²`, `v·α′`, `|α′|²`, `v·B`, `α′·B`, `v·C`.
+const CONSTANT_PAIRS = ((1, 1), (1, 2), (2, 2), (1, 3), (2, 3), (1, 4))
+
 """
     ParticleJets(m, traj)
 
 What [`ParticleSource`](@ref) needs of one particle, at the moment
 `traj` describes, that does not depend on the point: the invariants'
 `x`-independent factors and their first two time derivatives. With
-`r = x - z`, `y = Λ(v)r` and `M = Λ(v)² = I + γ²vvᵀ`,
+`r = x - z`, `y = Λ(v)r`, `M = Λ(v)² = I + γ²vvᵀ`, and the rest-frame
+vectors `u = v, α′, B, C` of [`rest_frame_derivatives`](@ref),
 
-    |y|² = rᵀMr,   α′·y = k·r with k = γ²Ma,   |α′|² = γ⁴aᵀMa,
-    ä·y = e·r with e = Λ(v)ä,   v·y = w·r with w = γv,
+    |y|² = rᵀMr,   u·y = (Λ(v)u)·r,
 
-and `ṙ = -v`, `r̈ = -a`; and `v²` and `v·α′ = γ³v·a`, which only the
-Laplacian of the `t′²` term reads, at the moment itself.
+with `Λ(v)v = γv`, and `ṙ = -v`, `r̈ = -a`; and the six dot products of
+the `u` that the lab slice reads (`v²`, `v·α′`, `|α′|²`, `v·B`, `α′·B`,
+`v·C`), which do not depend on `x`. The lab slice depends on these only
+through the coefficients of its groups' polynomials
+(`_lab_coefficients`, generated), which are held here once per particle,
+with their first two time derivatives for the term and alone for its
+Laplacian, so that a point evaluates one polynomial per group.
 """
 struct ParticleJets{T}
     Q::T
@@ -323,62 +308,83 @@ struct ParticleJets{T}
     M::NTuple{3,SMatrix{3,3,T,9}}   # M, Ṁ, M̈
     uq::SVector{3,T}                # q̇ᵤ = uq·r
     bq::SVector{3,T}                # δq̈ = bq·r + rᵀM̈r
-    k::NTuple{3,SVector{3,T}}       # k, k̇, k̈
-    k̇ᵤ::T                           # d(α′·y)/dt in uniform motion
-    k̈₀::T                           # δ d²(α′·y)/dt² = k̈·r + k̈₀
-    aa::NTuple{3,T}                 # |α′|² and its derivatives
-    e::NTuple{3,SVector{3,T}}       # e, ė, ë
-    ėᵤ::T                           # the same for ä·y
-    ë₀::T
-    w::NTuple{3,SVector{3,T}}       # w, ẇ, ẅ
-    ẇᵤ::T                           # the same for v·y
-    ẅ₀::T
-    vv::T                           # v², for the t′² term's Laplacian
-    va::T                           # v·α′
+    L::NTuple{4,NTuple{3,SVector{3,T}}}  # Λ(v)u, its first two rates, u = v, α′, B, C
+    L̇ᵤ::NTuple{4,T}                 # d(u·y)/dt in uniform motion
+    L̈₀::NTuple{4,T}                 # δ d²(u·y)/dt² = L̈·r + L̈₀
+    c::NTuple{6,NTuple{3,T}}        # the dot products and their rates
+    Ct::LabTermJets{T}              # the lab slice's coefficients and rates
+    Cl::LabLaplacianCoefficients{T} # its Laplacian's coefficients
 end
 
 function ParticleJets(m::ParticleModel{T}, traj::Trajectory{T}) where {T}
     jet(f) = (g = t -> f(trajectory_at(traj, t));
               (g(zero(T)), ForwardDiff.derivative(g, zero(T)), second_derivative(g, zero(T))))
-    γ²(v) = inv(1 - dot(v, v))
-    Mof(v) = one(SMatrix{3,3,eltype(v)}) + γ²(v) * v * v'
+    Mof(v) = one(SMatrix{3,3,eltype(v)}) + v * v' / (1 - dot(v, v))
+    rest(tr) = (tr.v, rest_frame_derivatives(tr)...)
     M = jet(tr -> Mof(tr.v))
-    k = jet(tr -> γ²(tr.v) * (Mof(tr.v) * tr.a))
-    aa = jet(tr -> γ²(tr.v)^2 * dot(tr.a, Mof(tr.v) * tr.a))
-    e = jet(tr -> boost(tr.v, tr.ä))
-    w = jet(tr -> sqrt(γ²(tr.v)) * tr.v)
+    L = ntuple(i -> jet(tr -> boost(tr.v, rest(tr)[i])), Val(4))
+    constants(tr) = (u = rest(tr); map(ij -> dot(u[ij[1]], u[ij[2]]), CONSTANT_PAIRS))
+    c = map(ij -> jet(tr -> (u = rest(tr); dot(u[ij[1]], u[ij[2]]))), CONSTANT_PAIRS)
+    ℓ = m.ℓ
+    Ct = (jet(tr -> _lab_coefficients(Val(1), Val(:term), ℓ, constants(tr)...)),
+          jet(tr -> _lab_coefficients(Val(2), Val(:term), ℓ, constants(tr)...)),
+          jet(tr -> _lab_coefficients(Val(3), Val(:term), ℓ, constants(tr)...)))
+    c₀ = map(first, c)
+    Cl = (_lab_coefficients(Val(1), Val(:laplacian), ℓ, c₀...),
+          _lab_coefficients(Val(2), Val(:laplacian), ℓ, c₀...),
+          _lab_coefficients(Val(3), Val(:laplacian), ℓ, c₀...))
     (; z, v, a) = traj
     # q = rᵀMr: q̇ = 2ṙᵀMr + rᵀṀr, q̈ = 2r̈ᵀMr + 2ṙᵀMṙ + 4ṙᵀṀr + rᵀM̈r, of
     # which uniform motion keeps -2vᵀMr and 2vᵀMv.
     uq = -2 * (M[1] * v)
     bq = -2 * (M[1] * a) - 4 * (M[2] * v)
-    linear(k) = (-dot(k[1], v), -2dot(k[2], v) - dot(k[1], a))
-    k̇ᵤ, k̈₀ = linear(k)
-    ėᵤ, ë₀ = linear(e)
-    ẇᵤ, ẅ₀ = linear(w)
-    va = γ²(v) * dot(v, boost(v, a))           # v·α′, α′ = γ²Λ(v)a
-    return ParticleJets{T}(m.Q, m.ℓ, z, M, uq, bq, k, k̇ᵤ, k̈₀, aa, e, ėᵤ, ë₀, w, ẇᵤ, ẅ₀,
-                           dot(v, v), va)
+    # u·y = k·r: d/dt = k̇·r - k·v, d²/dt² = k̈·r - 2k̇·v - k·a, of which
+    # uniform motion keeps -k·v.
+    L̇ᵤ = map(k -> -dot(k[1], v), L)
+    L̈₀ = map(k -> -2dot(k[2], v) - dot(k[1], a), L)
+    return ParticleJets{T}(m.Q, m.ℓ, z, M, uq, bq, L, L̇ᵤ, L̈₀, c, Ct, Cl)
 end
 
-# Ψ as a function of the invariants.
-@inline function invariant_field(p::ParticleJets, order, q, ay, aa, äy, vy)
+# Coefficient `i` of the lab slice's generated `_lab_evaluate`: as it is,
+# or, from its value and first two time derivatives, lifted as the
+# bracket reads it, an invariant that does not depend on `x`, with the
+# directions `d` of the further outer partials. Read in place, so that
+# the table is not copied for every point.
+@inline _coefficient(c::SVector, i, d) = c[i]
+@inline function _coefficient(jets::NTuple{3,SVector}, i, d)
+    c, ċ, c̈ = jets[1][i], jets[2][i], jets[3][i]
+    return lift(c, zero(c), ċ, c̈, map(_ -> zero(c), d))
+end
+
+# Ψ as a function of the invariants: `q`, the four `u·y` (`vy`, `ay`,
+# `by`, `cy`), `|α′|²` for the near field, and the lab slice's
+# coefficients, which hold the other invariants, lifted with the
+# directions `d`.
+@inline function invariant_field(p::ParticleJets, order, q, lin, aa, d)
+    vy, ay, by, cy = lin
+    C = p.Ct
     Ψ = p.Q * _phi0(q, p.ℓ)
-    order >= 1 && (Ψ += _near_field_term(Val(1), p.Q, p.ℓ, q, ay, aa, äy) +
-                        _tprime2_term(p.Q, p.ℓ, q, ay, vy))
-    order >= 2 && (Ψ += _near_field_term(Val(2), p.Q, p.ℓ, q, ay, aa, äy))
-    order >= 3 && (Ψ += _near_field_term(Val(3), p.Q, p.ℓ, q, ay, aa, äy))
+    order >= 1 && (Ψ += _near_field_term(Val(1), p.Q, p.ℓ, q, ay, aa, cy) +
+                        _lab_evaluate(Val(1), Val(:term), p.Q, p.ℓ, q, lin..., C[1], d))
+    order >= 2 && (Ψ += _near_field_term(Val(2), p.Q, p.ℓ, q, ay, aa, cy) +
+                        _lab_evaluate(Val(2), Val(:term), p.Q, p.ℓ, q, lin..., C[2], d))
+    order >= 3 && (Ψ += _near_field_term(Val(3), p.Q, p.ℓ, q, ay, aa, cy) +
+                        _lab_evaluate(Val(3), Val(:term), p.Q, p.ℓ, q, lin..., C[3], d))
     return Ψ
 end
 
-# ∇²_y of the near-field terms and the `t′²` term, as a function of the
+# ∇²_y of the near-field terms and the lab slice, as a function of the
 # invariants.
-@inline function invariant_laplacian(p::ParticleJets, order, q, ay, aa, äy, vy)
+@inline function invariant_laplacian(p::ParticleJets, order, q, lin, aa)
+    vy, ay, by, cy = lin
+    C = p.Cl
     L = zero(q)
-    order >= 1 && (L += _near_field_laplacian(Val(1), p.Q, p.ℓ, q, ay, aa, äy) +
-                        _tprime2_laplacian(p.Q, p.ℓ, q, ay, vy, p.vv, p.va))
-    order >= 2 && (L += _near_field_laplacian(Val(2), p.Q, p.ℓ, q, ay, aa, äy))
-    order >= 3 && (L += _near_field_laplacian(Val(3), p.Q, p.ℓ, q, ay, aa, äy))
+    order >= 1 && (L += _near_field_laplacian(Val(1), p.Q, p.ℓ, q, ay, aa, cy) +
+                        _lab_evaluate(Val(1), Val(:laplacian), p.Q, p.ℓ, q, lin..., C[1]))
+    order >= 2 && (L += _near_field_laplacian(Val(2), p.Q, p.ℓ, q, ay, aa, cy) +
+                        _lab_evaluate(Val(2), Val(:laplacian), p.Q, p.ℓ, q, lin..., C[2]))
+    order >= 3 && (L += _near_field_laplacian(Val(3), p.Q, p.ℓ, q, ay, aa, cy) +
+                        _lab_evaluate(Val(3), Val(:laplacian), p.Q, p.ℓ, q, lin..., C[3]))
     return L
 end
 
@@ -386,28 +392,26 @@ end
 # where `n` is given.
 #
 # `ρ` cancels against `□_vΦ_C = ∇²Φ_C - (v·∇)²Φ_C` analytically, and
-# each near-field term has `∇²_x = ∇²_y + γ²(v·∇_y)²` with
+# each near-field and lab-slice term has `∇²_x = ∇²_y + γ²(v·∇_y)²` with
 # `γ²(v·∇_y)² = (v·∂_z)²`, so the bracket is `𝒟²Ψ - (v·∂_z)²Ψ`, which
 # `lift` forms from the acceleration's parts alone, minus the generated
-# `∇²_y` of the near-field terms.
+# `∇²_y` of those terms.
 @inline function source_terms(p::ParticleJets, order, x, n...)
     r = x - p.z
     M, M′, M″ = p.M
     Mr = M * r
     q = lift(dot(r, Mr), dot(p.uq, r), dot(r, M′ * r), dot(p.bq, r) + dot(r, M″ * r),
              map(nᵢ -> 2dot(nᵢ, Mr), n))
-    k, k′, k″ = p.k
-    ay = lift(dot(k, r), p.k̇ᵤ, dot(k′, r), dot(k″, r) + p.k̈₀, map(nᵢ -> dot(nᵢ, k), n))
-    aa = lift(p.aa[1], zero(p.aa[1]), p.aa[2], p.aa[3], map(nᵢ -> zero(p.aa[1]), n))
-    e, e′, e″ = p.e
-    äy = lift(dot(e, r), p.ėᵤ, dot(e′, r), dot(e″, r) + p.ë₀, map(nᵢ -> dot(nᵢ, e), n))
-    w, w′, w″ = p.w
-    vy = lift(dot(w, r), p.ẇᵤ, dot(w′, r), dot(w″, r) + p.ẅ₀, map(nᵢ -> dot(nᵢ, w), n))
-    G = invariant_field(p, order, q, ay, aa, äy, vy)
+    lin = map(p.L, p.L̇ᵤ, p.L̈₀) do (k, k′, k″), k̇ᵤ, k̈₀
+        return lift(dot(k, r), k̇ᵤ, dot(k′, r), dot(k″, r) + k̈₀, map(nᵢ -> dot(nᵢ, k), n))
+    end
+    a, ȧ, ä = p.c[3]                            # |α′|²
+    aa = lift(a, zero(a), ȧ, ä, map(nᵢ -> zero(a), n))
+    G = invariant_field(p, order, q, lin, aa, n)
     value = ForwardDiff.value
     partial = ForwardDiff.partials
-    ∇²y = invariant_laplacian(p, order, value(value(q)), value(value(ay)),
-                              value(value(aa)), value(value(äy)), value(value(vy)))
+    v₀(I) = value(value(I))
+    ∇²y = invariant_laplacian(p, order, v₀(q), map(v₀, lin), a)
     return (value(value(G)), partial(partial(G, 1), 1) - ∇²y,
             map(i -> value(partial(G, i + 1)), ntuple(identity, length(n)))...)
 end
@@ -503,10 +507,11 @@ particle's [`ParticleJets`](@ref), which do not depend on `x`.
 
 Near a particle `∇²Ψ`, `(v·∇)²Ψ` and `ρ` are each of size `Q/ℓ³`, and
 the bracket is assembled without subtracting them (CODE.md, "The
-split"). `Ψ` depends on `x` and `t` through five invariants, `|y|²`,
-`α′·y`, `|α′|²`, `ä·y` and `v·y`. `ρ` cancels against `□_vΦ_C` analytically and
-`∇²_x` of each near-field term is `∇²_y + (v·∂_z)²`, so the bracket is
-`𝒟²Ψ - (v·∂_z)²Ψ` minus the generated `∇²_y` of the near-field terms,
+split"). `Ψ` depends on `x` and `t` through eleven invariants, `|y|²`,
+the four `u·y` and the six dot products of [`ParticleJets`](@ref). `ρ`
+cancels against `□_vΦ_C` analytically and `∇²_x` of each near-field and
+lab-slice term is `∇²_y + (v·∂_z)²`, so the bracket is
+`𝒟²Ψ - (v·∂_z)²Ψ` minus the generated `∇²_y` of those terms,
 and `𝒟²Ψ - (v·∂_z)²Ψ` is formed from the acceleration's parts of the
 invariants' rates, which are formed directly. One evaluation of `Ψ` on
 nested dual numbers gives it, and in the window's transition also `Ψ`

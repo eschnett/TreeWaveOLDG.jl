@@ -205,8 +205,9 @@ end
 end
 
 # The force of the exact remainder `W_x(Φ_ret - Ψ̂_pt)` as the pairing reads
-# it at `t`, without evolving it, and the same with the t′² term put back
-# into the remainder, as the particle field did not carry it before M4.
+# it at `t`, without evolving it, and the same with the lab slice's order 1
+# in its point form, the t′² term of Φ_C, put back into the remainder, as
+# the particle field did not carry it before M4.
 function exact_reading(p, wx, t)
     u = inspiral_initial_state(p; t, retarded=wx)
     tr = p.motion.path(t)[1]
@@ -215,8 +216,8 @@ function exact_reading(p, wx, t)
         X = SVector{3}(x)
         w = wx(X)
         (iszero(w) || norm(X - tr.z) < 1e-6) && return 0.0
-        var == 1 && return w * lab_slice(point, X, tr)
-        return w * TWP.ForwardDiff.derivative(s -> lab_slice(point, X,
+        var == 1 && return w * lab_slice(point, Val(1), X, tr)
+        return w * TWP.ForwardDiff.derivative(s -> lab_slice(point, Val(1), X,
                                                              TWP.trajectory_at(tr, s)), 0.0)
     end
     fill_at_nodes!(T₂, p.wave.fs, p.wave.element)
@@ -228,8 +229,9 @@ function exact_reading(p, wx, t)
     return particle_forces(p, u, t)[1], particle_forces(p, u .+ back, t)[1], tr
 end
 
-@testset "With the t′² term carried, the exact remainder exerts no force across the motion" begin
-    # Guards the t′² term of Φ_C's lab slice in the particle field. Without
+@testset "With the lab slice carried, the exact remainder exerts no force across the motion" begin
+    # Guards the lab slice in the particle field, whose order 1 is, for a
+    # point, the t′² term of Φ_C. Without
     # it the remainder holds an `r⁰` structure proportional to `v²a`, which
     # the grid reads as a force along the acceleration that grows as the
     # elements shrink (M4's first series, "Prescribed paths" in CODE.md).

@@ -1,7 +1,6 @@
 (* Writes src/particle_forms.jl from the derivations: the radial functions
    of the profile, the near-field terms of orders 1-3 and their
-   Laplacians, the t′² term of Φ_C's lab-slice re-expansion and its
-   Laplacian, the lab slice of orders 1-3 and its Laplacians, and the
+   Laplacians, the lab slice of orders 1-3 and its Laplacians, and the
    self-force coefficients. CODE.md, "The particle",
    "The near field" and "Prescribed paths".
 
@@ -80,11 +79,14 @@ piSuffix[0] = "";
 piSuffix[1] = " / T(π)";
 
 (* A radial function of q = |y|² and ℓ, from its interior and exterior
-   expressions in q. *)
-radialFunction[name_String, doc_String, fin_, fout_] := Module[{ki, pi, ci, xi, ke, pe, ce},
+   expressions in q. `inline` is the prefix of its definition: the lab
+   slice's are not inlined, since a BigFloat Hessian of order 3 inlined
+   takes minutes to compile (CODE.md, "The near field"). *)
+radialFunction[name_String, doc_String, fin_, fout_, inline_String: "@inline "] :=
+    Module[{ki, pi, ci, xi, ke, pe, ce},
     StringJoin[
         "# ", doc, "\n",
-        "@inline function ", name, "(q, ℓ)\n",
+        inline, "function ", name, "(q, ℓ)\n",
         "    T = typeof(ℓ)\n",
         "    if q < ℓ^2\n",
         If[Expand[fin] === 0,
@@ -161,23 +163,6 @@ nearFieldCode[nOrder_] := Module[{fin, fout, lin, lout, nb = Length[basis[nOrder
             StringRepeat[" ", 16]], ")\n",
         "end\n"]];
 
-(* The t′² term of Φ_C (labslice.wl): (v·y)²(α′·y) times a radial
-   function, and its Laplacian over the basis v²(α′·y), (v·y)(v·α′),
-   (v·y)²(α′·y), as functions of q and the invariants ay = α′·y,
-   vy = v·y, vv = v² and va = v·α′. *)
-tp2Names = {"vv * ay", "vy * va", "vy * vy * ay"};
-tprime2Code = StringJoin[
-    radialFunction["_TP2", "The t′² term of Φ_C, radial factor of (v·y)²(α′·y): -Φ₀′(q).",
-        tp2Radial["in"], tp2Radial["out"]], "\n",
-    Table[radialFunction["_TP2L_" <> ToString[j], "Its Laplacian, radial factor of " <>
-        tp2Names[[j]] <> ".", tp2LapRadial["in"][[j]], tp2LapRadial["out"][[j]]] <> "\n",
-        {j, 3}],
-    "@inline _tprime2_term(Q, ℓ, q, ay, vy) = Q * (vy * vy * ay * _TP2(q, ℓ))\n\n",
-    "@inline function _tprime2_laplacian(Q, ℓ, q, ay, vy, vv, va)\n",
-    "    return Q * (", StringRiffle[Table[tp2Names[[j]] <> " * _TP2L_" <> ToString[j] <>
-        "(q, ℓ)", {j, 3}], " +\n" <> StringRepeat[" ", 16]], ")\n",
-    "end\n"];
-
 (* The lab slice of order N (labslice.wl): a sum over monomials in the
    invariants vy = v·y, ay = α′·y, by = B·y, cy = C·y, vv = v², va = v·α′,
    aa = |α′|², bv = v·B, ab = α′·B and cv = v·C times radial functions,
@@ -189,27 +174,123 @@ labMonomialCode[e_List] := StringJoin[MapThread[
 labMonomialDoc[e_List] := StringRiffle[DeleteCases[MapThread[
     Which[#2 == 0, Nothing, #2 == 1, #1, True, #1 <> "^" <> ToString[#2]] &,
     {labInvNames, e}], Nothing], "·"];
-labOrderCode[nOrder_] := Module[{terms = labTerms[nOrder], laps = labLapTerms[nOrder],
-        fname, lname, body},
-    fname[j_] := "_LAB" <> ToString[nOrder] <> "_" <> ToString[j];
-    lname[j_] := "_LABL" <> ToString[nOrder] <> "_" <> ToString[j];
-    body[ts_, name_] := StringRiffle[Table[labMonomialCode[ts[[j, 1]]] <> name[j] <> "(q, ℓ)",
-        {j, Length[ts]}], " +\n" <> StringRepeat[" ", 16]];
-    StringJoin[
-        Table[radialFunction[fname[j], "Lab slice of order " <> ToString[nOrder] <>
-            ", radial factor of " <> labMonomialDoc[terms[[j, 1]]] <> ".",
-            labRadial[terms[[j, 2]], "in"], labRadial[terms[[j, 2]], "out"]] <> "\n",
-            {j, Length[terms]}],
-        Table[radialFunction[lname[j], "Its Laplacian, radial factor of " <>
-            labMonomialDoc[laps[[j, 1]]] <> ".",
-            labRadial[laps[[j, 2]], "in"], labRadial[laps[[j, 2]], "out"]] <> "\n",
-            {j, Length[laps]}],
-        "@inline function _lab_slice_term(::Val{", ToString[nOrder], "}, ", labArgs, ")\n",
-        "    return Q * (", body[terms, fname], ")\n",
+(* Each order and kind (the term, its Laplacian) is evaluated in two
+   steps, since the source evaluates it some 10⁷ times per step for the
+   same particle. Its terms are gathered by their monomial in the four
+   invariants linear in y, their power of ℓ or r and of π; the six others
+   do not depend on the point, so each group's radial polynomial with
+   them folded into its coefficients is one polynomial, `_lab_coefficients`
+   of them, computed once per particle and step (with its time
+   derivatives, for the bracket), and `_lab_evaluate` sums one polynomial
+   per group: 36 of them where there are 98 terms. It reads coefficient i
+   as `_coefficient(c, i, d)` (src/particle.jl), which for the bracket
+   lifts it from its rates in place, with the directions d of the further
+   partials, so that the table is not copied. The branch on σ < 1 is
+   taken once, with σ² and 1 - σ² or r and ℓ²/q formed once. Inside, a
+   group's polynomial is in σ² or in 1 - σ², whichever is better
+   conditioned for the worst of its terms. The sum is a running one: Julia
+   parses a + b + … as one call of + with as many arguments, which
+   allocates beyond about 30. Neither is inlined, since a BigFloat Hessian
+   of order 3 inlined takes minutes to compile (CODE.md, "The near
+   field"). *)
+interiorBoth[f_] := Module[{k = piPower[f], e, p, poly},
+    e = Expand[Pi^k f /. q -> s2 ell^2];
+    p = Exponent[e, ell];
+    poly = Expand[e/ell^p];
+    If[!FreeQ[poly, ell] || !PolynomialQ[poly, s2],
+        Print["FAILED: not ℓ^p times a polynomial in σ²: ", f]; Exit[1]];
+    {k, p, CoefficientList[poly, s2], CoefficientList[Expand[poly /. s2 -> 1 - w], w]}];
+labGroups[terms_, side_] := Module[{items},
+    items = Flatten[Table[With[{f = labRadial[t[[2]], side]},
+        If[Expand[f] === 0, {},
+            If[side === "in",
+                Module[{k, p, cs, cw}, {k, p, cs, cw} = interiorBoth[f];
+                    {<|"lin" -> t[[1, ;; 4]], "con" -> t[[1, 5 ;;]], "k" -> k, "p" -> p,
+                       "cs" -> cs, "cw" -> cw|>}],
+                Module[{k, p, cs}, {k, p, cs} = exteriorForm[f];
+                    {<|"lin" -> t[[1, ;; 4]], "con" -> t[[1, 5 ;;]], "k" -> k, "p" -> p,
+                       "cs" -> cs|>}]]]], {t, terms}], 1];
+    GatherBy[items, {#lin, #p, #k} &]];
+labConMonomial[con_List] := StringTrim[labMonomialCode[Join[{0, 0, 0, 0}, con]], " * "];
+pad[cs_List, n_] := PadRight[cs, n];
+(* A group's merged coefficients, as Julia expressions in the constants,
+   and the variable its polynomial is in. *)
+labMerged[group_, side_] := Module[{basis, key, n, coeff},
+    basis = If[side === "out", "u",
+        If[Max[conditionNumber[#cw, (1 - #^2) & /@ grid] & /@ group] <
+           Max[conditionNumber[#cs, grid^2] & /@ group], "w", "σ²"]];
+    key = If[basis === "w", "cw", "cs"];
+    n = Max[Length[#[key]] & /@ group];
+    coeff[i_] := With[{parts = Select[{pad[#[key], n][[i]], labConMonomial[#con]} & /@ group,
+            #[[1]] =!= 0 &]},
+        If[parts === {}, "zero(T)",
+            StringRiffle[If[#[[2]] === "", jlNum[#[[1]]], jlNum[#[[1]]] <> " * " <> #[[2]]] & /@
+                parts, " + "]]];
+    {basis, Table[coeff[i], {i, n}]}];
+labKindCode[kind_String, nOrder_, terms_] := Module[{groups, merged, offset = 0, exprs = {},
+        lines, branch},
+    branch[side_] := StringJoin[Table[
+        Module[{g = groups[side][[j]], b, cs, idx, first = groups[side][[j, 1]]},
+            {b, cs} = labMerged[g, side];
+            idx = offset + Range[Length[cs]];
+            offset += Length[cs];
+            exprs = Join[exprs, cs];
+            "        " <> If[first["k"] == 0, "s₀", "s₁"] <> " += " <>
+                labMonomialCode[Join[first["lin"], {0, 0, 0, 0, 0, 0}]] <>
+                jlPow[If[side === "in", "ℓ", "r"], first["p"]] <> "evalpoly(" <> b <> ", (" <>
+                StringRiffle["_coefficient(c, " <> ToString[#] <> ", d)" & /@ idx, ", "] <>
+                If[Length[idx] == 1, ",", ""] <> "))\n"],
+        {j, Length[groups[side]]}]];
+    groups["in"] = labGroups[terms, "in"];
+    groups["out"] = labGroups[terms, "out"];
+    lines = StringJoin[
+        "function _lab_evaluate(::Val{", ToString[nOrder], "}, ::Val{:", kind,
+            "}, Q, ℓ, q, vy, ay, by, cy, c, d=())\n",
+        "    T = typeof(ℓ)\n",
+        "    s₀ = s₁ = zero(q * _coefficient(c, 1, d))\n",
+        "    if q < ℓ^2\n",
+        "        σ² = q / ℓ^2\n",
+        "        w = 1 - σ²\n",
+        branch["in"],
+        "    else\n",
+        "        r = sqrt(q)\n",
+        "        u = ℓ^2 / q\n",
+        branch["out"],
+        "    end\n",
+        "    return Q * (s₀ + s₁ / T(π))\n",
+        "end\n"];
+    {Length[groups["in"]] + Length[groups["out"]], Length[exprs], StringJoin[
+        "# The lab slice of order ", ToString[nOrder], ", ", kind, ": ", ToString[Length[terms]],
+            " terms in ", ToString[Length[groups["in"]]], " groups inside and ",
+            ToString[Length[groups["out"]]], " outside, ", ToString[Length[exprs]],
+            " coefficients.\n",
+        "function _lab_coefficients(::Val{", ToString[nOrder], "}, ::Val{:", kind,
+            "}, ℓ, vv, va, aa, bv, ab, cv)\n",
+        "    T = typeof(ℓ)\n",
+        "    return SVector(", StringRiffle[exprs, ",\n" <> StringRepeat[" ", 19]], ")\n",
         "end\n\n",
-        "@inline function _lab_slice_laplacian(::Val{", ToString[nOrder], "}, ", labArgs, ")\n",
-        "    return Q * (", body[laps, lname], ")\n",
-        "end\n"]];
+        lines]}];
+labOrderCode[nOrder_] := Module[{t, l},
+    t = labKindCode["term", nOrder, labTerms[nOrder]];
+    l = labKindCode["laplacian", nOrder, labLapTerms[nOrder]];
+    labLengths[nOrder] = {t[[2]], l[[2]]};
+    StringJoin[t[[3]], "\n", l[[3]]]];
+labWrappers = StringJoin[
+    "# The lab slice of order N and its Laplacian as functions of all the\n",
+    "# invariants, in one step.\n",
+    "@inline _lab_slice_term(::Val{N}, Q, ℓ, q, vy, ay, by, cy, vv, va, aa, bv, ab, cv) where {N} =\n",
+    "    _lab_evaluate(Val(N), Val(:term), Q, ℓ, q, vy, ay, by, cy,\n",
+    "                  _lab_coefficients(Val(N), Val(:term), ℓ, vv, va, aa, bv, ab, cv))\n",
+    "@inline _lab_slice_laplacian(::Val{N}, Q, ℓ, q, vy, ay, by, cy, vv, va, aa, bv, ab, cv) where {N} =\n",
+    "    _lab_evaluate(Val(N), Val(:laplacian), Q, ℓ, q, vy, ay, by, cy,\n",
+    "                  _lab_coefficients(Val(N), Val(:laplacian), ℓ, vv, va, aa, bv, ab, cv))\n"];
+labTypesCode := StringJoin[
+    "# The types of the coefficients per order: the term's with their first\n",
+    "# two time derivatives, the Laplacian's alone.\n",
+    "const LabTermJets{T} = Tuple{", StringRiffle[Table["NTuple{3,SVector{" <>
+        ToString[labLengths[n][[1]]] <> ",T}}", {n, 3}], ", "], "}\n",
+    "const LabLaplacianCoefficients{T} = Tuple{", StringRiffle[Table["SVector{" <>
+        ToString[labLengths[n][[2]]] <> ",T}", {n, 3}], ", "], "}\n"];
 
 (* A constant times Q^qp ℓ^lp / π. *)
 constantCode[name_String, doc_String, c_, qp_Integer] := Module[{k = piPower[c], e, p},
@@ -255,7 +336,6 @@ code = StringJoin[
     "\n",
     profileCode,
     Table[nearFieldCode[n] <> "\n", {n, 3}],
-    tprime2Code, "\n",
     "@inline function _lab_invariants(y, v, a, b, c)\n",
     "    return (y[1]^2 + y[2]^2 + y[3]^2, dot(v, y), dot(a, y), dot(b, y), dot(c, y),\n",
     "            dot(v, v), dot(v, a), dot(a, a), dot(v, b), dot(a, b), dot(v, c))\n",
@@ -270,6 +350,8 @@ code = StringJoin[
     "    _lab_slice_laplacian(Val(N), Q, ℓ, _lab_invariants(y, v, α′, B, C)...)\n",
     "\n",
     Table[labOrderCode[n] <> "\n", {n, 3}],
+    labWrappers, "\n",
+    labTypesCode, "\n",
     constantCode["self_inertia", "δm: the self-inertia, the order-1 force -δm a.",
         deltaM, 2], "\n",
     constantCode["rho_rho_r", "∬ ρ₀ρ₀′ |x - x′|.", rhoRhoR, 2], "\n",
@@ -279,11 +361,7 @@ code = StringJoin[
     constantCode["self_force_a2a", "See `self_force_addot`.", cA2A, 2], "\n",
     constantCode["self_potential_a2",
         "Order 2's potential average: Φ̄⁽²⁾ = self_potential_a2 · a².",
-        cPotential2, 1], "\n",
-    constantCode["self_force_tprime2_v2",
-        "The t′² term's force at rest: self_force_tprime2_v2 · v² α′ + " <>
-        "self_force_tprime2_va · (v·α′) v.", cTp2V2, 2], "\n",
-    constantCode["self_force_tprime2_va", "See `self_force_tprime2_v2`.", cTp2VA, 2]];
+        cPotential2, 1]];
 
 If[!StringQ[code], Print["FAILED: the code did not evaluate to a string"]; Exit[1]];
 
