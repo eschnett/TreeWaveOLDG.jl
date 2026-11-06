@@ -714,6 +714,12 @@ How the package got where it is, by topic in `CODE.md`'s order.
   and 0.17 `F_RR` from `d/4` to `d/16`, 5–15% below the read-only
   runs', at 2% of a step or less. The gate passes, and M4 is done on its
   branch.
+- 2026-11-06: CI failed on main from M4 on, on every job, on one
+  assertion: the retarded field's `∂ₜΦ` at `t = 0` of hyperbolic motion,
+  bounded by `10⁻¹⁵|Φ|`, is `1.2·10⁻¹⁵|Φ|` at `r = 3`. It vanishes
+  there, so the value is roundoff, mostly of the retarded time, which
+  lies about `r` back; it is under `3·10⁻¹⁷|Φ|` at `r ≤ 1`. The bound
+  is now `10⁻¹⁵ max(r, 1)|Φ|`.
 
 ## Dependencies
 

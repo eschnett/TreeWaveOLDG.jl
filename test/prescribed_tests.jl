@@ -77,7 +77,10 @@ end
         x = r * SA[sin(θ), cos(θ), 0.0]
         Φ, Π = retarded_field(path, 1, Q, x, 0.0)
         @test Φ ≈ -Q / (4π * r * sqrt(1 + g * r * cos(θ) + g^2 * r^2 / 4)) rtol = 1e-14
-        @test abs(Π) < 1e-15 * abs(Φ)
+        # `∂ₜΦ` vanishes here, so `Π` is roundoff, mostly of the retarded
+        # time, which lies about `r` back: it grows with `r` (1.2e-15 of
+        # `Φ` at `r = 3`, under 3e-17 at `r ≤ 1`).
+        @test abs(Π) < 1e-15 * max(r, 1) * abs(Φ)
     end
     # Behind the particle by more than 1/g no past light cone reaches.
     @test_throws ArgumentError retarded_field(path, 1, Q, SA[0.0, -4.0, 0.0], 0.0)
