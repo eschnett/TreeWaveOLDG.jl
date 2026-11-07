@@ -425,6 +425,16 @@ How the package got where it is, by topic in `CODE.md`'s order.
   `hₑ = d/8`, since the window is only `C^{P+1}` there. It is static,
   and `INSPIRAL.md`'s tolerance of `10⁻¹²` does not hold on those
   elements.
+- 2026-11-06: the owner asked to try the plan's first fallback, a far
+  rule of `q = P + 1` away from the particles. Measured per element on
+  the first run off the grid, with the M5 source, it does not pay: of
+  the far rule's 31 102 elements 24 lie inside `R₁`, and the others in
+  the window's transition or cut by its spheres, where `q = 4` errs by
+  `10⁻⁵`–`4·10⁻⁴` of the element's largest `|PS|` against `q = 6`'s
+  `10⁻¹¹`–`10⁻⁹`: the window is a polynomial of degree nine in `r` over
+  ten elements. Not implemented. The same measurement put the cut
+  elements' error at about `10⁻⁴` at `q = 6`, also on `main`, not M2's
+  `10⁻⁸`–`3·10⁻⁷`, whose measure is not recorded.
 - 2026-10-30: the pairing reads the state on the host, over the support's
   elements found from `z` (`INSPIRAL-PLAN.md`, "Left to settle later"),
   measured against the `mesh_fold` it replaces (`CODE.md`, "The
@@ -794,6 +804,19 @@ How the package got where it is, by topic in `CODE.md`'s order.
   the order-3 projection went from 2.18 to 1.34 s (`main` 0.21 s), its
   nested rule from 0.82 to 0.17 s, and a hyperbolic step at `d/8` from
   3.74 to 2.85 s. The suite on four threads went from 28 to 21 minutes.
+- 2026-11-06: the owner asked for the lab slice's closed form outside
+  the particles. Outside, each group is already `r^p` times a polynomial
+  in `ℓ²/q`, so there was no form to derive; timing the parts showed the
+  order-3 term on the bracket's dual numbers at half the source, and the
+  powers of `v·y`, `α′·y` and `r` formed in every group at as much as
+  its polynomials. The generator now forms them once per evaluation. On
+  the laptop one particle's source outside it went from 940 to 540 ns at
+  order 3; on one EPYC 7532 the projection from 1.67 to 1.24 s and a
+  hyperbolic step at `d/8` from 3.47 to 2.71 s. Dropping the
+  polynomials' later coefficients far out would take the term from 274
+  to 190 ns, but needs a bound relative to the whole field, and is not
+  done. The three suites pass on one EPYC 7532, in 67, 67 and 25
+  minutes; that node is slower than the 7543 of the earlier times.
 - 2026-11-06: CI failed on main from M4 on, on every job, on one
   assertion: the retarded field's `∂ₜΦ` at `t = 0` of hyperbolic motion,
   bounded by `10⁻¹⁵|Φ|`, is `1.2·10⁻¹⁵|Φ|` at `r = 3`. It vanishes

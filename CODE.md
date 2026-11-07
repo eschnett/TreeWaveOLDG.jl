@@ -1159,8 +1159,12 @@ and 74 terms. `_lab_slice_term` and `_lab_slice_laplacian` chain the
 two. The branch on `σ < 1` is taken once per evaluation, and `r`, `ℓ²/q`
 or `σ²`, `1 - σ²` are formed once; inside, a group's polynomial is in
 `σ²` or `1 - σ²`, whichever is better conditioned for the worst of its
-terms. Three things the generated code must keep, each found the hard
-way:
+terms. The powers the groups multiply, of `v·y`, `α′·y` and `r` or `ℓ`,
+are formed once per evaluation before the groups and named by their
+exponent (`vy³`, `r⁻⁵`), and each group multiplies two or three of them:
+on the bracket's nested dual numbers, forming them in every group cost
+as much as the polynomials. Three things the generated code must keep,
+each found the hard way:
 
 - **Running sums.** Julia parses `a + b + …` as one call of `+` with as
   many arguments, which allocates beyond about 30 of them: the order-3
@@ -1182,16 +1186,22 @@ on the laptop (`source_terms`, inside and outside the particle):
 | before M5 (`T₂` alone), ns | 8.5 | 48 | 69 | 102 |
 | each term on its own, inlined, ns | 17 | 129 | 1044 | 4413 |
 | one function per order, ns | 17 | 72 | 380 | 1867 |
-| grouped, as now, ns | 15 | 71 | 315 | 1017 |
+| grouped, ns | 15 | 71 | 315 | 1017 |
+| grouped, outside the particle, ns | 16 | 69 | 287 | 941 |
+| powers shared, as now, outside, ns | 16 | 53 | 197 | 540 |
 
-So carrying the lab slice costs ten times what the source cost at
+At order 3, outside the particle, the shared powers cut the lab slice's
+term on the bracket's dual numbers from 472 to 274 ns, and its
+Laplacian, in plain numbers, from 98 to 21 ns; the near-field terms
+(73 ns at orders 1–3) and forming the invariants (14 ns) are the rest.
+So carrying the lab slice costs five times what the source cost at
 order 3, and the projection is mostly source evaluations ([The
 transfer's cost](#the-transfers-cost)) **(open)**: on Symmetry the
-projection costs 8.2 times what it did at order 3 and a step 4.9 times
-([Prescribed paths](#prescribed-paths-1) under "Measured results"). The
-grouped form
-costs more to compile in `BigFloat`: the particle tests take 5m46 on the
-laptop, against 1m53 one function per order and 43 s before M5.
+grouped form's projection cost 8.2 times what it did at order 3 and a
+step 4.9 times ([Prescribed paths](#prescribed-paths-1) under "Measured
+results"). The grouped form costs more to compile in `BigFloat`: the
+particle tests take 5m03 on the laptop (5m46 before the powers were
+shared), against 1m53 one function per order and 43 s before M5.
 
 `labslice.wl` asserts: the density's displacement against the lab's own
 formula at `γ = 5/4`; that the construction at `t′ = 0` and `v = 0` is
@@ -1557,13 +1567,32 @@ scales larger than `ℓ` that needs them. The suite checks every band and
 the same to `10⁻¹²` with and without a particle on either side of
 `r_near` and of an element face.
 
-**The window's edge.** Elements cut by the window's spheres `R₁` and
-`R₂` carry a far-rule error of `10⁻⁸`–`3·10⁻⁷` relative at `hₑ = d/8`,
-because the window is `C^{P+1}` there and nothing splits at it, and
-elements within a few `hₑ` of the spheres, not cut by them, reach a few
-`10⁻¹²` with the far rule for the same reason. It does
-not move with the particles; how it falls with `hₑ` is not measured, and
-the `10⁻¹²` of `INSPIRAL.md` does not hold on those elements **(open)**.
+**The window's edge.** The far rule's elements are nearly all the
+window's: of the first run's 31 102 at `hₑ = d/8`, off the grid, 24 lie
+inside `R₁`, and the others in the transition or cut by a sphere. There
+the source is `W·bracket - 2∇W·∇Ψ - Ψ∇²W`, with `W` a polynomial of
+degree `2P + 3` in `r` over `R₂ - R₁ = 10hₑ`, and the source only
+`C^{P-1}` at the spheres, as `∇²W` is. The far rule's error, the largest
+`|ΔPS|` on an element over its largest `|PS|`, against `q = 10` (against
+`q = 32` where cut; 2026-11-06, the M5 source at order 3; `main` gives
+the same):
+
+| elements | count | `q = 4` | 5 | 6 |
+|---|---|---|---|---|
+| inside `R₁`, beyond `9hₑ` of the particles | 24 | 9.0e-8 | 3.7e-11 | 1.1e-13 |
+| transition, `2hₑ` or more from the spheres | 12 716 | 9.6e-6 | 2.8e-8 | 3.8e-11 |
+| transition, within `2hₑ` of a sphere | 10 414 | 3.6e-4 | 9.6e-7 | 9.3e-10 |
+| cut by `R₁`, `R₂` | 476, 7 472 | 5e-4, 8e-4 | | 5e-5, 1e-4 |
+
+The cut elements' row is over the largest `|PS|` among 150 of them
+sampled, since `PS` nearly vanishes on some cut by `R₂`. There the
+error falls only algebraically, to about
+`1.5·10⁻⁶` at `q = 16`; in the suite's measure, `max |w ΔPS|` over
+`∫|S|`, it is `6·10⁻⁴` at `q = 6` on those cut by `R₁`. M2 recorded
+`10⁻⁸`–`3·10⁻⁷` there, in a measure `HISTORY.md` does not give, which
+neither of these reproduces. So the `10⁻¹²` of `INSPIRAL.md` holds on
+none of the window's elements; what this error does to the field at the
+particles, and how it falls with `hₑ`, is not measured **(open)**.
 
 ### The right-hand side with particles
 
@@ -3290,7 +3319,9 @@ the acceleration, every step, order 3:
 - **The full suite on Symmetry** (job 590202, `cn108`, EPYC 7543) took
   60 minutes on one thread, 61 with `--check-bounds=yes` and 28 on four
   threads, mostly compiling the `BigFloat` particle tests; with the two
-  fixes below (job 591958, `cn094`, EPYC 7543) 60, 61 and 21 minutes.
+  fixes below (job 591958, `cn094`, EPYC 7543) 60, 61 and 21 minutes;
+  with the shared powers (job 592135, `cn087`, the slower EPYC 7532) 67,
+  67 and 25 minutes, all passing.
 
 **Where the lab slice's projection goes** (`bin/projection.jl`, the
 first run of [The transfer's cost](#the-transfers-cost), `d/8`; job
@@ -3363,9 +3394,44 @@ node; off the grid; the step of hyperbolic motion at `d/8` as above):
   `main`'s, which had the same chunking.
 - **What is left is the source's arithmetic,** 5.0 µs a point for both
   particles at order 3 against 0.48 on `main`, two thirds of it in the
-  far rule. The lab slice's closed form outside the particles (98% to
-  99.75% of the points) and a far rule of `q = P + 1` away from the
-  window's transition are the next steps **(proposed)**.
+  far rule. A far rule of `q = P + 1` does not pay: the far rule's
+  points are the window's, where `q = 4` errs by `10⁻⁵`–`4·10⁻⁴`
+  relative, and the 24 elements inside `R₁` where it would do are 0.08%
+  of them ([Quadrature](#quadrature), "The window's edge"). All of the
+  far and graded rules' points, and 98% to 99.75% of all, lie outside
+  the particles' supports, where each of the lab slice's groups is
+  already `r^p` times a polynomial in `ℓ²/q`.
+
+**The shared powers** (job 592110, `cn087`, EPYC 7532, 2026-11-06; the
+branch before and with them and `main`, one after another on the node,
+as above; this node is slower than the one above). The generated lab
+slice forms the powers of `v·y`, `α′·y` and `r` once per evaluation
+rather than in every group ([The near field](#the-near-field)):
+
+| | before, order 3 | with them, 3 | `main`, 3 | before, 0 | with them, 0 |
+|---|---|---|---|---|---|
+| source, µs | 6.68 | 4.82 | 0.67 | 0.105 | 0.105 |
+| projection | 1.668 | 1.240 | 0.281 | 0.045 | 0.046 |
+|   far | 1.120 | 0.856 | 0.135 | 0.028 | 0.029 |
+|   graded | 0.322 | 0.238 | 0.036 | 0.007 | 0.007 |
+|   near | 0.195 | 0.151 | 0.110 | 0.008 | 0.008 |
+| hyperbolic step | 3.47 | 2.71 | | | |
+|   `project_source!` | 0.775 | 0.585 | | | |
+
+- **The projection at order 3 costs 26% less, and a step 22% less;**
+  the projection is now 4.4 times `main`'s on this node. The source
+  costs 28% less here, where on the laptop it costs 43% less (940 to
+  540 ns for one particle outside it).
+- **What is left** is the order-3 term on the bracket's dual numbers,
+  274 of the 540 ns on the laptop, most of it its polynomials in
+  `ℓ²/q`. Far from a particle their later coefficients do not
+  matter: at points from `300ℓ` to `900ℓ` out the first four reproduce
+  the term to roundoff, and the term costs 190 ns with them. Where to stop needs a bound
+  relative to the whole field rather than to each group, whose
+  point-limit coefficient can vanish: against the largest point-limit
+  contribution, a later coefficient's reaches 180 times it at order 3
+  and `3·10⁵` times at order 1, where the point limit vanishes for some
+  directions **(open)**.
 
 ## What carried over from TreeWave, and what did not
 
@@ -3416,11 +3482,12 @@ and the device and threading test files.
 - A 1D viewer, a device run, and a subprocess thread-count test, as in
   TreeWave.
 - **(proposed)** Cheaper transfer, if the cost gate is to be met (see
-  [The transfer's cost](#the-transfers-cost)), in the order the plan
-  gives: `q = P + 1` far from the particles, then `INSPIRAL.md`'s
-  exterior and core split. Far from the particles the window's spheres
-  limit the far rule ([Quadrature](#quadrature)), so a smaller `q` there
-  would come with a split at `R₁` and `R₂`. The nested rule's own cost,
+  [The transfer's cost](#the-transfers-cost)): `INSPIRAL.md`'s exterior
+  and core split. The plan's first step, `q = P + 1` far from the
+  particles, does not pay, since nearly all the far rule's elements are
+  in the window's transition, where the window's polynomial needs
+  `q = P + 3` ([Quadrature](#quadrature), "The window's edge"). A wider
+  transition would let a smaller `q` do there. The nested rule's own cost,
   its breakpoints, allocations and per-point basis products, is most of
   its time.
 - The graded and nested passes on a device, and the pairing there too;

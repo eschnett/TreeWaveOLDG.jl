@@ -227,17 +227,46 @@ labMerged[group_, side_] := Module[{basis, key, n, coeff},
             StringRiffle[If[#[[2]] === "", jlNum[#[[1]]], jlNum[#[[1]]] <> " * " <> #[[2]]] & /@
                 parts, " + "]]];
     {basis, Table[coeff[i], {i, n}]}];
+(* The powers a branch's groups multiply, each formed once per point and
+   named by its exponent (vy³, r⁻⁵), rather than once per group: on the
+   bracket's nested dual numbers the order-3 term's monomials cost more
+   than its polynomials (CODE.md, "The near field"). x^k is x^(k/2)
+   squared for even k and x^(k-1)·x for odd k. The superscripts are
+   separate strings, since the script's strings are read as Latin-1 and
+   each is several of its characters. *)
+superscript[k_Integer] := StringJoin[If[k < 0, "⁻", ""],
+    {"⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"}[[
+        ToExpression /@ Characters[ToString[Abs[k]]] + 1]]];
+powerName[x_String, 1] := x;
+powerName[x_String, k_Integer] := x <> superscript[k];
+powerLines[x_String, base_String, kmax_Integer, sign_Integer] := StringJoin[Table[
+    "        " <> powerName[x, sign k] <> " = " <>
+        If[EvenQ[k], powerName[x, sign k/2] <> " * " <> powerName[x, sign k/2],
+            powerName[x, sign (k - 1)] <> " * " <> powerName[x, sign]] <> "\n",
+    {k, 2, kmax}]];
+labPowerLines[groups_List, side_] := Module[{lin, ps, x = If[side === "in", "ℓ", "r"]},
+    lin = Max /@ Transpose[#[[1]]["lin"] & /@ groups];
+    ps = #[[1]]["p"] & /@ groups;
+    StringJoin[
+        MapThread[powerLines[#1, #1, #2, 1] &, {labInvNames[[;; 4]], lin}],
+        powerLines[x, x, Max[ps, 1], 1],
+        If[Min[ps] < 0,
+            "        " <> powerName[x, -1] <> " = 1 / " <> x <> "\n" <>
+                powerLines[x, x, -Min[ps], -1], ""]]];
+labMonomialPowers[lin_List, p_Integer, x_String] := StringJoin[
+    MapThread[If[#2 == 0, "", powerName[#1, #2] <> " * "] &, {labInvNames[[;; 4]], lin}],
+    If[p == 0, "", powerName[x, p] <> " * "]];
 labKindCode[kind_String, nOrder_, terms_] := Module[{groups, merged, offset = 0, exprs = {},
         lines, branch},
-    branch[side_] := StringJoin[Table[
+    branch[side_] := StringJoin[labPowerLines[groups[side], side], Table[
         Module[{g = groups[side][[j]], b, cs, idx, first = groups[side][[j, 1]]},
             {b, cs} = labMerged[g, side];
             idx = offset + Range[Length[cs]];
             offset += Length[cs];
             exprs = Join[exprs, cs];
             "        " <> If[first["k"] == 0, "s₀", "s₁"] <> " += " <>
-                labMonomialCode[Join[first["lin"], {0, 0, 0, 0, 0, 0}]] <>
-                jlPow[If[side === "in", "ℓ", "r"], first["p"]] <> "evalpoly(" <> b <> ", (" <>
+                labMonomialPowers[first["lin"], first["p"], If[side === "in", "ℓ", "r"]] <>
+                "evalpoly(" <> b <> ", (" <>
                 StringRiffle["_coefficient(c, " <> ToString[#] <> ", d)" & /@ idx, ", "] <>
                 If[Length[idx] == 1, ",", ""] <> "))\n"],
         {j, Length[groups[side]]}]];
