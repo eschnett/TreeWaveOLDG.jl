@@ -771,6 +771,29 @@ How the package got where it is, by topic in `CODE.md`'s order.
   the same as `main`'s. The projection costs 8.2 times `main`'s at order
   3 and a step 4.9 times. The full suite took 60 minutes on one thread
   of an EPYC 7543. The circle at `v = 0.2` waits for the owner.
+- 2026-11-06: the owner asked where the lab slice's projection goes
+  before choosing how to speed it up. `bin/projection.jl` now counts the
+  nested rule's points inside a particle and times the source there.
+  Found: 0.25–1.9% of the points lie inside a particle; a quarter of the
+  order-3 source per point is `ParticleSource` copying its 12.9 KB jets
+  for each point, which inlining with constant particle indices removes;
+  and the nested rule runs on few threads off the grid, 0.81 s where its
+  evaluations would take 0.14 s spread evenly.
+- 2026-11-06: the owner had both fixes made. `ParticleSource` sums its
+  particles by constant index, with `s` passed rather than captured; a
+  first version that also inlined the call made the inspiral's
+  right-hand side differ from a separate projection by an ulp, since the
+  compiler fused a `muladd` differently in the two compiled projections,
+  so the call stays a function of its own. For the nested rule, its
+  items were first split over the first two lines; that allocated
+  3.2 GiB per call and gained nothing, and counting the items showed
+  they were fine enough already (1 664, the largest 0.46% of the work).
+  The cause was `Threads.@threads :dynamic`, which cuts the list into one
+  contiguous chunk per thread, where the heavy items near a particle lie
+  together; `:greedy` hands them out one at a time. On one EPYC 7543
+  the order-3 projection went from 2.18 to 1.34 s (`main` 0.21 s), its
+  nested rule from 0.82 to 0.17 s, and a hyperbolic step at `d/8` from
+  3.74 to 2.85 s. The suite on four threads went from 28 to 21 minutes.
 - 2026-11-06: CI failed on main from M4 on, on every job, on one
   assertion: the retarded field's `∂ₜΦ` at `t = 0` of hyperbolic motion,
   bounded by `10⁻¹⁵|Φ|`, is `1.2·10⁻¹⁵|Φ|` at `r = 3`. It vanishes

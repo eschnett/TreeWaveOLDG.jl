@@ -530,22 +530,35 @@ function ParticleSource(models::Tuple, w::Window, trajs::Tuple; order::Int=3)
     return ParticleSource(map(ParticleJets, models, trajs), w, order)
 end
 
-function (s::ParticleSource)(x)
+# The particles are summed by constant index, with the terms inlined and
+# `s` passed as an argument, never captured, so that each particle's jets
+# are read in place: a loop over `s.particles`, a `map` over it, or a
+# closure capturing `s` copied the 12.9 KB `ParticleJets` for every point,
+# a quarter of the source at order 3 and nearly all of it at order 0
+# (CODE.md, "Prescribed paths" under "Measured results"). The call itself
+# is not inlined, so that the source is the same to the bit wherever it is
+# evaluated: inlined into each projection the compiler compiles, it fused
+# a `muladd` in one and not in another, and the inspiral's right-hand
+# side, which projects into a view, differed from a projection into an
+# array by an ulp.
+@noinline function (s::ParticleSource{T,K})(x) where {T,K}
     W, ∇W, ∇²W = window_terms(s.window, x)
-    S = zero(W)
-    iszero(W) && return S
-    if iszero(∇W) && iszero(∇²W)
-        for p in s.particles
-            S += W * source_terms(p, s.order, x)[2]
-        end
-    else
-        for p in s.particles
-            Ψ, bracket, ∇WΨ = source_terms(p, s.order, x, ∇W)
-            S += W * bracket - 2∇WΨ - Ψ * ∇²W
-        end
-    end
-    return S
+    iszero(W) && return zero(W)
+    iszero(∇W) && iszero(∇²W) && return W * _sum_particles(_inner_term, Val(K), s, x)
+    return _sum_particles(_transition_term, Val(K), s, x, W, ∇W, ∇²W)
 end
+
+@inline _inner_term(i, s, x) = source_terms(s.particles[i], s.order, x)[2]
+@inline function _transition_term(i, s, x, W, ∇W, ∇²W)
+    Ψ, bracket, ∇WΨ = source_terms(s.particles[i], s.order, x, ∇W)
+    return W * bracket - 2∇WΨ - Ψ * ∇²W
+end
+
+# `f(1, args...) + … + f(K, args...)`, unrolled, with each index a
+# constant.
+@inline _sum_particles(f::F, ::Val{1}, args...) where {F} = f(1, args...)
+@inline _sum_particles(f::F, ::Val{K}, args...) where {F,K} =
+    _sum_particles(f, Val(K - 1), args...) + f(K, args...)
 
 """
     particle_source(models, w, x, trajs; order = 3)

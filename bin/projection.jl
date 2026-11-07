@@ -25,9 +25,11 @@
 #   elements by rule (the far rule beyond `rfar = 9`, the graded rule
 #   from `rnear` to there, the nested rule within `rnear`, all in units of
 #   `hₑ`), and `far_points`, `graded_points`, `near_points`, the source
-#   evaluations each rule makes;
+#   evaluations each rule makes, and `near_inside_points`, those of the
+#   nested rule inside a particle's support, `|Λ(v)(x - z)| < ℓ`;
 # - `source`: one evaluation of the source, both particles, in the
-#   window's inner ball;
+#   window's inner ball, and `source_inside`, at points inside the first
+#   particle's support;
 # - `projection`: one `project_source!`, and its parts `plan`, `far`,
 #   `graded` and `near`;
 # - `rhs`: one `wave_rhs!` over the box, and `rhs_window`, its share on the
@@ -40,7 +42,7 @@
 
 using TreeWaveOLDG
 using TreeWaveOLDG: SVector, ForwardDiff, statevector, statearray, mesh_fold, nblocks,
-                    projection_plan, project_far!, project_graded!, project_near!,
+                    boost, projection_plan, project_far!, project_graded!, project_near!,
                     element_class, element_box, node_weight, FAR_ELEMENT
 
 function option(name, default)
@@ -89,11 +91,18 @@ function measure(hdiv, rnear, order, reps, offgrid)
         nwindow += class != 0
     end
     count = Threads.Atomic{Int}(0)
-    counted(x) = (Threads.atomic_add!(count, 1); S(x))
+    inside = Threads.Atomic{Int}(0)
+    within(x, m, tr) = sum(abs2, boost(tr.v, x - tr.z)) < m.ℓ^2
+    function counted(x)
+        Threads.atomic_add!(count, 1)
+        (within(x, m₁, tr₁) || within(x, m₂, tr₂)) && Threads.atomic_add!(inside, 1)
+        return S(x)
+    end
     du = statevector(p.fs)
     dua = statearray(du, p.fs)
     project_near!(dua, plan, t, counted, -1.0, 2)
     near_points = count[]
+    near_inside_points = inside[]
     count[] = 0
     project_graded!(dua, plan, t, counted, -1.0, 2)
     graded_points = count[]
@@ -101,6 +110,8 @@ function measure(hdiv, rnear, order, reps, offgrid)
     u = initial_state(p, wave_exact(3, L, 1, 0.0))
     scratch = projection_scratch(p, t)
     xs = [c + SVector(0.3 * cos(k), 0.4 * sin(2k), 0.2 * cos(3k)) for k in 1:1000]
+    xsᵢ = [tr₁.z + 0.9m₁.ℓ * SVector(cos(k), sin(2k), cos(3k)) / sqrt(3) for k in 1:1000]
+    all(x -> within(x, m₁, tr₁), xsᵢ) || error("a point meant inside the particle is not")
     ρ(x) = particle_density(m₁, x, tr₁.z, tr₁.v)
     ∇ρ(x) = ForwardDiff.gradient(ρ, x)
     fold() = (du .= 0;
@@ -119,7 +130,9 @@ function measure(hdiv, rnear, order, reps, offgrid)
         "far_points" => nfar * length(t.gauss)^3,
         "graded_points" => graded_points,
         "near_points" => near_points,
+        "near_inside_points" => near_inside_points,
         "source" => best(() -> sum(S, xs), reps) / length(xs),
+        "source_inside" => best(() -> sum(S, xsᵢ), reps) / length(xsᵢ),
         "projection" => best(() -> project_source!(du, p, t, S, particles; ball=ball,
                                                    rnear=rnear, scratch=scratch), reps),
         "plan" => best(() -> projection_plan(p, t, particles, ball, rnear), reps),

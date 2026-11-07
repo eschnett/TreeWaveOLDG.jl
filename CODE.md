@@ -1351,9 +1351,10 @@ discontinuous across faces. It is element-local and needs no exchange.
   and contracted one dimension at a time as the points are visited
   (`tensor_rule`), threaded over elements one band at a time, and the few
   dozen closer ones take the nested rule, threaded over the points of
-  each element's outermost line and summed afterwards in the rule's
-  order, since the element that holds a particle can be a third of the
-  nested work. Each element writes only its own nodes, and every sum is
+  each element's outermost line, handed out one at a time, and summed
+  afterwards in the rule's order, since the element that holds a
+  particle can be a third of the nested work. Each element writes only
+  its own nodes, and every sum is
   in a fixed order, so the result does not depend on the thread count. An
   element near two particles takes its rule from the nearer one, since
   the other is then at least about half their separation away. An
@@ -2646,9 +2647,9 @@ and 0.40 µs on Symmetry, one thread, against `INSPIRAL.md`'s estimate of
   with the element's basis at every point, on the few dozen elements
   within `hₑ` of a particle. With the particles on corners, the 16
   elements that touch them take 160 000 points each. It is threaded over
-  the points of each element's outermost line, since the element that
-  holds a particle can be a third of its work ([Quadrature](#quadrature);
-  `HISTORY.md` has the measurements).
+  the points of each element's outermost line, handed out one at a time,
+  since the element that holds a particle can be a third of its work
+  ([Quadrature](#quadrature); `HISTORY.md` has the measurements).
 - **The pairing over the support** takes 1.4 to 15 ms for `ρ` and `∇ρ`,
   at 1 to 8 elements whatever the mesh, the most when the support meets
   eight. The `mesh_fold` it replaces, a projection of `ρ` and a fold over
@@ -3284,9 +3285,87 @@ the acceleration, every step, order 3:
   as the per-point measurement above predicts ([The near
   field](#the-near-field)). A circle to `t = 8` at `d/8` would take
   about 2.1 hours rather than 30 minutes, and at `d/16` about a day.
+  These are before the two fixes below, which bring the step at `d/8`
+  to 2.85 s, a circle to `t = 8` to about 1.6 hours.
 - **The full suite on Symmetry** (job 590202, `cn108`, EPYC 7543) took
   60 minutes on one thread, 61 with `--check-bounds=yes` and 28 on four
-  threads, mostly compiling the `BigFloat` particle tests.
+  threads, mostly compiling the `BigFloat` particle tests; with the two
+  fixes below (job 591958, `cn094`, EPYC 7543) 60, 61 and 21 minutes.
+
+**Where the lab slice's projection goes** (`bin/projection.jl`, the
+first run of [The transfer's cost](#the-transfers-cost), `d/8`; job
+591880, `cn095`, EPYC 7543, 64 threads pinned, 2026-11-06, the branch at
+orders 0–3 and `main` at order 3 in the same job). Seconds, the least of
+three; the source in µs per point, both particles, one thread, in the
+inner ball:
+
+| | order 0 | 1 | 2 | 3 | `main`, 3 |
+|---|---|---|---|---|---|
+| source, µs | 0.69 | 1.01 | 2.22 | 5.72 | 0.48 |
+| projection, off the grid | 0.290 | 0.400 | 0.915 | 2.175 | 0.211 |
+|   far | 0.124 | 0.179 | 0.409 | 1.008 | 0.099 |
+|   graded | 0.038 | 0.057 | 0.124 | 0.288 | 0.026 |
+|   near | 0.132 | 0.181 | 0.340 | 0.810 | 0.079 |
+| projection, on corners | 0.243 | 0.325 | 0.705 | 1.657 | 0.167 |
+|   near | 0.067 | 0.096 | 0.179 | 0.407 | 0.039 |
+
+The far rule evaluates 6.72M points, the graded 2.66M and the nested
+1.58M off the grid (2.54M on corners), as in M2. Of the nested rule's
+points 27 648 lie inside a particle's support off the grid and 221 184
+on corners: 0.25% and 1.9% of all the projection's points.
+
+- **Each pass costs ten times `main`'s,** as the source does at order 3
+  (5.72 against 0.48 µs); the far rule is half the projection, the
+  nested rule a third off the grid.
+- **A quarter of the order-3 source, and nearly all of order 0's, was
+  `ParticleSource`'s loop over the particles,** which copied each
+  12.9 KB `ParticleJets` for every point: on the laptop the source cost
+  843 ns at order 0 and 2779 ns at order 3 through it, 35 and 2006 ns
+  with the particles indexed by constants and the call inlined, and 306
+  and 2244 ns with the loop unrolled through `map`; in the window's
+  transition 3198 and 2520 ns at order 3. `main`'s jets were small
+  enough that the copy did not show. The call now sums the particles by
+  constant index with `s` passed, not captured, and is itself not
+  inlined (36 and 1979 ns): inlined, it made the source differ by an ulp
+  between two projections the compiler compiled apart.
+- **The nested rule was not spread over the threads:** its 1.58M points
+  take 0.14 s of source on 64 threads and its own work about 0.07 s
+  (`main`'s near pass less its source), against 0.81 s. Its 1 664 items,
+  the points of each element's outermost line, are fine enough (the
+  largest is 0.46% of the work), but `Threads.@threads :dynamic` cut them
+  into one contiguous chunk per thread, and the items near a particle,
+  which lie together, went to one or two chunks. They are now handed out
+  one at a time (`:greedy`). Splitting the items over the first two
+  lines instead was tried and dropped: it allocated 3.2 GiB per call,
+  against 107 MiB, and gained nothing on four threads.
+- **The graded rule** takes 0.29 s against 0.24 s for its evaluations
+  spread evenly, and **the far rule** 1.01 s against about 0.7 s,
+  counting the transition's evaluations at the laptop's 15% more.
+
+**After the two fixes** (job 591952, `cn094`, EPYC 7543, 2026-11-06; the
+branch before them, with them, and `main`, one after another on the
+node; off the grid; the step of hyperbolic motion at `d/8` as above):
+
+| | before, order 3 | with them, order 3 | `main`, 3 | before, order 0 | with them, 0 | `main`, 0 |
+|---|---|---|---|---|---|---|
+| source, µs | 5.74 | 5.01 | 0.48 | 0.69 | 0.087 | 0.064 |
+| projection | 2.182 | 1.343 | 0.212 | 0.304 | 0.043 | 0.058 |
+|   far | 1.022 | 0.890 | 0.101 | 0.125 | 0.024 | 0.020 |
+|   graded | 0.309 | 0.265 | 0.027 | 0.038 | 0.006 | 0.005 |
+|   near | 0.822 | 0.166 | 0.079 | 0.131 | 0.008 | 0.022 |
+| hyperbolic step | 3.74 | 2.85 | | | | |
+|   `project_source!` | 0.827 | 0.624 | | | | |
+
+- **The projection at order 3 costs 38% less, and a step 24% less;**
+  it is now 6.3 times `main`'s, the step 3.8 times (0.75 s, job 590199).
+  The nested rule takes five times less, 0.17 s, about what its
+  evaluations and its own work take; at order 0 it is now cheaper than
+  `main`'s, which had the same chunking.
+- **What is left is the source's arithmetic,** 5.0 µs a point for both
+  particles at order 3 against 0.48 on `main`, two thirds of it in the
+  far rule. The lab slice's closed form outside the particles (98% to
+  99.75% of the points) and a far rule of `q = P + 1` away from the
+  window's transition are the next steps **(proposed)**.
 
 ## What carried over from TreeWave, and what did not
 
