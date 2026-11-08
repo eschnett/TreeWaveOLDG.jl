@@ -63,7 +63,8 @@ export Geometry, PolarAnnulus, annulus_forest, geometry_terms, physical_coordina
 
 # Geometry: the seven-patch ball, in a full metric
 export FullGeometry, SevenPatchBall, sevenpatch_forest, geometry_frame, PlaneWave,
-       sevenpatch_exact, sevenpatch_errors
+       sevenpatch_exact, sevenpatch_errors, RadiativeBoundary, OutgoingPulse,
+       radiative_errors
 
 # Time integration
 export state_partition, wave_integrator

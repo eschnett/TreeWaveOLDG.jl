@@ -348,8 +348,11 @@ pass forms the logical flux `F^d = √g ∇ξ^d ⋅ ∇u`; the truncation is a
 data on the outer faces, as a callback `boundary(x, t) -> (u, ∂₁u, …,
 ∂_D u)` of the physical position and the time, which must be `isbits`:
 the exchange sets `u`'s outer ghosts and the gradient's from it.
-[`wave_rhs!`](@ref) passes its `t`. A full geometry with outer faces needs
-it, and nothing else takes it; see "The seven-patch ball" in `CODE.md`.
+[`wave_rhs!`](@ref) passes its `t`. Or `boundary` is a
+[`RadiativeBoundary`](@ref), which lets waves leave: its ghosts read the
+interior and are written after each exchange. A full geometry with outer
+faces needs one of the two, and nothing else takes either; see "The
+seven-patch ball" in `CODE.md`.
 """
 struct WaveProblem{T,D,F,S,U,GS,US,GSS,V,EL,M,CG,CS,B}
     fs::F
@@ -364,7 +367,8 @@ struct WaveProblem{T,D,F,S,U,GS,US,GSS,V,EL,M,CG,CS,B}
     metric::M                    # `nothing`, or a `Metric` on a geometry
     cartgrad::CG                 # on a full geometry `∇u`, Cartesian, `G = 1`
     cartschedule::CS
-    boundary::B                  # Dirichlet data on a full geometry, or `nothing`
+    boundary::B                  # on a full geometry Dirichlet data or
+                                 # `RadiativeFaces`; or `nothing`
     valD::Val{D}
 end
 
@@ -656,6 +660,9 @@ function WaveProblem(fs::FieldSet{T,D}, el::Element{T}; truncate::Bool=true,
                      geometry::Union{Nothing,Geometry}=nothing,
                      boundary=nothing) where {T,D}
     full = geometry isa FullGeometry
+    boundary isa RadiativeBoundary && !full && throw(ArgumentError(
+        "a radiative boundary forms the normal flux from the Cartesian gradient, which " *
+        "a full geometry carries: pass a `FullGeometry` (`geometry`)"))
     boundary === nothing || full || throw(ArgumentError(
         "Dirichlet data (`boundary`) are given in Cartesian components and taken by a " *
         "full geometry only: without one the gradient sets hold logical components, " *
@@ -663,7 +670,7 @@ function WaveProblem(fs::FieldSet{T,D}, el::Element{T}; truncate::Bool=true,
     !full || boundary !== nothing || !geometry_boundary(geometry) || throw(ArgumentError(
         "the geometry has outer faces, and no data were given for them: pass " *
         "`boundary = (x, t) -> (u, ∂₁u, …, ∂_D u)`, the Dirichlet data at the " *
-        "physical position x and time t"))
+        "physical position x and time t, or `boundary = RadiativeBoundary()`"))
     forest = fs.forest
     check_layout(forest, el)
     check_element_set(fs, el)
@@ -695,6 +702,8 @@ function WaveProblem(fs::FieldSet{T,D}, el::Element{T}; truncate::Bool=true,
     cartschedule = cartgrad === nothing ? nothing : GhostSchedule(cartgrad, ops)
     spacings = to_backend(backend, block_spacings(forest, T))
     metric = geometry === nothing ? nothing : build_metric(geometry, forest, el, backend)
+    boundary isa RadiativeBoundary &&
+        (boundary = radiative_faces(boundary, geometry, uschedule, T, backend))
     return WaveProblem{T,D,typeof(fs),typeof(schedule),typeof(ufs),typeof(grads),
                        typeof(uschedule),typeof(gradschedules),typeof(spacings),
                        typeof(el),typeof(metric),typeof(cartgrad),typeof(cartschedule),
@@ -722,10 +731,185 @@ DirichletValues{W}(geo::G, data::B, t::T) where {W,G,B,T} =
 @inline (d::DirichletValues{:grad})(x, p) =
     Base.tail(d.data(physical_coordinates(d.geometry, x, p), d.t))
 
+"""
+    RadiativeBoundary(; κ=1, inverse_r=true)
+
+The radiative, maximally dissipative condition on a full geometry's outer
+faces, as [`WaveProblem`](@ref)'s `boundary`:
+
+    n̂ ⋅ ∇u = -(κ ∂ₜu + u/R)
+
+with `n̂` the outward unit normal and `R` the geometry's
+[`outer_radius`](@ref TreeWaveOLDG.outer_radius); `inverse_r = false`
+drops the `u/R` term, and then no radius is needed. `κ = 1` with the
+`u/R` term is Sommerfeld's condition, which an outgoing monopole
+`f(t - r)/r` satisfies exactly on the sphere `r = R`; `κ = 0` without it
+is a wall that holds the normal derivative at zero.
+
+The condition is imposed through the face's ghosts, which read the
+interior: `u`'s ghost is the face node's own `u`, and the gradient's ghost
+is chosen so that the central flux the wide derivative forms there is
+`F* = S[k] ⋅ ∇u = -σ |S[k]| (κ v + u/R)` (`σ = ±1` the face's side). The
+energy then changes at the rate `-Σ w |S[k]| (κ v² + u v/R)` over the face
+nodes, so `E + ½ Σ w |S[k]| u²/R` never grows for `κ ≥ 0`; see
+[`wave_energy`](@ref) and "The outer boundary" in `CODE.md`.
+"""
+struct RadiativeBoundary{T}
+    κ::T
+    inverse_r::Bool
+    function RadiativeBoundary{T}(κ, inverse_r::Bool) where {T}
+        κ >= 0 || throw(ArgumentError(
+            "κ = $κ is negative, and a radiative boundary with κ < 0 feeds energy " *
+            "in: take κ ≥ 0, κ = 1 for Sommerfeld's condition"))
+        return new{T}(T(κ), inverse_r)
+    end
+end
+
+RadiativeBoundary(; κ=1, inverse_r::Bool=true) =
+    RadiativeBoundary{float(typeof(κ))}(κ, inverse_r)
+
+"""
+    outer_radius(geometry)
+
+The radius of a full geometry's outer sphere, which the `u/R` term of a
+[`RadiativeBoundary`](@ref) reads. [`SevenPatchBall`](@ref) gives its
+`R1`.
+"""
+outer_radius(geo::FullGeometry) = throw(ArgumentError(
+    "the geometry $(nameof(typeof(geo))) defines no outer radius, which the u/R term " *
+    "of a radiative boundary needs: define `outer_radius` for it, or pass " *
+    "`RadiativeBoundary(; inverse_r = false)`"))
+
+# A radiative boundary as the problem holds it: `κ`, `1/R` (zero without
+# the `u/R` term), and the outer faces as `(block, d, σ)`, one per block
+# face of the domain's boundary, on the problem's backend.
+struct RadiativeFaces{T,V}
+    κ::T
+    invR::T
+    faces::V
+end
+
+# The outer faces from TreeAMR's own list of the ghost regions that face
+# outside the domain: the regions across a face, whose direction has one
+# nonzero component. An element set's edge and corner ghosts are never
+# read, so their regions are left out.
+function radiative_faces(rb::RadiativeBoundary, geo, schedule, ::Type{T},
+                         backend) where {T}
+    invR = rb.inverse_r ? inv(T(outer_radius(geo))) : zero(T)
+    faces = NTuple{3,Int32}[]
+    for r in schedule.boundaries
+        δ = r.direction
+        count(!iszero, δ) == 1 || continue
+        d = findfirst(!iszero, δ)
+        push!(faces, (Int32(r.block), Int32(d), Int32(δ[d])))
+    end
+    unique!(sort!(faces))
+    return RadiativeFaces(T(rb.κ), invR, to_backend(backend, faces))
+end
+
+# The owned index of the face node beside the ghost at tangential position
+# `I` (`D - 1` indices, the face's dimensions in order) of face `(d, σ)`.
+@inline face_index(I, d, σ, N, ::Val{D}) where {D} =
+    ntuple(q -> q < d ? I[q] : q == d ? (σ > 0 ? N : 1) : I[q - 1], Val(D))
+
+radiative_u!(p::WaveProblem, boundary) = nothing
+
+function radiative_u!(p::WaveProblem{T,D}, rf::RadiativeFaces) where {T,D}
+    nf = length(rf.faces)
+    nf == 0 && return nothing
+    backend = get_backend(p.ufs.work)
+    N = p.fs.forest.N
+    TreeAMR.launch_by_owner!(radiative_u_kernel!, backend, p.ufs.work, rf.faces, N,
+                             p.valD; ndrange=(ntuple(_ -> N, D - 1)..., nf))
+    synchronize(backend)
+    return nothing
+end
+
+# `u`'s ghost across an outer face is the face node's own value, so that
+# the wide derivative's face correction vanishes there and `u̇`'s ghost is
+# the face node's `v`. `u`'s set has `G = 1` on every face.
+@kernel function radiative_u_kernel!(work, @Const(faces), N, ::Val{D}) where {D}
+    J = @index(Global, NTuple)
+    @inbounds b, d, σ = faces[J[D]]
+    o = face_index(J, d, σ, N, Val(D))
+    s = ntuple(q -> o[q] + 1, Val(D))
+    g = Base.setindex(s, σ > 0 ? N + 2 : 1, d)
+    @inbounds work[g..., 1, b] = work[s..., 1, b]
+end
+
+radiative_grad!(p::WaveProblem, boundary, ua) = nothing
+
+function radiative_grad!(p::WaveProblem{T,D}, rf::RadiativeFaces, ua) where {T,D}
+    nf = length(rf.faces)
+    nf == 0 && return nothing
+    backend = get_backend(p.cartgrad.work)
+    N = p.fs.forest.N
+    TreeAMR.launch_by_owner!(radiative_grad_kernel!, backend, p.cartgrad.work, ua,
+                             p.metric.coef, rf.faces, rf.κ, rf.invR, N, p.valD;
+                             ndrange=(ntuple(_ -> N, D - 1)..., nf))
+    synchronize(backend)
+    return nothing
+end
+
+# The gradient's ghost across an outer face: the face node's `V` with its
+# component along `S[d]` changed so that `S[d] ⋅ V_g = 2F* - F`, where `F`
+# is the face node's flux `S[d] ⋅ V`. The Laplacian forms the ghost's flux
+# with the face node's `S[d]` and averages it with `F`, so the face's flux
+# is `F*`. Only that component is read across the face.
+@kernel function radiative_grad_kernel!(gc, @Const(ua), @Const(coef), @Const(faces), κ,
+                                        invR, N, ::Val{D}) where {D}
+    J = @index(Global, NTuple)
+    @inbounds b, d, σ = faces[J[D]]
+    o = face_index(J, d, σ, N, Val(D))
+    s = ntuple(q -> o[q] + 1, Val(D))
+    g = Base.setindex(s, σ > 0 ? N + 2 : 1, d)
+    S = ntuple(i -> frame_coef(coef, o, b, d, i, Val(D)), Val(D))
+    V = ntuple(i -> (@inbounds gc[s..., i, b]), Val(D))
+    S2 = sum(S .* S)
+    F = sum(S .* V)
+    @inbounds Fstar = -σ * sqrt(S2) * (κ * ua[o..., 2, b] + invR * ua[o..., 1, b])
+    c = 2 * (Fstar - F) / S2
+    for i in 1:D
+        @inbounds gc[g..., i, b] = V[i] + c * S[i]
+    end
+end
+
+# The radiative boundary's own energy, `½ Σ w |S[d]| u²/R` over the outer
+# faces' nodes, with `w` the face's quadrature weight: what makes
+# `E + boundary_energy` non-increasing under the `u/R` term. Zero for any
+# other boundary.
+boundary_energy(p::WaveProblem, boundary, u) = zero(eltype(u))
+
+function boundary_energy(p::WaveProblem{T,D}, rf::RadiativeFaces, u) where {T,D}
+    iszero(rf.invR) && return zero(T)
+    ua = Array(statearray(u, p.fs))
+    coef = Array(p.metric.coef)
+    faces = Array(rf.faces)
+    forest = p.fs.forest
+    N = forest.N
+    el = p.element
+    P1 = order(el) + 1
+    total = zero(T)
+    for (b, d, σ) in faces
+        h = spacing(T, forest, blockkey(p.fs, Int(b)))
+        for I in CartesianIndices(ntuple(_ -> N, D - 1))
+            o = face_index(Tuple(I), d, σ, N, Val(D))
+            w = prod(q -> q == d ? one(T) : h * P1 / 2 * el.weights[(o[q] - 1) % P1 + 1],
+                     1:D)
+            S = ntuple(i -> coef[o..., 1 + (d - 1) * D + i, b], D)
+            total += w * sqrt(sum(abs2, S)) * ua[o..., 1, b]^2
+        end
+    end
+    return total * rf.invR / 2
+end
+
 # One exchange of `fs`: as it always was when there are no Dirichlet data,
 # and otherwise with the data at time `t` on the outer faces.
 function exchange!(fs, schedule, p::WaveProblem{T}, t, ::Val{W}) where {T,W}
     p.boundary === nothing && return fill_ghosts!(fs, schedule)
+    # The radiative ghosts read the interior, and are written after the
+    # exchange by `radiative_u!` and `radiative_grad!`.
+    p.boundary isa RadiativeFaces && return fill_ghosts!(fs, schedule)
     t === nothing && throw(ArgumentError(
         "the problem has Dirichlet data, which depend on the time, and none was " *
         "given: pass `t`"))
@@ -737,24 +921,26 @@ end
 # `u`'s exchange, pass 1 and the gradients' exchanges, shared by the RHS
 # and the energy. `t` is the time, which only Dirichlet data read.
 function fill_gradient!(p::WaveProblem, u, t=nothing)
-    map_blocks!(scatter_u_kernel!, p.ufs, p.ufs.work, statearray(u, p.fs), p.valD,
-                Val(p.ufs.G))
+    ua = statearray(u, p.fs)
+    map_blocks!(scatter_u_kernel!, p.ufs, p.ufs.work, ua, p.valD, Val(p.ufs.G))
     exchange!(p.ufs, p.uschedule, p, t, Val(:u))
-    gradient_pass!(p, p.metric, t)
+    radiative_u!(p, p.boundary)
+    gradient_pass!(p, p.metric, t, ua)
     return nothing
 end
 
-function gradient_pass!(p::WaveProblem, metric, t)
+function gradient_pass!(p::WaveProblem, metric, t, ua)
     map_blocks!(gradient_kernel!, p.ufs, map(g -> g.work, p.grads), p.ufs.work,
                 p.spacings, p.element, metric_coef(p), p.valD, Val(p.ufs.G))
     foreach(fill_ghosts!, p.grads, p.gradschedules)
     return nothing
 end
 
-function gradient_pass!(p::WaveProblem, metric::FullMetric, t)
+function gradient_pass!(p::WaveProblem, metric::FullMetric, t, ua)
     map_blocks!(cart_gradient_kernel!, p.ufs, p.cartgrad.work, p.ufs.work, p.spacings,
                 p.element, metric.coef, p.valD, Val(p.ufs.G))
     exchange!(p.cartgrad, p.cartschedule, p, t, Val(:grad))
+    radiative_grad!(p, p.boundary, ua)
     return nothing
 end
 
@@ -883,6 +1069,10 @@ On a full geometry it is `½ Σ w √g (v² + |∇u|²)`, with `∇u` in Cartesi
 components; it is invariant to rounding across the glued faces, and
 changes through the outer faces by the flux the Dirichlet data let
 through. `t` is the time of `u`, which those data read.
+
+Under a [`RadiativeBoundary`](@ref) with its `u/R` term the energy
+includes the boundary's own, `½ Σ w |S[k]| u²/R` over the outer faces'
+nodes, and then never grows: its rate is `-κ Σ w |S[k]| v²` there.
 """
 function wave_energy(p::WaveProblem{T,D}, u; t=nothing) where {T,D}
     fill_gradient!(p, u, t)
@@ -900,7 +1090,7 @@ function wave_energy(p::WaveProblem{T,D}, u; t=nothing) where {T,D}
         potential = sum(d -> first(metric_parts(p.grads[d], p.element, geo, nothing, 2,
                                                 1, d)), 1:D)
     end
-    return (kinetic + potential) / 2
+    return (kinetic + potential) / 2 + boundary_energy(p, p.boundary, u)
 end
 
 """
