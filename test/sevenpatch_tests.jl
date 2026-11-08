@@ -210,3 +210,99 @@ end
         @test P - 0.3 < rate < P + 0.4
     end
 end
+
+# The rate `Σ w √g v v̇ + Σ w √g ∇u ⋅ ∇v` of the energy of state `u`, and
+# the same sum of absolute values, its scale.
+function energy_rate(p::WaveProblem, u)
+    du = similar(u)
+    wave_rhs!(du, u, p, 0.0)
+    Vu = ownedvars(p.cartgrad)
+    v, vdot = statevar(p, u, 2), statevar(p, du, 2)
+    TreeWaveOLDG.fill_gradient!(p, state_of(p, v), 0.0)
+    Vv = ownedvars(p.cartgrad)
+    dot3(A, B) = sum(selectdim(A, 4, i) .* selectdim(B, 4, i) for i in 1:3)
+    J = selectdim(p.metric.coef, 4, 1)
+    w = node_weights(p.fs, p.element)
+    rate = metric_inner(p, v, vdot) + sum(w .* J .* dot3(Vu, Vv))
+    scale = metric_inner(p, abs.(v), abs.(vdot)) + sum(w .* J .* abs.(dot3(Vu, Vv)))
+    return rate, scale
+end
+
+# `-Σ w |S[d]| (κ v² + u v/R)` over the outer faces' nodes, `w` the face's
+# quadrature weight, written out independently of the problem's own loop.
+function radiative_rate(p::WaveProblem, u, κ)
+    forest, el = p.fs.forest, p.element
+    N, P1 = forest.N, length(el.weights)
+    ua = statearray(u, p.fs)
+    rate = 0.0
+    for (b, d, σ) in p.boundary.faces
+        h = spacing(Float64, forest, blockkey(p.fs, Int(b)))
+        for I in CartesianIndices((N, N, N))
+            I[d] == (σ > 0 ? N : 1) || continue
+            w = prod(q -> q == d ? 1.0 : h * P1 / 2 * el.weights[(I[q] - 1) % P1 + 1], 1:3)
+            S = [p.metric.coef[I, 1 + 3(d - 1) + i, b] for i in 1:3]
+            v = ua[I, 2, b]
+            rate -= w * sqrt(sum(abs2, S)) * (κ * v^2 + p.boundary.invR * ua[I, 1, b] * v)
+        end
+    end
+    return rate
+end
+
+@testset "Through a radiative boundary the energy changes by its boundary term alone" begin
+    # The ghosts set `u`'s face value to the face node's and the normal flux
+    # to `-σ |S| (κ v + u/R)`, so the energy's rate is
+    # `-Σ w |S| (κ v² + u v/R)` over the outer faces' nodes, to rounding. A
+    # ghost written on the wrong side, a flux of the wrong sign, a frame
+    # read at the ghost instead of the face node, or a `u` ghost that is not
+    # the face node's (which leaves the time derivative of the ghost out of
+    # the rate) leaves a difference of the size of the terms. `κ = 0`
+    # without the `u/R` term holds the normal derivative at zero, and then
+    # nothing crosses.
+    for P in (2, 3), (κ, ir) in ((1.0, true), (1.0, false), (0.5, true), (0.0, false)),
+        truncate in (false, true)
+
+        el = Element(Float64, P)
+        forest, geo = sevenpatch_forest(Float64, P, 2; roots=(2, 2))
+        p = WaveProblem(forest, el; geometry=geo, truncate=truncate,
+                        boundary=RadiativeBoundary(; κ=κ, inverse_r=ir))
+        @test length(p.boundary.faces) == 6 * 2^2
+        @test p.boundary.invR == (ir ? 1 / 3 : 0)
+        u = statevector(p.fs)
+        u .= scrambled(length(u), 0.3)
+        truncate_state!(u, p)
+        rate, scale = energy_rate(p, u)
+        @test scale > 1
+        @test abs(rate - radiative_rate(p, u, κ)) < 1e-13 * scale
+        κ > 0 && @test radiative_rate(p, u, κ) < -1e-3 * scale
+    end
+end
+
+@testset "A radiative boundary refuses what it cannot impose" begin
+    # A negative `κ` feeds energy in; without a full geometry there is no
+    # Cartesian gradient to form the normal flux from; and the `u/R` term
+    # needs the geometry's outer radius.
+    el = Element(Float64, 2)
+    @test_throws "negative" RadiativeBoundary(; κ=-1)
+    brick = wave_forest(Float64, Val(3), 2, 2; roots=2)
+    @test_throws "full geometry" WaveProblem(brick, el; boundary=RadiativeBoundary())
+    @test_throws "no outer radius" WaveProblem(brick, el; geometry=IdentityFrame(),
+                                               boundary=RadiativeBoundary())
+    p = WaveProblem(brick, el; geometry=IdentityFrame(),
+                    boundary=RadiativeBoundary(; inverse_r=false))
+    @test isempty(p.boundary.faces)
+end
+
+@testset "An outgoing pulse leaves through Sommerfeld's condition and stays behind a wall" begin
+    # The pulse of width 1/2 starts at the origin and has crossed the sphere
+    # `R1 = 3` by `t = 5`. Under Sommerfeld's condition what is left is the
+    # reflection and the discretization error, 3.5e-3 of the energy at this
+    # resolution (CODE.md, "The seven-patch ball" under "Measured
+    # results"); a flux of the wrong sign or a ghost that is not written
+    # keeps most of it. With `κ = 0` and no `u/R` term the face's flux is
+    # zero, a Neumann wall, and the energy stays to RK4's loss, 2e-9.
+    free = radiative_errors(; P=3, E=2, roots=(2, 2), tend=5)
+    @test free.energy < 1e-2 * free.energy0
+    @test free.l2 < 0.05
+    wall = radiative_errors(; P=3, E=2, roots=(2, 2), tend=5, κ=0, inverse_r=false)
+    @test abs(wall.energy / wall.energy0 - 1) < 1e-7
+end

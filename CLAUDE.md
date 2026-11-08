@@ -137,6 +137,14 @@ seconds at `--scales=1,2` for `P = 2`, half a minute for `P = 3`, and
 julia --project=. -t 4,0 bin/sevenpatch.jl --P=2,3 --scales=1,2
 ```
 
+With `--boundary=radiative` it evolves an outgoing pulse instead, through
+a radiative outer sphere ("The outer boundary"); by `--tend=5` the pulse
+has left the ball, and what remains is the reflection:
+
+```bash
+julia --project=. -t 4,0 bin/sevenpatch.jl --P=3 --scales=1,2 --boundary=radiative --tend=5
+```
+
 From M1 of `INSPIRAL-PLAN.md` on, `src/particle_forms.jl` is generated
 from the Wolfram Language derivations in `derivations/`; do not edit it
 by hand. Regenerate it, and let the suite check that the checked-in
@@ -223,7 +231,14 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   with the frame of the owned face node beside a ghost, never a metric
   at the ghost. The truncation is a `√g`-orthogonal projection per
   element, and the outer faces take Dirichlet data through `boundary`,
-  for which `wave_rhs!` passes `t` ("The seven-patch ball").
+  for which `wave_rhs!` passes `t`, or a `RadiativeBoundary` ("The
+  seven-patch ball").
+- **A radiative outer face is written after the exchange, not by a
+  TreeAMR hook.** Its ghosts read the interior: `u`'s is the face node's
+  own, and the gradient's makes the face's central flux the target,
+  `S[k] ⋅ V_g = 2F* − F`. Both the energy's boundary term and its sign
+  rest on the two together; do not set `u`'s ghost from data ("The
+  outer boundary").
 - **On a geometry the time step divides by the largest logical wave
   speed**, `√g^{dd}` at any node, or `√λ_max(g^{de})` on a full
   geometry, which `oldg_timestep` does ("The metric", "The seven-patch

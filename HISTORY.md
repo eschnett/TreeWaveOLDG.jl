@@ -179,6 +179,30 @@ How the package got where it is, by topic in `CODE.md`'s order.
   `(2, 2)` roots, and minutes at `(6, 6)`. Building the Gram matrix by sum
   factorization and keeping its Cholesky factor, solved in the kernel,
   took it to 1.5 s and halved the tables.
+- 2026-11-08: a radiative outer sphere, on Erik Schnetter's request
+  for maximally dissipative boundary conditions. He asked whether a
+  13-patch ball, whose outer shell has exactly radial coordinate planes
+  and spherical `r = const` surfaces, would be needed. It was not: the
+  seven-patch map `x = f·[(1 − ρ) + ρR1/|f|]` already has radial lines
+  as coordinate lines and the sphere as its outer face, so `S[k]` is
+  radial there, and the energy argument reads nothing else. A 13-patch
+  ball would still help accuracy (no shear near the sphere, the same
+  radial spacing at every angle, a cheap larger `R1`), and would be the
+  place for a higher-order absorbing condition.
+
+  `CODE.md` had said an outgoing condition needed a TreeAMR hook that
+  reads the interior, or per-patch face kinds. Neither was needed: the
+  two exchanges run without a hook, and two kernels of this package
+  rewrite the outer ghosts afterwards, `u`'s as the face node's own and
+  the gradient's so that the face's central flux is
+  `−σ |S| (κ v + u/R)`. The discrete energy rate then equals that flux's
+  boundary term to rounding, which the test asserts.
+- 2026-11-08: measured on the laptop at `P = 3`: an outgoing pulse of
+  width 1/2 leaves 3.5e-3 of its energy behind at `(2, 2)` roots and
+  1.8e-6 at `(4, 4)` under Sommerfeld's condition, and 6e-3 at both
+  without its `u/R` term; a pulse of width 1 converges at order 2.9
+  through the sphere. See "The seven-patch ball" under "Measured
+  results" in `CODE.md`.
 
 ## Refined forests
 

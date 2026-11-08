@@ -250,6 +250,8 @@ sevenpatch_index(k, s) = 1 + 2(k - 1) + (s == 1 ? 2 : 1)
     return (1 - ρ) .* f .+ (ρ * geo.R1 / sqrt(f[1]^2 + f[2]^2 + f[3]^2)) .* f
 end
 
+outer_radius(geo::SevenPatchBall) = geo.R1
+
 @inline function physical_coordinates(geo::SevenPatchBall, x, p)
     return Tuple(sevenpatch_position(geo, SVector(x[1], x[2], x[3]), p))
 end

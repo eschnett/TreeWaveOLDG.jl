@@ -46,8 +46,9 @@ TreeAMR's forests of patches (its M17) the wave equation runs in a
 diagonal metric: on the four-patch annulus it converges at order `P`,
 with its discrete energy an exact invariant across the glued faces. On
 the seven-patch ball, glued by quarter turns, it runs in a general metric
-with the gradient exchanged in Cartesian components and Dirichlet data on
-the outer sphere, and a plane wave converges at order `P`; see
+with the gradient exchanged in Cartesian components and Dirichlet data or
+a radiative condition on the outer sphere: a plane wave converges at
+order `P`, and an outgoing pulse leaves the ball; see
 [Multi-patch forests](#multi-patch-forests). The suite passes, also with
 `--check-bounds=yes` and with four threads.
 
@@ -159,7 +160,8 @@ the outer sphere, and a plane wave converges at order `P`; see
   [`Geometry`](@ref) of this package's. Two are built: the four-patch
   annulus in polar coordinates, a diagonal metric glued by the identity,
   and the seven-patch ball, a cube and six shells, a general metric
-  glued by quarter turns, with Dirichlet data on its outer sphere.
+  glued by quarter turns, with Dirichlet data or a radiative condition
+  on its outer sphere.
   Refinement on a geometry is not. See
   [Multi-patch forests](#multi-patch-forests).
 - **Three initial conditions**, the standing sine mode, on a uniform or
@@ -609,8 +611,9 @@ no mixed derivative at a ghost: every `D_e u` is formed at an owned
 node. Across the glues the invariant holds to rounding rather than
 bitwise, because the two patches' area vectors at a face are computed
 separately. Through the outer sphere the energy changes by the flux
-that the Dirichlet data let through. `wave_energy` takes the time for
-those data.
+that the Dirichlet data let through, or by the radiative condition's
+boundary term (below). `wave_energy` takes the time for the Dirichlet
+data.
 
 **The truncation.** `√g` of a shell does not factorize, so no tensor
 product of one-dimensional projections is `√g`-orthogonal. An
@@ -641,12 +644,46 @@ sphere's, and TreeAMR cannot make them reflecting: its face kinds are
 per `(dim, side)` for all patches, and the cube is glued on all six. A
 mirror would not suit the Cartesian gradient anyway, since reflecting
 a vector in a curved wall mixes its components. So a full geometry with
-outer faces takes Dirichlet data: `WaveProblem`'s `boundary`, a callback
-`boundary(x, t) -> (u, ∂₁u, …, ∂_D u)` of the physical position and the
-time. Both exchanges set their outer ghosts from it through TreeAMR's
-`boundary_by_coordinates(WithPatch(AllVariables(…)))`, and
-[`wave_rhs!`](@ref) passes its `t`. A full geometry refuses a reflecting
-forest, and Dirichlet data without a full geometry.
+outer faces takes one of two conditions, through `WaveProblem`'s
+`boundary`; a full geometry refuses a reflecting forest, and either
+condition without a full geometry.
+
+- **Dirichlet data**, a callback `boundary(x, t) -> (u, ∂₁u, …, ∂_D u)` of
+  the physical position and the time. Both exchanges set their outer
+  ghosts from it through TreeAMR's
+  `boundary_by_coordinates(WithPatch(AllVariables(…)))`, and
+  [`wave_rhs!`](@ref) passes its `t`.
+- **A radiative condition**, [`RadiativeBoundary`](@ref)`(; κ, inverse_r)`:
+  `n̂ ⋅ ∇u = -(κ ∂ₜu + u/R)` with `R` the sphere's radius
+  (`outer_radius`), maximally dissipative for `κ ≥ 0`. `κ = 1` with the
+  `u/R` term is Sommerfeld's condition, exact for an outgoing monopole.
+
+**The radiative ghosts.** The wide derivative `D = d − ½(b − F)` makes
+every face flux the central one, `½` of the two sides'. On an outer face
+`(k, σ)`, `σ = ±1` its side, summation by parts leaves the energy the
+rate `σ · ½ Σ w (v F_g + F u̇_g)` over the face's nodes, with `F` the face
+node's normal flux `S[k] ⋅ ∇u`, `F_g` the ghost's and `u_g` `u`'s ghost.
+The condition sets both ghosts from the interior:
+
+- `u_g = u`, the face node's own, so that `u̇_g = v` there;
+- `S[k] ⋅ V_g = 2F* − F`, so that the face's flux is
+  `F* = −σ |S[k]| (κ v + u/R)`. Only that component of the ghost is read
+  across the face, and `V_g` is the face node's `V` changed along `S[k]`.
+
+The rate is then `−Σ w |S[k]| (κ v² + u v/R)`, and
+`E + ½ Σ w |S[k]| u²/R` never grows; [`wave_energy`](@ref) includes the
+boundary's term. On the ball `S[k]` is radial on the outer sphere: a
+shell's tangential coordinate surfaces are planes through the origin and
+its outer face is the sphere. So the condition needs nothing of the map
+beyond the frame the Laplacian already reads.
+
+The ghosts depend on the state, which TreeAMR's coordinate hooks cannot
+read, so they are written after each exchange by two kernels of this
+package, `radiative_u_kernel!` and `radiative_grad_kernel!`, one work
+item per face node, on any backend. The exchanges run without a hook.
+The outer faces come from the `u` schedule's own list of the ghost
+regions facing outside the domain, the face regions among them, at
+`WaveProblem` time.
 
 **The ball.** `sevenpatch_forest(T, P, E; roots = (n, m), Lc, R1)` builds
 the forest and its [`SevenPatchBall`](@ref):
@@ -677,10 +714,13 @@ reports the `√g`-weighted L2 error and the cube's physical spacing
 
 **What it does not do:**
 
-- **Only Dirichlet data on the outer sphere.** An outgoing or
-  reflecting condition would need a boundary hook that reads the
-  interior (TreeAMR's region form, CPU only), or per-patch face kinds
-  in TreeAMR.
+- **No reflecting outer sphere,** which would need per-patch face kinds
+  in TreeAMR; `κ = 0` without the `u/R` term is the Neumann wall.
+- **The radiative condition is first order.** Sommerfeld's condition is
+  exact for the monopole only; a wave of angular order `ℓ` reflects at
+  `O(ℓ(ℓ+1)/(kR)²)`. A higher-order absorbing condition
+  (Bayliss–Turkel) would read the angular derivatives on the sphere.
+  **(open)**
 - **Only uniform forests on the CPU,** and no particles, as for every
   geometry.
 
@@ -2133,7 +2173,8 @@ written without the averaging and the force read both ways, are
   beside them, `WaveProblem` (from a forest, or from a state set after
   `regrid!`, flat or on a geometry, with its `Metric` and
   `MetricTruncation`, or on a full geometry its `FullMetric`,
-  `ElementTruncation` and Dirichlet data), `wave_rhs!`,
+  `ElementTruncation` and Dirichlet data or `RadiativeBoundary` with its
+  ghost kernels and `outer_radius`), `wave_rhs!`,
   `truncate_state!`, `truncate_stage!`, `initial_state`, `wave_energy`,
   `wave_norm`, `oldg_timestep`, `convergence_rate`.
 - `src/stepping.jl`: `state_partition` and `wave_integrator`.
@@ -2147,7 +2188,9 @@ written without the averaging and the force read both ways, are
 - `src/annulus.jl`: the rotating Neumann Bessel mode of the annulus,
   `annulus_wavenumber`, `annulus_exact`, and its driver `annulus_errors`.
 - `src/sevenpatch.jl`: the plane wave, `PlaneWave` and `sevenpatch_exact`,
-  and its driver on the seven-patch ball, `sevenpatch_errors`.
+  and its driver on the seven-patch ball, `sevenpatch_errors`; the
+  outgoing pulse `OutgoingPulse` and its driver under a radiative
+  boundary, `radiative_errors`.
 - `src/precision.jl`, `src/device.jl`: `ceilint`, `floorint`, `wrap`,
   `tofloat64`, `chunk_count`, `chunk_bounds` and `to_backend`, taken from
   TreeWave.
@@ -2207,8 +2250,9 @@ written without the averaging and the force read both ways, are
   one tab-separated row per run, in the package environment;
   `bin/symmetry/annulus.sh` runs it on a Symmetry AMD node.
 - `bin/sevenpatch.jl`: the plane wave's convergence series on the
-  seven-patch ball, one tab-separated row per run, in the package
-  environment.
+  seven-patch ball, or with `--boundary=radiative` the outgoing pulse's
+  under a radiative boundary, one tab-separated row per run, in the
+  package environment.
 - `bin/nested_waves.jl`: the exact outgoing pulse through nested boxes,
   the field alone, its error and the exact solution in each level's
   ball, run in the package environment; `bin/symmetry/nested_waves.sh`
@@ -2324,8 +2368,13 @@ tests about 40 s on one.
   leaves `u` alone and never raises the kinetic energy; `dE/dt` vanishes
   to `1e-13` of its terms across every glue, with and without
   truncation, for a state that is zero in the shells' outermost
-  elements; TreeAMR turns the exchanges across the glues; and the plane
-  wave converges at order `P` for `P = 2, 3`. About 60 s.
+  elements; TreeAMR turns the exchanges across the glues; the plane
+  wave converges at order `P` for `P = 2, 3`; under a radiative boundary
+  `dE/dt` equals the boundary term `−Σ w|S|(κv² + uv/R)` to `1e-13` of
+  its terms, for four conditions with and without truncation, the
+  boundary refuses a negative `κ`, a geometry that is not full and one
+  without an outer radius, an outgoing pulse leaves the ball, and the
+  Neumann wall keeps the energy.
 - `reflect_tests.jl`: the reflecting box — the Neumann `cos` mode converges
   at order `P` in 1D and 2D, the wall is an exact discrete symmetry
   (energy conserved to the integrator's loss), the parities the wall imposes
@@ -2579,6 +2628,44 @@ out through the sphere, not a loss.
 
 The test asserts the rates of `s = 1, 2` to `t = 1/4`, at one thread:
 1.89 at `P = 2` and 2.90 at `P = 3`.
+
+**The radiative boundary.** The outgoing pulse
+`(f(t − r) − f(t + r))/r`, `f(s) = exp(−s²/w²)`, on the same ball with
+truncation, `(2s, 2s)` roots for `s = 1, 2`, `E = 2`, RK4 at
+`cfl = 1/2`, under a [`RadiativeBoundary`](@ref) (`radiative_errors`),
+on the laptop at four threads. The width-1/2 pulse has left the sphere
+by `t = 5`; `E₁/E₀` is the energy left, the boundary's term included:
+
+| P | condition | `E₁/E₀` at `s = 1` | at `s = 2` | L2 error at `s = 1` | at `s = 2` | seconds |
+|---|---|---|---|---|---|---|
+| 3 | Sommerfeld, `κ = 1` with `u/R` | 3.5e-3 | 1.8e-6 | 2.5e-2 | 5.1e-4 | 15 60 |
+| 3 | `κ = 1` without `u/R` | 9.9e-3 | 6.3e-3 | 7.2e-2 | 6.7e-2 | 5 61 |
+| 3 | `κ = 0` without `u/R` (a wall) | 1 − 2.3e-9 | 1 − 6.4e-11 | 0.54 | 0.55 | 5 62 |
+
+A pulse of width 1, L2 errors and least-squares rates:
+
+| P | to `t` | L2 at `s = 1` | at `s = 2` | rate |
+|---|---|---|---|---|
+| 2 | 1 | 2.17e-2 | 6.16e-3 | 1.82 |
+| 2 | 4 | 2.13e-2 | 7.29e-3 | 1.55 |
+| 3 | 1 | 1.77e-3 | 1.82e-4 | 3.28 |
+| 3 | 4 | 6.22e-4 | 8.28e-5 | 2.91 |
+
+**What the tables show:**
+
+- **Under Sommerfeld's condition the pulse leaves,** and what it leaves
+  behind falls 2000 times from `s = 1` to `s = 2`: the condition is exact
+  for the monopole, so the reflection is discretization error.
+- **Without the `u/R` term a reflection of about `6e-3` of the energy
+  stays** at both resolutions: the first-order condition
+  `∂ₜu + ∂ᵣu = 0` is not the monopole's.
+- **`κ = 0` keeps the energy to RK4's loss,** a check of the boundary
+  term's sign and size; the error is then the reflected pulse's.
+- **At `P = 3` the order is `P`** through the crossing of the sphere;
+  `P = 2` is not yet in its asymptotic range at these spacings.
+
+The test asserts the energy left at `s = 1`, below `1e-2`, and the wall's
+energy to `1e-7`.
 
 ### Refined forests
 
