@@ -44,7 +44,10 @@ of times it. M4's gate passes; see [Prescribed
 paths](#prescribed-paths) and [The averaging](#the-averaging). On
 TreeAMR's forests of patches (its M17) the wave equation runs in a
 diagonal metric: on the four-patch annulus it converges at order `P`,
-with its discrete energy an exact invariant across the glued faces; see
+with its discrete energy an exact invariant across the glued faces. On
+the seven-patch ball, glued by quarter turns, it runs in a general metric
+with the gradient exchanged in Cartesian components and Dirichlet data on
+the outer sphere, and a plane wave converges at order `P`; see
 [Multi-patch forests](#multi-patch-forests). The suite passes, also with
 `--check-bounds=yes` and with four threads.
 
@@ -66,6 +69,7 @@ with its discrete energy an exact invariant across the glued faces; see
   - [The metric](#the-metric)
   - [Truncation with a metric](#truncation-with-a-metric)
   - [The annulus](#the-annulus)
+  - [The seven-patch ball](#the-seven-patch-ball)
 - [Refined forests](#refined-forests)
   - [The coupling](#the-coupling)
   - [The energy](#the-energy)
@@ -99,6 +103,7 @@ with its discrete energy an exact invariant across the glued faces; see
   - [Convergence](#convergence)
   - [Reflecting walls](#reflecting-walls-1)
   - [The annulus](#the-annulus-1)
+  - [The seven-patch ball](#the-seven-patch-ball-1)
   - [Refined forests](#refined-forests-1)
   - [The RK4 limit](#the-rk4-limit)
   - [The blast wave's error](#the-blast-waves-error)
@@ -149,11 +154,13 @@ with its discrete energy an exact invariant across the glued faces; see
   walls](#reflecting-walls). Refinement may touch a wall. An *outflow* or
   partly reflecting box would need the paper's boundary treatment (its
   `Ω₀` and `Ω_{K+1}` singleton elements), which is not implemented.
-- **Multi-patch forests in a diagonal metric**, uniform, on the CPU:
-  TreeAMR's forests of patches (its M17), with the map to physical
-  space a [`Geometry`](@ref) of this package's. The four-patch annulus
-  in polar coordinates is the one built; a glue other than the identity,
-  an off-diagonal metric and refinement on a geometry are not. See
+- **Multi-patch forests in a metric**, uniform, on the CPU: TreeAMR's
+  forests of patches (its M17), with the map to physical space a
+  [`Geometry`](@ref) of this package's. Two are built: the four-patch
+  annulus in polar coordinates, a diagonal metric glued by the identity,
+  and the seven-patch ball, a cube and six shells, a general metric
+  glued by quarter turns, with Dirichlet data on its outer sphere.
+  Refinement on a geometry is not. See
   [Multi-patch forests](#multi-patch-forests).
 - **Three initial conditions**, the standing sine mode, on a uniform or
   refined forest, the 2D radial blast wave, on a uniform or an
@@ -534,18 +541,148 @@ scaled to `R(kr0) = 1`:
 reports the `√g`-weighted L2 error and the physical radial spacing
 `r′h`, since the logical spacing does not change with the root count.
 
-**What it does not do:**
+**What a diagonal geometry does not do** (a
+[full geometry](#the-seven-patch-ball) does the first three):
 
 - **Only the identity glue.** The `d`-th gradient set's ghosts across a
   glued face come from the same set of the patch across. A glue that
   swaps axes, as a cubed sphere's does, would need them from another
-  set, with a sign where an axis reverses. That means one gradient set
-  of all `D` components with ghosts along every dimension, or a glue
-  that knows vector components.
-- **Only diagonal metrics.** An off-diagonal `g^{de}` needs `D_e u` at
-  ghost points along `d`, a mixed derivative this scheme does not form.
+  set, with a sign where an axis reverses.
+- **Only diagonal metrics.** The `d`-th set holds `A_d D_d u`, which has
+  no term for an off-diagonal `g^{de}`.
 - **Only a separable `√g`,** for the truncation.
 - **Only uniform forests on the CPU,** and no particles.
+
+### The seven-patch ball
+
+A cubed sphere's glues swap axes, and no labelling of its patches' axes
+avoids that: around a corner of the cube, three shells meet pairwise,
+and asking each glue to keep every axis in place leads to a
+contradiction. So the `d`-th gradient set, with ghosts along `d` only,
+cannot cross them, and TreeAMR refuses its layout. A
+[`FullGeometry`](@ref) carries the gradient another way, which also
+lifts the diagonal metric and the separable `√g`.
+
+**The geometry.** `geometry_frame(geo, x, p)` gives `√g` and the area
+vectors `S[d] = √g ∇ξ^d` in Cartesian components, `S[d][i] = √g ∂ξ^d/∂x^i`.
+The coefficient set holds `√g` and the `D²` components of `S`, filled
+once at the nodes. A full geometry is the map to Cartesian space, and
+the wave equation is
+
+    √g ∂ₜv = Σ_d ∂_d F^d,     F^d = S[d] ⋅ ∇u
+
+**The right-hand side.** Two exchanges, not `1 + D`:
+
+    u → ufs; fill_ghosts!(ufs)                  # u's face neighbours
+    gradient pass; fill_ghosts!(cartgrad)       # ∇u's face neighbours
+    Laplacian pass                              # du, with v from u
+
+- **The gradient pass** forms every `D_e u` at the node, each from `u`'s
+  face ghosts along `e`, and writes the Cartesian gradient
+  `V_i = Σ_e S[e][i] D_e u / √g` into `cartgrad`, one set of `D`
+  variables with a ghost plane on every face (`G = 1`).
+- **The exchange** carries `V` across every glue unchanged. TreeAMR's
+  glue carries each variable onto itself, and a Cartesian component is
+  the same number in both patches. The set's layout is the same along
+  every axis, so TreeAMR takes it across the quarter turns.
+- **The Laplacian pass** forms `F^d = S[d] ⋅ V` at every point of the
+  wide derivative's window along `d` and differentiates it:
+  `v̇ = (1/√g) Σ_d D_d F^d`. At a ghost it uses the `S[d]` of the
+  block's own face node beside it. An element set's ghost sits at the
+  same physical point as that node, so this is the normal flux of the
+  neighbour's `∇u` through the face, in this patch's logical
+  coordinates. The two patches' area vectors at a shared face point are
+  the same vector up to sign, because the logical coordinates along the
+  face map one to one. So the ghost's flux is the neighbour's own to
+  rounding. No metric is evaluated at a ghost.
+
+It costs twice the ghost values per right-hand side, in half the
+exchanges. In 3D, per block of `N³`, `u`'s `6N²` and the gradient's
+`3 · 6N²`, against `6N²` and `3 · 2N²` with a set per dimension. The
+Laplacian reads one of the three components across each face.
+
+**The energy.** `E = ½ Σ w √g (v² + |V|²)`. Its rate is
+`Σ w √g v v̇ + Σ w √g V(u) ⋅ V(v) = Σ_d Σ w (v D_d F^d + F^d D_d v)`.
+This vanishes because `wD` is skew wherever the ghost's flux is the
+neighbour's. The off-diagonal metric enters through `S` alone and needs
+no mixed derivative at a ghost: every `D_e u` is formed at an owned
+node. Across the glues the invariant holds to rounding rather than
+bitwise, because the two patches' area vectors at a face are computed
+separately. Through the outer sphere the energy changes by the flux
+that the Dirichlet data let through. `wave_energy` takes the time for
+those data.
+
+**The truncation.** `√g` of a shell does not factorize, so no tensor
+product of one-dimensional projections is `√g`-orthogonal. An
+`ElementTruncation` holds, per element, the projection
+`Ψ G_e⁻¹ Ψᵀ W_e` onto `Q_{P−1}`:
+
+- `Ψ` is the tensor Legendre basis of `Q_{P−1}` at the element's nodes,
+  `(P+1)^D × P^D`, shared by every element.
+- `W_e` is the element's quadrature weights times `√g` at its nodes.
+- `G_e = Ψᵀ W_e Ψ` is held as its upper Cholesky factor `U_e`.
+
+Both are built in `BigFloat` and rounded once. The Gram matrix is built
+by sum factorization, one dimension at a time. The build takes 1.5 s for
+the 56 blocks of `P = 3` with `(2, 2)` roots, about half of it the
+`BigFloat` Jacobians at the nodes. The kernel forms
+`Ψᵀ W_e a`, solves with `U_eᵀ` and `U_e` in place in the element's own
+column of a scratch array, and multiplies by `Ψ`, one work item per
+element. That is about `2 (P+1)^D P^D + P^{2D}` multiply-adds per
+element, against `2D(P+1)^D` for the tensor form. The tables take
+`P^{2D} + (P+1)^D` numbers per element: 793 at `P = 3` in 3D, about
+0.4 MB per block of `16³`.
+
+**The time step** divides the flat step by the largest logical wave
+speed, `√λ_max(g^{de})` with `g^{de} = S[d] ⋅ S[e] / g`, at any node.
+
+**The outer boundary.** The ball's only unglued faces are the outer
+sphere's, and TreeAMR cannot make them reflecting: its face kinds are
+per `(dim, side)` for all patches, and the cube is glued on all six. A
+mirror would not suit the Cartesian gradient anyway, since reflecting
+a vector in a curved wall mixes its components. So a full geometry with
+outer faces takes Dirichlet data: `WaveProblem`'s `boundary`, a callback
+`boundary(x, t) -> (u, ∂₁u, …, ∂_D u)` of the physical position and the
+time. Both exchanges set their outer ghosts from it through TreeAMR's
+`boundary_by_coordinates(WithPatch(AllVariables(…)))`, and
+[`wave_rhs!`](@ref) passes its `t`. A full geometry refuses a reflecting
+forest, and Dirichlet data without a full geometry.
+
+**The ball.** `sevenpatch_forest(T, P, E; roots = (n, m), Lc, R1)` builds
+the forest and its [`SevenPatchBall`](@ref):
+
+- **Patch 1** is the cube `[−Lc, Lc]³`, of `n³` roots.
+- **Patches 2–7** are the shells over its faces `(k, s)`, each of `m`
+  roots along its radial dimension `k` and `n` along the other two.
+- **The map** blends from the flat cube face, `f = Lc c` with `c_k = s`
+  and `c_j = 2ξ_j/n − 1`, to the sphere: `x = (1 − ρ) f + ρ R1 f/|f|`,
+  with `ρ` the logical radial coordinate scaled to `[0, 1]`.
+- **The glue.** Each shell's logical dimension `j` runs along `x_j`,
+  and `ξ_k` increases outward for `s = 1` and inward for `s = −1`. So
+  every cube–shell glue is the identity, and every shell–shell glue a
+  quarter turn exchanging the two radial dimensions. The ball has patch
+  corners at the cube's edges and corners, which an element set never
+  reaches.
+
+`R1 > √3 Lc`, so that the map is one to one. The frame comes from
+`ForwardDiff`'s Jacobian of the map, inverted at each node, in `T` for
+the coefficients and in `BigFloat` for the truncation's weights.
+
+**The exact solution** is a plane wave, `u = sin(k ⋅ x − |k|t + φ)`
+([`PlaneWave`](@ref)). It crosses every glue, and it is the Dirichlet
+data. `sevenpatch_exact` gives `u` and `v` at the nodes, and
+`sevenpatch_errors` is the driver, the analogue of `annulus_errors`. It
+reports the `√g`-weighted L2 error and the cube's physical spacing
+`2Lc h/n`.
+
+**What it does not do:**
+
+- **Only Dirichlet data on the outer sphere.** An outgoing or
+  reflecting condition would need a boundary hook that reads the
+  interior (TreeAMR's region form, CPU only), or per-patch face kinds
+  in TreeAMR.
+- **Only uniform forests on the CPU,** and no particles, as for every
+  geometry.
 
 ## Refined forests
 
@@ -1990,10 +2127,13 @@ written without the averaging and the force read both ways, are
 - `src/element.jl`: Gauss–Lobatto nodes and weights, `Element`.
 - `src/layout.jl`: `check_layout`, node positions, `fill_at_nodes!`,
   `quadrature_norm`.
-- `src/geometry.jl`: `Geometry`, `PolarAnnulus` and `annulus_forest`.
-- `src/evolution.jl`: the kernels, `WaveProblem` (from a forest, or
-  from a state set after `regrid!`, flat or on a geometry, with its
-  `Metric` and `MetricTruncation`), `wave_rhs!`,
+- `src/geometry.jl`: `Geometry`, `PolarAnnulus` and `annulus_forest`;
+  `FullGeometry`, `SevenPatchBall`, its glue and `sevenpatch_forest`.
+- `src/evolution.jl`: the kernels, the Cartesian ones of a full geometry
+  beside them, `WaveProblem` (from a forest, or from a state set after
+  `regrid!`, flat or on a geometry, with its `Metric` and
+  `MetricTruncation`, or on a full geometry its `FullMetric`,
+  `ElementTruncation` and Dirichlet data), `wave_rhs!`,
   `truncate_state!`, `truncate_stage!`, `initial_state`, `wave_energy`,
   `wave_norm`, `oldg_timestep`, `convergence_rate`.
 - `src/stepping.jl`: `state_partition` and `wave_integrator`.
@@ -2006,6 +2146,8 @@ written without the averaging and the force read both ways, are
   drivers `uniform_blast` and `adaptive_blast`.
 - `src/annulus.jl`: the rotating Neumann Bessel mode of the annulus,
   `annulus_wavenumber`, `annulus_exact`, and its driver `annulus_errors`.
+- `src/sevenpatch.jl`: the plane wave, `PlaneWave` and `sevenpatch_exact`,
+  and its driver on the seven-patch ball, `sevenpatch_errors`.
 - `src/precision.jl`, `src/device.jl`: `ceilint`, `floorint`, `wrap`,
   `tofloat64`, `chunk_count`, `chunk_bounds` and `to_backend`, taken from
   TreeWave.
@@ -2063,8 +2205,10 @@ written without the averaging and the force read both ways, are
   run per `path:hdiv:order[:tend]` of `TREEWAVEOLDG_RUNS`.
 - `bin/annulus.jl`: the annulus's convergence series and energy loss,
   one tab-separated row per run, in the package environment;
-  `bin/symmetry/annulus.sh` runs it on a Symmetry AMD node, against a
-  checkout of TreeAMR's M17 branch rsynced beside the package.
+  `bin/symmetry/annulus.sh` runs it on a Symmetry AMD node.
+- `bin/sevenpatch.jl`: the plane wave's convergence series on the
+  seven-patch ball, one tab-separated row per run, in the package
+  environment.
 - `bin/nested_waves.jl`: the exact outgoing pulse through nested boxes,
   the field alone, its error and the exact solution in each level's
   ball, run in the package environment; `bin/symmetry/nested_waves.sh`
@@ -2168,6 +2312,20 @@ tests about 40 s on one.
   rotating Bessel mode converges at order `P` for `P = 2, 3`; the mode
   has `∂_r u = 0` on both walls; and a forest the geometry does not map,
   a refined one, and the inspiral on patches are refused. About 25 s.
+- `sevenpatch_tests.jl`: the seven-patch ball — with the identity map
+  as a full geometry the Cartesian path's right-hand side is the flat
+  one's bit for bit, in 2D and 3D, `P = 2, 3`, and its truncation the
+  element's to rounding; the frame is the cofactor of the map's
+  Jacobian, exact on the cube, and the shells meet the cube's faces and
+  the sphere; a forest the ball does not map, a refined one, a missing
+  `boundary`, Dirichlet data without a full geometry, a reflecting
+  forest, and the flat path on the ball are refused; the per-element
+  truncation is self-adjoint in `√g`, a projection onto `Q_{P−1}`,
+  leaves `u` alone and never raises the kinetic energy; `dE/dt` vanishes
+  to `1e-13` of its terms across every glue, with and without
+  truncation, for a state that is zero in the shells' outermost
+  elements; TreeAMR turns the exchanges across the glues; and the plane
+  wave converges at order `P` for `P = 2, 3`. About 60 s.
 - `reflect_tests.jl`: the reflecting box — the Neumann `cos` mode converges
   at order `P` in 1D and 2D, the wall is an exact discrete symmetry
   (energy conserved to the integrator's loss), the parities the wall imposes
@@ -2385,6 +2543,42 @@ there.
 nodes and takes 3438 steps, 34 s on the 64 threads of one node, where 512
 blocks give a thread eight each. The series is about seven minutes,
 including compilation.
+
+### The seven-patch ball
+
+The plane wave of [The seven-patch ball](#the-seven-patch-ball),
+`k = (1.1, −0.7, 0.5)`, `φ = 0.3`, on the ball `Lc = 1`, `R1 = 3`, to
+`t = 1`, with the wave itself as the Dirichlet data on the outer sphere.
+Every patch has `(2s, 2s)` roots for `s = 1, 2, 3`, with `E = 2`
+elements per block, so 56, 448 and 1512 blocks; RK4 at `cfl = 1/2` of
+[`oldg_timestep`](@ref). The errors are `√g`-weighted L2 errors of `u`
+and of `v`, and the rates are least squares in the cube's physical
+spacing `h = 2Lc h_logical/n`, from `1/6` to `1/18` at `P = 2`. Measured
+on the laptop (Apple silicon, four threads, `bin/sevenpatch.jl`).
+"both" is the rate of `u` and `v` together, `sevenpatch_errors`'s `l2`.
+`ΔE` is `1 − E₁/E₀` at the three scales: the energy the wave carries
+out through the sphere, not a loss.
+
+| P | truncate | `u` errors | rate | `v` errors | rate | both | L∞ | `ΔE` | seconds |
+|---|---|---|---|---|---|---|---|---|---|
+| 2 | yes | 6.07e-2 1.63e-2 7.34e-3 | 1.92 | 7.81e-2 2.25e-2 1.04e-2 | 1.83 | 1.86 | 1.58 | 0.016 0.030 0.033 | 0.6 5.3 21.6 |
+| 2 | no | 4.97e-2 3.87e-3 9.09e-4 | 3.65 | 9.33e-2 1.45e-2 6.44e-3 | 2.46 | 2.57 | 1.59 | 0.032 0.035 0.036 | 0.6 5.1 20.9 |
+| 3 | yes | 8.83e-3 1.15e-3 3.36e-4 | 2.97 | 1.14e-2 1.38e-3 3.84e-4 | 3.09 | 3.04 | 2.76 | 0.035 0.036 0.036 | 2.9 26.7 108.9 |
+| 3 | no | 2.32e-3 2.38e-4 7.09e-5 | 3.19 | 6.85e-3 9.03e-4 2.50e-4 | 3.00 | 3.02 | 2.97 | 0.035 0.036 0.036 | 2.4 22.4 83.6 |
+
+**What the table shows:**
+
+- **With truncation the order is `P` for both variables,** across the
+  cube–shell glues, the shell–shell quarter turns, a metric that is
+  neither diagonal nor separable, and the Dirichlet sphere.
+- **Without truncation `u` is more accurate and its rate irregular,** as
+  on the flat box and the annulus.
+- **The truncation costs time.** At `P = 3`, `s = 3` the truncated run
+  takes 30 % longer, its per-element projection against the tensor
+  form's rank-one updates.
+
+The test asserts the rates of `s = 1, 2` to `t = 1/4`, at one thread:
+1.89 at `P = 2` and 2.90 at `P = 3`.
 
 ### Refined forests
 

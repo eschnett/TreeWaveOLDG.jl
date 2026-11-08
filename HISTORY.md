@@ -146,6 +146,39 @@ How the package got where it is, by topic in `CODE.md`'s order.
     mode of `u` ("Truncation" in `CODE.md`). The pulse's energy loss,
     `5.9e-7`, falls 32 times per halving of the step, so it is RK4's
     and not the glue's.
+- 2026-11-08: the seven-patch ball, a cube and six shells, on Erik
+  Schnetter's request for a seven-patch cubed sphere. TreeAMR needed no
+  change. A scratch probe against TreeAMR 0.2.8 showed that its forest
+  builds (42 patch faces), that an element set with `G = 1` fills
+  exactly across every glue, and that two things are refused:
+  - the gradient sets, `G = e_d`, because the shell–shell glues swap
+    axes, which no labelling of a cubed sphere's axes avoids;
+  - a reflecting or outflow outer sphere, because TreeAMR's face kinds
+    are per `(dim, side)` and the cube is glued on all six faces.
+
+  Three ways to carry the gradient across the swapped glues were weighed:
+  1. **Cartesian components** in one set with ghosts on every face, the
+     flux formed with the reading block's own frame. No TreeAMR change.
+  2. **A variable map per glue** in TreeAMR, which would permute and
+     sign one set's logical components. The same traffic as the first,
+     saving only the contraction at the ghost.
+  3. **A family of `D` sets** in TreeAMR, generalising its
+     `RotationPair`, which would keep a set per dimension and its
+     traffic. This is the largest change.
+
+  Erik chose the first, with Dirichlet data on the outer sphere for now,
+  and a per-element `√g`-orthogonal truncation, so that the energy stays
+  invariant though the shells' `√g` does not factorize. The first costs
+  twice the ghost values per right-hand side in half the exchanges, a
+  trade not yet measured against the third. The design is "The
+  seven-patch ball" in `CODE.md`. The annulus keeps its path, bit for
+  bit.
+- 2026-11-08: the per-element truncation was first built as
+  `Λ_e = (Ψᵀ W_e Ψ)⁻¹ Ψᵀ W_e`, a dense `BigFloat` product and solve of
+  about 25 ms per element: 9.4 s for the 56 blocks of `P = 3` with
+  `(2, 2)` roots, and minutes at `(6, 6)`. Building the Gram matrix by sum
+  factorization and keeping its Cholesky factor, solved in the kernel,
+  took it to 1.5 s and halved the tables.
 
 ## Refined forests
 
