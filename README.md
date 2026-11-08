@@ -20,7 +20,8 @@ finite-difference stencil replaced by the OLDG one.
 ## What it solves
 
 That is `∂ₜu = v`, `∂ₜv = ∇²u` on a periodic box — or a reflecting
-(solid-wall) box — in any number of dimensions. Space is cut into elements
+(solid-wall) box — in any number of dimensions, or on an annulus of four
+patches in polar coordinates. Space is cut into elements
 of `P + 1` Gauss–Lobatto nodes, with both face nodes of every element
 stored. The derivative at a node reads its own element and, at the two
 face nodes only, the neighbour's face node across the face. The Laplacian
@@ -73,6 +74,15 @@ f = wave_forest(Float64, Val(3), 3, 2; roots=4, L=1.0,
                 refined=nested_cubes(Val(3), 1/8, 3))
 ```
 
+The annulus `1 ≤ r ≤ 2` is TreeAMR's ring of four patches glued at
+their faces (its M17), with its polar metric; the rotating Neumann
+Bessel mode turns a quarter of the way round, across every glued face:
+
+```julia
+r = annulus_errors(; P=3, E=2, roots=(4, 2), m=2)
+r.l2, r.energy / r.energy0           # error, and energy is conserved
+```
+
 An adaptive forest follows the 2D blast wave's ring, refining where a
 modal indicator says the elements do not resolve the data and
 coarsening where nothing is left. The thresholds, the level cap and the
@@ -102,7 +112,18 @@ On a reflecting box the wall is a Neumann (solid, `∂ₙu = 0`) boundary,
 an exact discrete symmetry whose energy is conserved to the integrator's own
 loss.
 
-The mesh is TreeAMR's, with its element centering (TreeAMR 0.2.7), and
+On TreeAMR's forests of patches (its M17, in TreeAMR 0.2.8) the wave
+equation runs in a diagonal metric. On the four-patch annulus it
+converges at order `P`, and the discrete energy is an exact invariant
+across the glued faces and the walls, the truncation being orthogonal in
+the metric's volume element. A second viewer draws a pulse crossing the
+glued faces and the rotating Bessel mode's error:
+
+```bash
+julia --project=bin -t 4,0 bin/visualize_annulus.jl
+```
+
+The mesh is TreeAMR's, with its element centering (TreeAMR 0.2.8), and
 across a coarse-fine face the coupling keeps the discrete energy an
 exact invariant. The L2 error converges at order `P` on a refined
 forest; in two and more dimensions the largest pointwise error loses

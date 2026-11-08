@@ -41,7 +41,11 @@ since the source is written and the force read through the averaging
 over shared nodes, face crossings stay within radiation reaction from
 `d/12` on, where the transfer alone gave impulses of tens to hundreds
 of times it. M4's gate passes; see [Prescribed
-paths](#prescribed-paths) and [The averaging](#the-averaging). The suite passes, also with
+paths](#prescribed-paths) and [The averaging](#the-averaging). On
+TreeAMR's forests of patches (its M17) the wave equation runs in a
+diagonal metric: on the four-patch annulus it converges at order `P`,
+with its discrete energy an exact invariant across the glued faces; see
+[Multi-patch forests](#multi-patch-forests). The suite passes, also with
 `--check-bounds=yes` and with four threads.
 
 **Contents**
@@ -58,6 +62,10 @@ paths](#prescribed-paths) and [The averaging](#the-averaging). The suite passes,
   - [Positions and quadrature](#positions-and-quadrature)
 - [The right-hand side](#the-right-hand-side)
 - [Reflecting walls](#reflecting-walls)
+- [Multi-patch forests](#multi-patch-forests)
+  - [The metric](#the-metric)
+  - [Truncation with a metric](#truncation-with-a-metric)
+  - [The annulus](#the-annulus)
 - [Refined forests](#refined-forests)
   - [The coupling](#the-coupling)
   - [The energy](#the-energy)
@@ -90,6 +98,7 @@ paths](#prescribed-paths) and [The averaging](#the-averaging). The suite passes,
 - [Measured results](#measured-results)
   - [Convergence](#convergence)
   - [Reflecting walls](#reflecting-walls-1)
+  - [The annulus](#the-annulus-1)
   - [Refined forests](#refined-forests-1)
   - [The RK4 limit](#the-rk4-limit)
   - [The blast wave's error](#the-blast-waves-error)
@@ -140,9 +149,15 @@ paths](#prescribed-paths) and [The averaging](#the-averaging). The suite passes,
   walls](#reflecting-walls). Refinement may touch a wall. An *outflow* or
   partly reflecting box would need the paper's boundary treatment (its
   `Ω₀` and `Ω_{K+1}` singleton elements), which is not implemented.
-- **Two initial conditions**, the standing sine mode, on a uniform or
-  refined forest, and the 2D radial blast wave, on a uniform or an
-  adaptive one. TreeWave's travelling pulse, which exercised a moving
+- **Multi-patch forests in a diagonal metric**, uniform, on the CPU:
+  TreeAMR's forests of patches (its M17), with the map to physical
+  space a [`Geometry`](@ref) of this package's. The four-patch annulus
+  in polar coordinates is the one built; a glue other than the identity,
+  an off-diagonal metric and refinement on a geometry are not. See
+  [Multi-patch forests](#multi-patch-forests).
+- **Three initial conditions**, the standing sine mode, on a uniform or
+  refined forest, the 2D radial blast wave, on a uniform or an
+  adaptive one, and the rotating Bessel mode of the annulus. TreeWave's travelling pulse, which exercised a moving
   refined region, is not carried over: the blast wave's ring does that.
 - **One `P` per run**, the same in every element. `P` adaptivity is out
   of scope in TreeAMR too (`P` is the field set's, `N` the forest's).
@@ -371,6 +386,166 @@ conserved to the integrator's own loss exactly as on the periodic box. The
 reflected mode is the `sin` mode of a periodic box of side `2L` folded
 in half, so `reflect_omega` is the same `mπ√D/L` with `m` the mode
 count across the full box.
+
+## Multi-patch forests
+
+TreeAMR's M17 builds a forest from several root bricks, *patches*, glued
+at their faces by signed axis permutations, for a domain no one brick
+covers. Its coordinates stay logical, patch by patch: the map to
+physical space, its Jacobian, its metric, its physical time step and its
+`√g`-weighted norms are the application's. The four-patch annulus is
+TreeAMR's acceptance for M17. This section covers it and the metric it
+needs. Its measurements are under [The annulus](#the-annulus-1).
+
+Without a geometry `WaveProblem` takes a forest of patches as it takes a
+brick. The flat wave equation then runs in logical coordinates, and the
+glue fills `u`'s ghosts and the gradient sets' ghosts as the brick's
+periodic faces would. On the ring of [The annulus](#the-annulus) this is
+the brick of four times the roots along the angle, bit for bit (a test).
+With `geometry`, a [`Geometry`](@ref), it is the wave equation in that
+metric.
+
+### The metric
+
+For a metric that is diagonal in the logical coordinates the wave
+equation is
+
+    ∂ₜu = v
+    √g ∂ₜv = Σ_d ∂_d (A_d ∂_d u),     A_d = √g g^{dd}
+
+and OLDG writes it with the same wide derivative:
+
+- **The gradient pass** writes the flux `F_d = A_d D_d u` into the `d`-th
+  gradient set, in place of `D_d u`. The set, its ghosts along `d` only
+  and its exchange are unchanged. `F_d` is odd under a mirror in `d`, as
+  `∂_d u` is, so the walls' parities hold.
+- **The Laplacian pass** writes `v̇ = (1/√g) Σ_d D_d F_d`.
+- **`√g` and `A_d`** are read from a coefficient set of `1 + D`
+  variables with no ghosts. `WaveProblem` fills it once, at the nodes,
+  through `fill_by_coordinates!(WithPatch(AllVariables(…)))`, since a
+  logical position names a point only together with its patch.
+- **The flat path is unchanged.** The two kernels take the coefficient
+  array as an argument, which is `nothing` on a flat problem. There
+  their `@inline` helpers are the identity, so the flat path compiles to
+  what it was.
+
+The energy
+
+    E = ½ Σ w (√g v² + Σ_d F_d²/A_d) = ½ ∫ (v² + |∇u|²) dV
+
+is an exact invariant of the semi-discrete system. Its rate is
+`Σ w √g v v̇ + Σ_d Σ w F_d D_d v = Σ_d Σ w (v D_d F_d + F_d D_d v)`,
+which vanishes because `wD` is skew wherever the wide derivative reads
+the neighbour's face node of the same field. That holds:
+
+- across a glued face, where the glue hands over the face node of the
+  patch across;
+- across a wall, through the mirror;
+- inside a block.
+
+`√g` is continuous across the glue, since the patches meet along the
+same radius, and the ghost of `F_d` is the neighbour's own flux, so
+nothing there needs the metric at a ghost. `wave_energy` evaluates the
+geometry inside its fold: the fold point carries the logical position,
+and a block tag carries the patch. `wave_norm` is the `√g`-weighted
+norm, the physical volume's.
+
+**The time step.** `oldg_timestep` divides the flat step `cfl·h/(P+1)`
+by the largest logical wave speed `√g^{dd}` at any node. On the annulus
+that speed is `1/(r₀θ′)` at the inner wall. The RK4 limit in `cfl` is
+then the flat one's.
+
+**What the geometry refuses** (see `build_metric`):
+
+- **A forest that is not uniform.** The coarse ghost is the adjoint of
+  the fine one in the flat weights, not in the `√g`-weighted ones, so
+  the energy would not be invariant across a coarse-fine face.
+- **A device.** The truncation's tables are arrays inside a struct that
+  is not adapted to one.
+- **A forest the geometry does not map** (`check_geometry`).
+
+`InspiralProblem` refuses both a geometry and a forest of patches. Its
+transfer measures distances in logical coordinates and locates points in
+one brick.
+
+### Truncation with a metric
+
+The truncation keeps the energy only if its projector is self-adjoint in
+the inner product the energy is written in ([Truncation](#truncation)).
+With `√g ≠ 1` that is `Σ w √g a b`, in which the element's projector is
+not self-adjoint. So on a geometry the projector onto `Q_{P-1}` is the
+`√g`-orthogonal one.
+
+It stays a tensor product of rank-one updates, one per dimension and
+line, as long as `√g` factorizes into one-dimensional factors,
+`√g = ∏_d a_d(x_d)`. Polar and spherical coordinates both do, and the
+interface asks for the factors (`jacobian_factor`).
+
+Along a line in `d` the projector is `I − φ ⊗ (ŵ a_d φ)/γ`:
+
+- `φ` is the degree-`P` polynomial `a_d`-orthogonal to every lower
+  degree, which is `L_P` less its `a_d`-weighted projection on
+  `L₀ … L_{P−1}`;
+- `γ = Σ ŵ a_d φ²`.
+
+The pair depends on the line's element along `d`, so `WaveProblem`
+builds one per block, dimension and element index. It builds them in
+`BigFloat` from the Gauss–Lobatto nodes and rounds them once
+([Precision](#precision)). The kernel reads them where it read
+`el.topmode` and `el.topdual`.
+
+Where `a_d` is constant, as along the annulus's angle, the pair is the
+element's own. The truncation still removes every mode of degree `P` in
+any dimension, so `v` lives in `Q_{P−1}` as before; only the direction of
+the projection changes.
+
+### The annulus
+
+`annulus_forest(T, P, E; roots = (n₁, n₂), r0, r1)` builds TreeAMR's
+ring and returns it with its map, `PolarAnnulus`:
+
+- four patches of `(n₁, n₂)` roots, the angle along dimension 1 and the
+  radius along dimension 2;
+- each patch's high face of dimension 1 glued to the next patch's low
+  face, by the identity, both directions listed;
+- the radial faces reflecting, so solid walls at `r0` and `r1`.
+
+Patch `p`'s logical box `[0, n₁] × [0, n₂]` maps to
+`θ = (p−1)π/2 + θ′x₁` and `r = r0 + r′x₂`, with `θ′ = (π/2)/n₁` and
+`r′ = (r1 − r0)/n₂`. So `√g = r θ′ r′`, `A₁ = r′/(rθ′)` and
+`A₂ = rθ′/r′`.
+
+The ring has no patch corner, and an element set never reaches one, so
+nothing of TreeAMR's patch-corner refusal applies.
+
+**The exact solution** is the rotating Neumann mode
+`u = R(kr) cos(mθ − kt)`, with `R(z) = J_m(z) Y_m′(kr0) − Y_m(z) J_m′(kr0)`
+scaled to `R(kr0) = 1`:
+
+- `k` is the `n`-th root of `J_m′(kr0) Y_m′(kr1) − J_m′(kr1) Y_m′(kr0)`
+  (`annulus_wavenumber`), found by a scan and bisection in `Float64`
+  with SpecialFunctions' Bessel functions;
+- so `∂_r u = 0` on both walls;
+- the pattern turns at `k/m`, so by a quarter turn every point of it has
+  crossed a glued face, carrying flux through it.
+
+`annulus_exact` is the mode as a `WithPatch` callback, and
+`annulus_errors` the driver, the analogue of `wave_errors`. The driver
+reports the `√g`-weighted L2 error and the physical radial spacing
+`r′h`, since the logical spacing does not change with the root count.
+
+**What it does not do:**
+
+- **Only the identity glue.** The `d`-th gradient set's ghosts across a
+  glued face come from the same set of the patch across. A glue that
+  swaps axes, as a cubed sphere's does, would need them from another
+  set, with a sign where an axis reverses. That means one gradient set
+  of all `D` components with ghosts along every dimension, or a glue
+  that knows vector components.
+- **Only diagonal metrics.** An off-diagonal `g^{de}` needs `D_e u` at
+  ghost points along `d`, a mixed derivative this scheme does not form.
+- **Only a separable `√g`,** for the truncation.
+- **Only uniform forests on the CPU,** and no particles.
 
 ## Refined forests
 
@@ -761,6 +936,10 @@ a truncation took 41 ms before, more than half a right-hand side, and
 takes 3 ms. The copy it replaced was a serial broadcast, and the first
 write to its scratch array, which so lay on one NUMA domain.
 
+On a geometry the projector is the `√g`-orthogonal one, with a
+rank-one pair per line ([Truncation with a
+metric](#truncation-with-a-metric)).
+
 `truncate=false` gives the plain scheme with both variables at degree
 `P`. What each costs is under [Convergence](#convergence). In short,
 truncation gives a clean order `P` for `u` and `v` alike. Without it,
@@ -778,6 +957,8 @@ and the limit falls as `1/√D` (the Laplacian's spectral radius adds over
 dimensions); see [The RK4 limit](#the-rk4-limit). The drivers default to
 `cfl = 1/2`. On a refined forest `hₑ` is the finest level's, and the
 limit there is the uniform forest's at that spacing, to a few per cent.
+On a geometry `hₑ` is logical and the step is divided by the largest
+logical wave speed ([The metric](#the-metric)).
 
 RK4's error is fourth order in `dt ∝ h`, so beyond `P = 4` it eventually
 dominates the spatial error. A convergence study at higher order needs a
@@ -846,7 +1027,46 @@ of its node-steps. One figure, three parts:
   raise it.
 
 The run comes from `uniform_blast`'s or `adaptive_blast`'s observer, so
-the script has no time-stepping loop of its own. CI renders both schemes and keeps the
+the script has no time-stepping loop of its own.
+
+`bin/visualize_annulus.jl` draws the four-patch annulus ([The
+annulus](#the-annulus)) in the same environment, in physical `(x, y)`:
+
+    julia --project=bin bin/visualize_annulus.jl [--P=4] [--E=2] [--roots=4,2] [--m=3] [--sigma=0.12] [--plain]
+
+It writes `bin/output/annulus_2d.png` (`annulus_2d_plain.png` with
+`--plain`) in about half a minute on four threads. Each element's
+polynomial is drawn, sampled on 12 × 12 points by its Lagrange basis at
+its nodes and mapped by `physical_coordinates`, with the element faces
+faintly, the block faces, the walls, and the four glued faces bold. The
+defaults are chosen to show the glue rather than to converge: `r ∈ [1,
+2]` as in the suite; `(4, 2)` roots per patch of `2 × 2` elements at
+`P = 4`, 32 elements around and 4 across, coarse enough that the curved
+element grid stays visible and the time step (`3.9e-3`, set at the inner
+wall) keeps both runs to a few thousand steps. Three rows:
+
+- a Gaussian pulse at rest, `σ = 0.12` (about half an element), at
+  `r = 1.5`, `θ = π/8`, nearer the glue at `θ = 0` than the one at
+  `π/2`, at `t = 0, 0.75, 2, 4`: it reflects off both walls and crosses
+  the glued faces into patches 4, 2 and 3 obliquely. It has no exact
+  solution; nothing reflecting off or bending at a glued face is what
+  to look for;
+- the rotating Neumann mode `m = 3`, three lobe pairs on four patches, so
+  that each glue sits at a different phase of the pattern, at `t = 0`
+  and a quarter turn later, and its pointwise error then on a log scale.
+  The error is the same element-scale pattern in every patch, at most
+  `2.5e-4` of an amplitude of 1.6, with nothing at the glued faces;
+- the energy change of both runs and the mode's L2 and L∞ errors over a
+  full turn. The energy changes by RK4's `dt⁵` alone: the pulse's loss,
+  `5.9e-7` by `t = 4`, falls 32 times when the step is halved, with or
+  without truncation. With truncation the mode's error swells to `1e-4`
+  in L2 and shrinks back with the period `2π/k` rather than growing:
+  truncation freezes `u`'s top mode at its initial value
+  ([Truncation](#truncation)), and the exact mode's top mode turns away
+  from it and back once a period. With `--plain` the error stays near
+  `1e-5`.
+
+CI renders both blast-wave schemes and the annulus, and keeps the
 figures.
 
 ## Precision
@@ -1770,10 +1990,12 @@ written without the averaging and the force read both ways, are
 - `src/element.jl`: Gauss–Lobatto nodes and weights, `Element`.
 - `src/layout.jl`: `check_layout`, node positions, `fill_at_nodes!`,
   `quadrature_norm`.
+- `src/geometry.jl`: `Geometry`, `PolarAnnulus` and `annulus_forest`.
 - `src/evolution.jl`: the kernels, `WaveProblem` (from a forest, or
-  from a state set after `regrid!`), `wave_rhs!`,
+  from a state set after `regrid!`, flat or on a geometry, with its
+  `Metric` and `MetricTruncation`), `wave_rhs!`,
   `truncate_state!`, `truncate_stage!`, `initial_state`, `wave_energy`,
-  `oldg_timestep`, `convergence_rate`.
+  `wave_norm`, `oldg_timestep`, `convergence_rate`.
 - `src/stepping.jl`: `state_partition` and `wave_integrator`.
 - `src/sinewave.jl`: `wave_forest`, uniform, two-level or refined level
   by level, `nested_cubes`, the standing sine mode and its driver
@@ -1782,6 +2004,8 @@ written without the averaging and the force read both ways, are
   `refine_mark`, `refine_flags` and `refinement_buffer`.
 - `src/blast.jl`: the radial blast wave, its exact solution, and its
   drivers `uniform_blast` and `adaptive_blast`.
+- `src/annulus.jl`: the rotating Neumann Bessel mode of the annulus,
+  `annulus_wavenumber`, `annulus_exact`, and its driver `annulus_errors`.
 - `src/precision.jl`, `src/device.jl`: `ceilint`, `floorint`, `wrap`,
   `tofloat64`, `chunk_count`, `chunk_bounds` and `to_backend`, taken from
   TreeWave.
@@ -1812,8 +2036,9 @@ written without the averaging and the force read both ways, are
   `Φ_C` that M5 extends), each runnable alone with
   `wolframscript -file` and asserting its identities, the generator
   `generate.wl`, and `common.wl`, which they load.
-- `bin/visualize2d.jl`, `bin/Project.toml`: the viewer and its
-  environment; `bin/output/` is gitignored.
+- `bin/visualize2d.jl`, `bin/visualize_annulus.jl`, `bin/Project.toml`:
+  the viewers of the blast wave and the annulus, and their environment;
+  `bin/output/` is gitignored.
 - `bin/benchmark.jl`: the cost of a step and its parts, one
   tab-separated row per phase, run in the package environment;
   `bin/symmetry/benchmark.sh` runs it at several thread counts on a
@@ -1836,6 +2061,10 @@ written without the averaging and the force read both ways, are
   field; `--reading` reads the exact remainder's force without evolving
   it; `bin/symmetry/prescribed.sh` runs it on a Symmetry AMD node, one
   run per `path:hdiv:order[:tend]` of `TREEWAVEOLDG_RUNS`.
+- `bin/annulus.jl`: the annulus's convergence series and energy loss,
+  one tab-separated row per run, in the package environment;
+  `bin/symmetry/annulus.sh` runs it on a Symmetry AMD node, against a
+  checkout of TreeAMR's M17 branch rsynced beside the package.
 - `bin/nested_waves.jl`: the exact outgoing pulse through nested boxes,
   the field alone, its error and the exact solution in each level's
   ball, run in the package environment; `bin/symmetry/nested_waves.sh`
@@ -1844,14 +2073,12 @@ written without the averaging and the force read both ways, are
   tables, and the state rearranged into global arrays, which the kernels
   are checked against.
 
-`Project.toml` requires TreeAMR 0.2.7 (for the element centering) and
-Julia 1.13, as TreeWave does, and IMEXRungeKutta 1.4 (for `reuse`), which
-is not registered and comes from its repository through `[sources]`, as
-in TreeHydro; `test/Project.toml` names it the same way. TreeAMR 0.2.7
-is not registered yet either: until it is, `Project.toml`,
-`test/Project.toml` and `bin/Project.toml` take it from the branch of
-its release pull request (eschnett/TreeAMR.jl#32) through `[sources]`,
-and those entries go once it is. The particle needs
+`Project.toml` requires TreeAMR 0.2.8 (for the element centering, and
+for the forests of patches of its M17, which the annulus runs on) and
+Julia 1.13, as TreeWave does, and IMEXRungeKutta 1.4 (for `reuse`),
+which is not registered and comes from its repository through
+`[sources]`, as in TreeHydro; `test/Project.toml` names it the same way.
+TreeAMR comes from the General registry. The particle needs
 ForwardDiff 1 (time and space derivatives by dual numbers), StaticArrays
 1.9 (`isbits` 3-vectors) and LinearAlgebra. `.github/workflows/CI.yml` is TreeWave's test job:
 Julia 1.13 with `--check-bounds=yes` on Linux at one and four threads,
@@ -1871,7 +2098,7 @@ key. Each job prints its runner's CPU before the cache step.
 ## Tests
 
 `julia --project=. -e 'using Pkg; Pkg.test()'`, about six minutes and
-ten seconds on the laptop at one thread and four and a quarter minutes
+fifty seconds on the laptop at one thread and four and a half minutes
 at four, of which the particle, the transfer, the inspiral, the nested
 boxes and the prescribed paths take about four fifths; the inspiral's
 coarse 3D runs about 50 s of it on four threads, the nested boxes' about
@@ -1928,6 +2155,19 @@ tests about 40 s on one.
   change the mesh, and at the recommended thresholds it matches the
   uniform run at the cap to `1.01` with at most 82% (cap 2) and 65% (cap
   3) of its node-steps. About 36 s at one thread.
+- `annulus_tests.jl`: the four-patch annulus — without a metric the
+  ring's right-hand side is the brick's bit for bit, for `P = 2, 3`, with
+  and without truncation; the coefficient set is the geometry at the
+  nodes, `√g` the product of its factors, the positions on the annulus
+  and the time step divided by the inner wall's speed; the truncation is
+  self-adjoint in `√g`, a projection onto `Q_{P−1}`, leaves `u` alone,
+  never raises the kinetic energy, and is the element's along the angle,
+  for `P = 2, 3, 4`; `dE/dt` from `wave_rhs!` vanishes to `1e-13` of its
+  terms' size, with and without truncation; over a run the energy falls
+  by RK4's loss alone, more than 16 times less at half the step; the
+  rotating Bessel mode converges at order `P` for `P = 2, 3`; the mode
+  has `∂_r u = 0` on both walls; and a forest the geometry does not map,
+  a refined one, and the inspiral on patches are refused. About 25 s.
 - `reflect_tests.jl`: the reflecting box — the Neumann `cos` mode converges
   at order `P` in 1D and 2D, the wall is an exact discrete symmetry
   (energy conserved to the integrator's loss), the parities the wall imposes
@@ -2088,6 +2328,63 @@ the wall's parities on the field sets and the same quadrature:
 The order is `P` again, in 1D and 2D, and the wall is an exact
 discrete symmetry: the energy is conserved to the integrator's own loss
 (`E₁/E₀ = 1.0`), as on the periodic box.
+
+### The annulus
+
+The rotating Neumann mode of [The annulus](#the-annulus), `m = 2`,
+`n = 1` (`k = 1.3406`), on `1 ≤ r ≤ 2`, to a quarter turn of its
+pattern (`t = π/k`), so that every point of it has crossed a glued face.
+The four patches each have `(2s, s)` roots for `s = 1, 2, 4, 8`, with
+`E = 2` elements per block, so from 8 to 512 blocks; RK4 at `cfl = 1/2`
+of [`oldg_timestep`](@ref). The errors are `√g`-weighted L2 errors of
+`u` and of `v`, and the rates are least squares in the physical radial
+spacing `h = r′h_logical`, from `1/6` to `1/48` at `P = 2`. Measured on
+Symmetry (job 593191, one node, EPYC 7543, `bin/symmetry/annulus.sh`,
+`bin/annulus.jl`). "both" is the rate of `u` and `v` together, which
+`annulus_errors` reports as `l2`. `E` loss is the largest `1 − E₁/E₀`
+of the four runs, the coarsest's.
+
+| P | truncate | `u` errors | rate | `v` errors | rate | both | L∞ | `E` loss |
+|---|---|---|---|---|---|---|---|---|
+| 2 | yes | 1.13e-1 3.13e-2 8.08e-3 2.04e-3 | 1.93 | 9.57e-2 2.65e-2 6.78e-3 1.73e-3 | 1.93 | 1.93 | 1.78 | 7.6e-8 |
+| 2 | no | 5.05e-3 1.18e-3 1.31e-4 1.66e-5 | 2.79 | 3.77e-2 1.13e-2 2.40e-3 5.40e-4 | 2.06 | 2.06 | 1.69 | 7.9e-8 |
+| 3 | yes | 5.06e-3 6.30e-4 7.77e-5 9.58e-6 | 3.02 | 3.35e-3 4.23e-4 5.35e-5 6.50e-6 | 3.00 | 3.01 | 2.74 | 2.0e-10 |
+| 3 | no | 4.32e-4 4.15e-5 4.99e-6 6.54e-7 | 3.12 | 1.94e-3 2.49e-4 2.72e-5 2.95e-6 | 3.13 | 3.13 | 3.14 | 1.6e-10 |
+| 4 | yes | 3.77e-4 2.73e-5 1.81e-6 1.16e-7 | 3.89 | 3.26e-4 2.80e-5 2.10e-6 1.32e-7 | 3.75 | 3.82 | 3.37 | 1.4e-11 |
+| 4 | no | 4.73e-5 1.68e-6 9.68e-8 2.93e-9 | 4.61 | 1.80e-4 2.33e-5 1.84e-6 1.21e-7 | 3.53 | 3.55 | 3.60 | 1.3e-11 |
+| 5 | yes | 3.06e-5 1.28e-6 4.27e-8 1.32e-9 | 4.84 | 2.59e-5 1.31e-6 3.45e-8 9.58e-10 | 4.94 | 4.88 | 4.46 | 1.1e-12 |
+| 5 | no | 4.38e-6 6.87e-8 5.70e-9 2.12e-10 | 4.66 | 2.35e-5 1.75e-6 7.69e-8 2.32e-9 | 4.44 | 4.45 | 4.51 | 1.0e-12 |
+
+**What the table shows:**
+
+- **With truncation the order is `P` for both variables,** as on the flat
+  box ([Convergence](#convergence)), across the glued faces, the curved
+  metric and the walls.
+- **Without truncation the pattern is also the flat box's.** `u` is
+  more accurate at every resolution and its rate irregular, between `P`
+  and `P + 0.8`, and `v`'s rate is near `P`, below it at `P = 4` and 5.
+- **The L∞ rates are a third to two thirds of an order below the L2
+  ones.**
+
+**The energy against the step.** At `P = 3`, `s = 2`, over a full turn
+(`t = 4π/k`), `1 − E₁/E₀` is `1.98e-11`, `6.21e-13` and `1.74e-14` at
+`cfl = 1/2, 1/4, 1/8`, with truncation. Without it, it is `1.66e-11`,
+`5.21e-13` and `1.71e-14`. Each halving of the step divides it by 32 to
+36, RK4's `dt⁵` per step. So the semi-discrete energy is invariant across
+the glued faces, and what a run loses is the integrator's. The errors at
+the three steps agree to four digits, so the spatial error dominates
+there.
+
+**What the suite checks** (`annulus_tests.jl`). The suite's runs take
+`m = 1` (`k = 0.6773`) and `s = 1, 2, 4`. Their L2 rates are 1.94 at
+`P = 2` (`9.96e-3 2.66e-3 6.78e-4`) and 3.03 at `P = 3`
+(`5.32e-4 6.74e-5 7.97e-6`), and the suite asserts `P − 0.3` to
+`P + 0.4`.
+
+**Cost.** The largest run, `P = 5` at `s = 8`, has 512 blocks of `12²`
+nodes and takes 3438 steps, 34 s on the 64 threads of one node, where 512
+blocks give a thread eight each. The series is about seven minutes,
+including compilation.
 
 ### Refined forests
 

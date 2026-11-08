@@ -90,6 +90,11 @@ function InspiralProblem(wave::WaveProblem{T,3}, models::Tuple, window::Window,
                          motion::Prescribed; order::Int=3, tables=nothing,
                          rnear::Real=1, continuous::Bool=true) where {T}
     check_order(order)
+    wave.metric === nothing && !TreeAMR.ispatched(wave.fs.forest) || throw(ArgumentError(
+        "the inspiral runs on a brick in flat space, and this wave problem has " *
+        "$(wave.metric === nothing ? "a forest of patches" : "a geometry"): the " *
+        "transfer measures distances in the logical coordinates and locates points " *
+        "in one brick (\"Multi-patch forests\" in CODE.md)"))
     tables === nothing && (tables = TransferTables(T, TreeWaveOLDG.order(wave.element)))
     check_tables(wave, tables)
     K = length(models)
