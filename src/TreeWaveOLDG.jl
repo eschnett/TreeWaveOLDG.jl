@@ -43,7 +43,7 @@ import ForwardDiff
 using IMEXRungeKutta: IMEXProblem, RK4, init, solve!, step!
 using KernelAbstractions: @kernel, @index, @Const, Backend, CPU, get_backend,
                           allocate, synchronize
-using LinearAlgebra: dot
+using LinearAlgebra: Symmetric, cholesky, det, dot, eigvals
 using SpecialFunctions: besselj0
 using StaticArrays: SMatrix, SVector, push, setindex
 
@@ -60,6 +60,10 @@ export WaveProblem, wave_rhs!, truncate_state!, truncate_stage!, initial_state,
 # Geometry: multi-patch forests in a metric
 export Geometry, PolarAnnulus, annulus_forest, geometry_terms, physical_coordinates,
        annulus_wavenumber, annulus_exact, annulus_errors
+
+# Geometry: the seven-patch ball, in a full metric
+export FullGeometry, SevenPatchBall, sevenpatch_forest, geometry_frame, PlaneWave,
+       sevenpatch_exact, sevenpatch_errors
 
 # Time integration
 export state_partition, wave_integrator
@@ -104,6 +108,7 @@ include("refinement.jl")
 include("sinewave.jl")
 include("blast.jl")
 include("annulus.jl")
+include("sevenpatch.jl")
 include("particle_forms.jl")
 include("particle.jl")
 include("transfer.jl")

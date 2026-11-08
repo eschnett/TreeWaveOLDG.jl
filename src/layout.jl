@@ -145,13 +145,19 @@ end
 
 function (mf::MetricFold{EL,G,D})(acc, q) where {EL,G,D}
     w = node_weight(q.I, q.h, mf.el, Val(D))
-    J, A = geometry_terms(mf.geometry, q.x, q.tag)
-    c = mf.which == 0 ? J : inv(A[mf.which])
+    c = metric_factor(mf.geometry, q.x, q.tag, mf.which)
     s = zero(w)
     for x in q.u
         s += abs(x)^mf.p
     end
     return TreeAMR.combine(acc, (Sum(w * c * s), Sum(w * c * length(q.u))))
+end
+
+# The fold's metric factor at `x` of patch `p`; a full geometry has its
+# own method, `√g` alone (`geometry.jl`).
+@inline function metric_factor(geo, x, p, which)
+    J, A = geometry_terms(geo, x, p)
+    return which == 0 ? J : inv(A[which])
 end
 
 function metric_parts(fs::FieldSet{T,D}, el::Element{T}, geometry, u, p::Integer, vars,

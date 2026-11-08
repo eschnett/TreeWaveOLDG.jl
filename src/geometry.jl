@@ -34,9 +34,45 @@ can be a kernel and a fold argument, and provides:
 - `physical_coordinates(geo, x, p)`: the physical position;
 - `check_geometry(geo, forest)`: refuse a forest the map does not fit.
 
-[`PolarAnnulus`](@ref) is the one implemented.
+[`PolarAnnulus`](@ref) is the one implemented. A map whose metric is not
+diagonal, or whose `√g` does not factorize, is a [`FullGeometry`](@ref).
 """
 abstract type Geometry end
+
+"""
+    FullGeometry <: Geometry
+
+A map from the logical coordinates of a forest's patches to physical
+space with a general metric: neither diagonal in the logical coordinates
+nor with a volume element that factorizes, as a cubed sphere's patches
+have. A full geometry is `isbits` and provides:
+
+- `geometry_frame(geo, x, p) -> (J, S)`: at the logical position `x` of
+  patch `p`, the volume element `J = √g` and the area vectors
+  `S[d] = √g ∇ξ^d`, `S[d][i] = √g ∂ξ^d/∂x^i`, one `D`-tuple of Cartesian
+  components per logical dimension `d`. It must be generic in the number
+  type of `x`, since the truncation's tables evaluate it in `BigFloat`;
+- `physical_coordinates(geo, x, p)`: the physical position;
+- `check_geometry(geo, forest)`: refuse a forest the map does not fit;
+- `geometry_boundary(geo)`: whether the forest has outer faces, which
+  then take Dirichlet data ([`WaveProblem`](@ref)'s `boundary`).
+
+On a full geometry the gradient is carried in Cartesian components, one
+field set of `D` variables with a ghost plane on every face, because a
+glue that swaps axes carries a variable onto itself, and a Cartesian
+component is the same number on both sides; the logical flux
+`F^d = S[d] ⋅ ∇u` is formed from it where the Laplacian reads it,
+ghosts included. The truncation is the `√g`-orthogonal projection onto
+`Q_{P-1}`, built per element. See "The seven-patch ball" in `CODE.md`.
+[`SevenPatchBall`](@ref) is the one implemented.
+"""
+abstract type FullGeometry <: Geometry end
+
+geometry_boundary(::FullGeometry) = true
+
+# A full geometry's gradient is Cartesian, so its folds weight by `√g`
+# alone, the potential energy's `√g |∇u|²` included (`layout.jl`).
+@inline metric_factor(geo::FullGeometry, x, p, which) = first(geometry_frame(geo, x, p))
 
 """
     PolarAnnulus{T}(r0, r1, roots)
@@ -144,4 +180,167 @@ function annulus_forest(::Type{T}, P::Integer, E::Integer; roots=(2, 1), r0=1,
     forest = Forest{T}([(roots=Tuple(roots),) for _ in 1:4]; N=N, glue=glue,
                        reflecting=((false, false), (true, true)))
     return forest, PolarAnnulus{T}(r0, r1, Tuple(roots))
+end
+
+"""
+    SevenPatchBall{T}(Lc, R1, roots)
+    SevenPatchBall(Lc, R1, roots)
+
+The ball `|x| ≤ R1` as seven patches, as [`sevenpatch_forest`](@ref)
+builds them, with `roots = (n, m)`:
+
+- patch 1, the cube `[-Lc, Lc]³`, of `(n, n, n)` roots: its logical box
+  `[0, n]³` maps to `x = Lc (2ξ/n - 1)`;
+- patches 2–7, the shells over the cube's faces `(k, s)` in the order
+  `(1, -1), (1, 1), (2, -1), (2, 1), (3, -1), (3, 1)`, each of `m` roots
+  along its radial dimension `k` and `n` along the other two. Its logical
+  box maps to
+
+      c_k = s,   c_j = 2ξ_j/n - 1 (j ≠ k),   f = Lc c
+      ρ = ξ_k/m (s = 1),  1 - ξ_k/m (s = -1)
+      x = (1 - ρ) f + ρ R1 f/|f|
+
+  so that its inner face is the cube's face, flat, and its outer face the
+  sphere `|x| = R1`. Each logical dimension `j` of a shell runs along
+  `x_j`, and `ξ_k` increases outward for `s = 1` and inward for `s = -1`,
+  so that every cube–shell glue is the identity.
+
+The shells' metric is not diagonal, and `√g` does not factorize, so this
+is a [`FullGeometry`](@ref). `R1 > √3 Lc`, so that the cube's corners lie
+inside the sphere and the map is one to one.
+"""
+struct SevenPatchBall{T} <: FullGeometry
+    Lc::T
+    R1::T
+    roots::NTuple{2,Int}
+
+    function SevenPatchBall{T}(Lc, R1, roots::NTuple{2,Integer}) where {T}
+        0 < Lc || throw(ArgumentError(
+            "the cube's half-width Lc must be positive, got $Lc"))
+        R1 > sqrt(3) * Lc || throw(ArgumentError(
+            "the outer radius R1 = $R1 must exceed √3 Lc = $(sqrt(3) * Lc), so that " *
+            "the cube's corners lie inside the sphere and every shell maps one to one"))
+        all(>(0), roots) || throw(ArgumentError(
+            "every patch of the ball needs a positive number of roots along each " *
+            "dimension, got $roots"))
+        return new{T}(T(Lc), T(R1), Int.(Tuple(roots)))
+    end
+end
+
+SevenPatchBall(Lc, R1, roots) =
+    SevenPatchBall{float(promote_type(typeof(Lc), typeof(R1)))}(Lc, R1, roots)
+
+# The shells' cube faces `(k, s)`, in patch order 2–7.
+const SEVENPATCH_SHELLS = ((1, -1), (1, 1), (2, -1), (2, 1), (3, -1), (3, 1))
+
+sevenpatch_index(k, s) = 1 + 2(k - 1) + (s == 1 ? 2 : 1)
+
+# The physical position of logical `ξ` (an `SVector{3}`) of patch `p`, in
+# `ξ`'s number type, so that `ForwardDiff` differentiates it and the
+# truncation's tables evaluate it in `BigFloat`.
+@inline function sevenpatch_position(geo::SevenPatchBall, ξ, p)
+    n, m = geo.roots
+    Lc = geo.Lc
+    if p == 1
+        return Lc .* (2 .* ξ ./ n .- 1)
+    end
+    k, s = SEVENPATCH_SHELLS[p - 1]
+    f = SVector(ntuple(j -> j == k ? s * Lc : Lc * (2 * ξ[j] / n - 1), Val(3)))
+    ρ = s == 1 ? ξ[k] / m : 1 - ξ[k] / m
+    return (1 - ρ) .* f .+ (ρ * geo.R1 / sqrt(f[1]^2 + f[2]^2 + f[3]^2)) .* f
+end
+
+@inline function physical_coordinates(geo::SevenPatchBall, x, p)
+    return Tuple(sevenpatch_position(geo, SVector(x[1], x[2], x[3]), p))
+end
+
+@inline function geometry_frame(geo::SevenPatchBall, x, p)
+    ξ = SVector(x[1], x[2], x[3])
+    Jm = ForwardDiff.jacobian(y -> sevenpatch_position(geo, y, p), ξ)
+    J = abs(det(Jm))
+    Ji = inv(Jm)
+    S = ntuple(d -> ntuple(i -> J * Ji[d, i], Val(3)), Val(3))
+    return J, S
+end
+
+# The glue of the seven-patch ball, both directions of every gluing: the
+# cube's face `(k, s)` onto the inner face of shell `(k, s)` by the
+# identity, and shell `(k, s)`'s face towards shell `(l, t)` onto that
+# one's face towards `(k, s)`, by the quarter turn that carries each
+# one's radial dimension onto the other's and each one's normal onto the
+# other's, reversed where the step out of the one is a step into the
+# other.
+function sevenpatch_glue()
+    side(s) = s == 1 ? 2 : 1
+    glue = NamedTuple{(:from, :to, :map),
+                      Tuple{NTuple{3,Int},NTuple{3,Int},NTuple{3,Int}}}[]
+    for (k, s) in SEVENPATCH_SHELLS
+        p = sevenpatch_index(k, s)
+        push!(glue, (from=(1, k, side(s)), to=(p, k, side(-s)), map=(1, 2, 3)))
+        push!(glue, (from=(p, k, side(-s)), to=(1, k, side(s)), map=(1, 2, 3)))
+        for (l, t) in SEVENPATCH_SHELLS
+            l == k && continue
+            σ = ntuple(e -> e == k ? (s == t ? l : -l) :
+                            e == l ? (s == t ? -k : k) : e, 3)
+            push!(glue, (from=(p, l, side(t)), to=(sevenpatch_index(l, t), k, side(s)),
+                         map=σ))
+        end
+    end
+    return glue
+end
+
+sevenpatch_roots(geo::SevenPatchBall, p) =
+    p == 1 ? ntuple(_ -> geo.roots[1], 3) :
+    ntuple(j -> j == SEVENPATCH_SHELLS[p - 1][1] ? geo.roots[2] : geo.roots[1], 3)
+
+function check_geometry(geo::SevenPatchBall, forest::Forest{D}) where {D}
+    D == 3 || throw(ArgumentError(
+        "the seven-patch ball is three-dimensional, and the forest has D = $D"))
+    TreeAMR.npatches(forest) == 7 || throw(ArgumentError(
+        "the seven-patch ball has 7 patches, and the forest " *
+        "$(TreeAMR.npatches(forest)): build both with sevenpatch_forest"))
+    for p in 1:7
+        roots = Tuple(TreeAMR.patch_roots(forest, p))
+        ext = TreeAMR.patch_extents(forest, p)
+        want = sevenpatch_roots(geo, p)
+        roots == want && all(d -> ext[d][1] == 0 && ext[d][2] == want[d], 1:3) ||
+            throw(ArgumentError(
+                "patch $p of the forest has roots $roots and extents $ext, and the " *
+                "seven-patch ball maps the box [0, $(want[1])] × [0, $(want[2])] × " *
+                "[0, $(want[3])] there: build both with sevenpatch_forest"))
+    end
+    norm_entry(g) = (Int.(Tuple(g.from)), Int.(Tuple(g.to)), Int.(Tuple(g.map)))
+    Set(map(norm_entry, TreeAMR.patch_keywords(forest).glue)) ==
+        Set(map(norm_entry, sevenpatch_glue())) || throw(ArgumentError(
+            "the forest's patches are not glued as the seven-patch ball's: build both " *
+            "with sevenpatch_forest"))
+    return nothing
+end
+
+"""
+    sevenpatch_forest(T, P, E; roots=(2, 2), Lc=1, R1=3) -> (forest, geometry)
+
+The ball `|x| ≤ R1` as TreeAMR's forest of seven patches, a cube of
+half-width `Lc` and six shells around it (see [`SevenPatchBall`](@ref)),
+each block holding `E³` elements of order `P`, and its map. Every patch
+has the one logical spacing of a root, `1`. The cube is glued to the
+shells' inner faces by the identity, and the shells to each other by
+quarter turns, so the forest has patch corners, which an element set
+never reaches; the outer sphere is the only unglued face, and takes
+Dirichlet data ([`WaveProblem`](@ref)'s `boundary`). `E` must be even, as
+for [`wave_forest`](@ref).
+
+Hand both to [`WaveProblem`](@ref): `WaveProblem(forest, el; geometry, boundary)`.
+"""
+function sevenpatch_forest(::Type{T}, P::Integer, E::Integer; roots=(2, 2), Lc=1,
+                           R1=3) where {T}
+    N = E * (P + 1)
+    iseven(E) || throw(ArgumentError(
+        "E = $E elements of order P = $P per block is odd, and E must be even: " *
+        "TreeAMR's element centering needs N = $N to be a multiple of " *
+        "2(P+1) = $(2(P + 1))"))
+    geo = SevenPatchBall{T}(Lc, R1, Tuple(roots))
+    forest = Forest{T}([(roots=sevenpatch_roots(geo, p),) for p in 1:7]; N=N,
+                       glue=sevenpatch_glue())
+    return forest, geo
 end

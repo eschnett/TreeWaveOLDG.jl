@@ -109,6 +109,78 @@ end
     @inbounds du[inner..., 2, b] = divergence(coef, acc / h, inner, b)
 end
 
+# The same two passes on a full geometry ([`FullGeometry`](@ref)), whose
+# glues may swap axes. A glue carries each variable onto itself, so the
+# gradient crosses it as Cartesian components, `V = ∇u`, all `D` of them in
+# one set with a ghost plane on every face. `coef` holds `√g` in variable
+# 1 and the area vectors `S[d] = √g ∇ξ^d` after it, `S[d][i]` in variable
+# `1 + (d-1)D + i`.
+#
+# Pass 1 forms every `D_e u` at the node, from `u`'s face ghosts along
+# `e`, and writes `V_i = Σ_e S[e][i] D_e u / √g`. Pass 2 forms the logical
+# flux `F^d = S[d] ⋅ V` at every point of the wide derivative's window
+# along `d` and differentiates it: `√g v̇ = Σ_d D_d F^d`. A ghost of an
+# element set sits at the same physical point as the block's own face node
+# beside it, so the flux there is formed with that node's `S[d]`: the
+# component normal to the face of the neighbour's `∇u`, which is the
+# neighbour's own `F` across the glue to rounding. No metric is evaluated at
+# a ghost. See "The seven-patch ball" in `CODE.md`.
+@inline frame_coef(coef, idx, b, d, i, ::Val{D}) where {D} =
+    @inbounds coef[idx..., 1 + (d - 1) * D + i, b]
+
+@inline function cart_component(coef, Du, inner, b, ::Val{i}, ::Val{D}) where {i,D}
+    terms = ntuple(@inline(e -> frame_coef(coef, inner, b, e, i, Val(D)) * Du[e]), Val(D))
+    return foldl(+, terms) / (@inbounds coef[inner..., 1, b])
+end
+
+@kernel function cart_gradient_kernel!(gc, @Const(work), @Const(spacings), el, coef,
+                                       ::Val{D}, ::Val{G}) where {D,G}
+    I = @index(Global, NTuple)                 # (i1..iD, block), owned
+    b = I[D + 1]
+    c = ntuple(d -> I[d] + G[d], Val(D))
+    inner = ntuple(d -> I[d], Val(D))
+    @inbounds h = spacings[b]
+    Du = ntuple(@inline(e -> (@inbounds wide_derivative(work, c, I[e], 1, b, e, el)) / h),
+                Val(D))
+    ntuple(@inline(i -> (@inbounds gc[c..., i, b] = cart_component(coef, Du, inner, b,
+                                                                   Val(i), Val(D)))),
+           Val(D))
+end
+
+# `D_d F^d` at owned point `I`, with `F^d = S[d] ⋅ V` formed at each point
+# of the window. `o` is the window point's owned index along `d`, `0` and
+# `N + 1` for the ghosts, whose `S[d]` is the face node's beside them.
+@inline function cart_flux_derivative(gc, coef, I, b, N, el::Element{T,P1,PW}, ::Val{d},
+                                      ::Val{D}) where {T,P1,PW,d,D}
+    i = (I[d] - 1) % P1
+    row = el.stencil[i + 1]
+    start = I[d] - i - 1
+    acc = zero(eltype(gc))
+    for k in 1:PW
+        o = start + k - 1
+        os = ntuple(q -> q == d ? clamp(o, 1, N) : I[q], Val(D))
+        st = ntuple(q -> q == d ? o + 1 : I[q] + 1, Val(D))
+        terms = ntuple(@inline(j -> frame_coef(coef, os, b, d, j, Val(D)) *
+                                    (@inbounds gc[st..., j, b])), Val(D))
+        acc += row[k] * foldl(+, terms)
+    end
+    return acc
+end
+
+@kernel function cart_laplacian_kernel!(du, @Const(ua), @Const(gc), @Const(spacings), el,
+                                        coef, ::Val{D}) where {D}
+    I = @index(Global, NTuple)
+    b = I[D + 1]
+    inner = ntuple(d -> I[d], Val(D))
+    N = size(coef, 1)
+    terms = ntuple(@inline(d -> cart_flux_derivative(gc, coef, I, b, N, el, Val(d),
+                                                     Val(D))), Val(D))
+    acc = foldl(+, terms; init=zero(eltype(du)))
+    @inbounds h = spacings[b]
+    @inbounds du[inner..., 1, b] = ua[inner..., 2, b]
+    @inbounds du[inner..., 2, b] = acc / h / coef[inner..., 1, b]
+end
+
 # Truncation: `a[…, var, b] ← (Π ⊗ … ⊗ Π) a[…, var, b]` in place, one work
 # item per element (`J` is the element's index in its block). The
 # one-dimensional projector is `Π = I - topmode ⊗ topdual`, so each
@@ -141,6 +213,60 @@ end
                 @inbounds a[idx..., var, b] -= topmode(tables, i, J, d, b) * c
             end
         end
+    end
+end
+
+# The truncation on a full geometry, whose `√g` does not factorize: per
+# element, `a ← Ψ G_e⁻¹ Ψᵀ W_e a`, the `√g`-orthogonal projection onto
+# `Q_{P-1}`, with `Ψ` the tensor Legendre basis of `Q_{P-1}` at the
+# element's nodes, `W_e` the quadrature weights times `√g`, and
+# `G_e = Ψᵀ W_e Ψ = U_eᵀ U_e` through its Cholesky factor (see
+# [`ElementTruncation`](@ref TreeWaveOLDG.ElementTruncation)). The
+# coefficients go through the element's own column of `t.scratch`, which
+# no other work item touches, and the two triangular solves run in place
+# there.
+@kernel function element_truncate_kernel!(a, t, ::Val{P1}, var, ::Val{D},
+                                          E) where {P1,D}
+    J = @index(Global, NTuple)                 # (e1..eD, block)
+    b = J[D + 1]
+    base = ntuple(d -> (J[d] - 1) * P1, Val(D))
+    e = 1
+    stride = 1
+    for d in 1:D
+        e += (J[d] - 1) * stride
+        stride *= E
+    end
+    nodes = CartesianIndices(ntuple(_ -> P1, Val(D)))
+    M = size(t.modes, 2)
+    for q in 1:M                               # c = Ψᵀ W a
+        c = zero(eltype(a))
+        for (n, K) in enumerate(nodes)
+            idx = ntuple(k -> base[k] + K[k], Val(D))
+            @inbounds c += t.modes[n, q] * t.weights[n, e, b] * a[idx..., var, b]
+        end
+        @inbounds t.scratch[q, e, b] = c
+    end
+    for q in 1:M                               # Uᵀ y = c
+        @inbounds c = t.scratch[q, e, b]
+        for r in 1:(q - 1)
+            @inbounds c -= t.chol[r, q, e, b] * t.scratch[r, e, b]
+        end
+        @inbounds t.scratch[q, e, b] = c / t.chol[q, q, e, b]
+    end
+    for q in M:-1:1                            # U z = y
+        @inbounds c = t.scratch[q, e, b]
+        for r in (q + 1):M
+            @inbounds c -= t.chol[q, r, e, b] * t.scratch[r, e, b]
+        end
+        @inbounds t.scratch[q, e, b] = c / t.chol[q, q, e, b]
+    end
+    for (n, K) in enumerate(nodes)             # a = Ψ z
+        s = zero(eltype(a))
+        for q in 1:M
+            @inbounds s += t.modes[n, q] * t.scratch[q, e, b]
+        end
+        idx = ntuple(k -> base[k] + K[k], Val(D))
+        @inbounds a[idx..., var, b] = s
     end
 end
 
@@ -211,8 +337,21 @@ logical wave speed, which divides the time step. The forest must be
 uniform and on the CPU; see "Multi-patch forests" in `CODE.md`. Without
 a geometry the problem is the flat one, on a brick or on any forest of
 patches, in logical coordinates.
+
+On a [`FullGeometry`](@ref), such as the [`SevenPatchBall`](@ref) of
+[`sevenpatch_forest`](@ref), the metric is general, and the glues may swap
+axes, which a gradient set per dimension cannot cross. There `grads` is
+empty, and `cartgrad`, one set of `D` variables with a ghost plane on
+every face, holds `∇u` in Cartesian components, from which the Laplacian
+pass forms the logical flux `F^d = √g ∇ξ^d ⋅ ∇u`; the truncation is a
+`√g`-orthogonal projection per element. `boundary` gives the Dirichlet
+data on the outer faces, as a callback `boundary(x, t) -> (u, ∂₁u, …,
+∂_D u)` of the physical position and the time, which must be `isbits`:
+the exchange sets `u`'s outer ghosts and the gradient's from it.
+[`wave_rhs!`](@ref) passes its `t`. A full geometry with outer faces needs
+it, and nothing else takes it; see "The seven-patch ball" in `CODE.md`.
 """
-struct WaveProblem{T,D,F,S,U,GS,US,GSS,V,EL,M}
+struct WaveProblem{T,D,F,S,U,GS,US,GSS,V,EL,M,CG,CS,B}
     fs::F
     schedule::S                  # the state set's, for `regrid!`'s transfer
     ufs::U
@@ -223,6 +362,9 @@ struct WaveProblem{T,D,F,S,U,GS,US,GSS,V,EL,M}
     element::EL
     truncate::Bool
     metric::M                    # `nothing`, or a `Metric` on a geometry
+    cartgrad::CG                 # on a full geometry `∇u`, Cartesian, `G = 1`
+    cartschedule::CS
+    boundary::B                  # Dirichlet data on a full geometry, or `nothing`
     valD::Val{D}
 end
 
@@ -312,8 +454,9 @@ function metric_truncation(geo, forest::Forest{D}, el::Element{T,P1},
                             map(m -> to_backend(backend, m), duals))
 end
 
-function build_metric(geo::Geometry, forest::Forest{D}, el::Element{T},
-                      backend) where {D,T}
+# What every geometry refuses: a forest it does not map, a refined one,
+# and a device.
+function check_metric_forest(geo, forest, backend)
     check_geometry(geo, forest)
     lv = unique(level.(forest.leaves))
     length(lv) == 1 || throw(ArgumentError(
@@ -323,6 +466,12 @@ function build_metric(geo::Geometry, forest::Forest{D}, el::Element{T},
     backend isa CPU || throw(ArgumentError(
         "a geometry runs on the CPU only, and the problem was asked for $backend: " *
         "its truncation tables are not adapted to a device"))
+    return nothing
+end
+
+function build_metric(geo::Geometry, forest::Forest{D}, el::Element{T},
+                      backend) where {D,T}
+    check_metric_forest(geo, forest, backend)
     cfs = wave_fieldset(T, forest, 1 + D, ntuple(_ -> 0, D),
                         fill(EvenParity, 1 + D), order(el), backend)
     fill_by_coordinates!(WithPatch(AllVariables(MetricTerms(geo))), cfs)
@@ -332,6 +481,141 @@ function build_metric(geo::Geometry, forest::Forest{D}, el::Element{T},
         speed = max(speed, sqrt(c[Tuple(I)..., 1 + d, b] / c[Tuple(I)..., 1, b]))
     end
     return Metric(geo, cfs, c, metric_truncation(geo, forest, el, backend), speed)
+end
+
+# What a full geometry adds: `√g` and the area vectors at the nodes, the
+# per-element truncation, and the largest logical wave speed.
+struct FullMetric{G,C,A,TT,T}
+    geometry::G
+    cfs::C                       # `√g, S[1]…, S[D]…` at the nodes, `G = 0`
+    coef::A
+    truncation::TT
+    speed::T                     # max over nodes of √λ_max(g^{de})
+end
+
+"""
+    ElementTruncation
+
+The truncation on a full geometry, whose `√g` does not factorize, so that
+no tensor product of one-dimensional projections is `√g`-orthogonal: per
+element `e` of block `b`, the projection `Ψ G_e⁻¹ Ψᵀ W_e` onto `Q_{P-1}`.
+`modes = Ψ` is the tensor Legendre basis of `Q_{P-1}` at the element's
+nodes (`(P+1)^D × P^D`, the same for every element); `weights[:, e, b]`
+is `W_e`, the element's quadrature weights on `[-1, 1]^D` times `√g`; and
+`chol[:, :, e, b]` is the upper Cholesky factor `U_e` of the Gram matrix
+`G_e = Ψᵀ W_e Ψ = U_eᵀ U_e`. Built in `BigFloat` and rounded once, the Gram
+matrix by sum factorization over the dimensions. `scratch` holds each
+element's `P^D` coefficients through the two triangular solves.
+"""
+struct ElementTruncation{A,B,C,S}
+    modes::A                     # (n, m)
+    weights::B                   # (n, E^D, nblocks)
+    chol::C                      # (m, m, E^D, nblocks)
+    scratch::S                   # (m, E^D, nblocks)
+end
+
+# The volume element alone, for the truncation's weights; a geometry may
+# give a cheaper form than its frame.
+@inline geometry_volume(geo::FullGeometry, x, p) = first(geometry_frame(geo, x, p))
+
+# `G = Ψᵀ diag(w) Ψ` for the tensor basis `Ψ[n, q] = ∏_d L[n_d, q_d]`, by
+# sum factorization: the sum over the nodes one dimension at a time,
+# pairing each dimension's two basis indices, `pair[k, q + P(r-1)] =
+# L[k, q] L[k, r]`. About `(P+1)^D P²` operations for the first dimension,
+# where the dense product costs `(P+1)^D P^{2D}`.
+function gram_sumfact(w::AbstractVector, pair::AbstractMatrix, P1, P, D)
+    A = w
+    R = 1
+    for d in D:-1:1
+        A3 = reshape(A, P1^(d - 1), P1, R)
+        B = similar(A, P1^(d - 1), P^2, R)
+        for j in 1:R, p in 1:(P^2), i in 1:(P1^(d - 1))
+            B[i, p, j] = sum(A3[i, k, j] * pair[k, p] for k in 1:P1)
+        end
+        A = vec(B)
+        R *= P^2
+    end
+    basis = CartesianIndices(ntuple(_ -> P, D))
+    pairindex(q, r) = 1 + sum((q[d] - 1 + P * (r[d] - 1)) * (P^2)^(d - 1) for d in 1:D)
+    return [A[pairindex(q, r)] for q in vec(basis), r in vec(basis)]
+end
+
+function element_truncation(geo, forest::Forest{D}, el::Element{T,P1},
+                            backend) where {D,T,P1}
+    P = P1 - 1
+    E = forest.N ÷ P1
+    origins = block_origins(forest, T)
+    spacings = block_spacings(forest, T)
+    patches = block_patches(forest)
+    nb = length(spacings)
+    nodes = CartesianIndices(ntuple(_ -> P1, D))
+    basis = CartesianIndices(ntuple(_ -> P, D))
+    n, m = length(nodes), length(basis)
+    modes = Array{T}(undef, n, m)
+    weights = Array{T}(undef, n, E^D, nb)
+    chol = zeros(T, m, m, E^D, nb)
+    ξ, ŵ = gll_nodes_weights(P)
+    setprecision(BigFloat, 512) do
+        Lall = [legendre_all(P, x) for x in ξ]
+        offsets = [(P + 1) * (1 + x) / 2 for x in ξ]
+        offsets[1], offsets[P1] = 0, P1
+        Ψ = [prod(Lall[K[d]][Q[d]] for d in 1:D) for K in vec(nodes), Q in vec(basis)]
+        pair = [Lall[k][(p - 1) % P + 1] * Lall[k][(p - 1) ÷ P + 1]
+                for k in 1:P1, p in 1:(P^2)]
+        ŵn = [prod(ŵ[K[d]] for d in 1:D) for K in vec(nodes)]
+        modes .= T.(Ψ)
+        for b in 1:nb, (e, Je) in enumerate(CartesianIndices(ntuple(_ -> E, D)))
+            w = [ŵn[i] *
+                 geometry_volume(geo,
+                                 ntuple(d -> big(origins[b][d]) +
+                                             big(spacings[b]) *
+                                             ((Je[d] - 1) * P1 + offsets[K[d]]), D),
+                                 Int(patches[b]))
+                 for (i, K) in enumerate(vec(nodes))]
+            G = gram_sumfact(w, pair, P1, P, D)
+            weights[:, e, b] .= T.(w)
+            chol[:, :, e, b] .= T.(cholesky(Symmetric(G)).U)
+        end
+    end
+    return ElementTruncation(to_backend(backend, modes), to_backend(backend, weights),
+                             to_backend(backend, chol),
+                             to_backend(backend, zeros(T, m, E^D, nb)))
+end
+
+# The callback that fills a full geometry's coefficient set:
+# `(√g, S[1]…, S[D]…)`.
+struct FrameTerms{G}
+    geometry::G
+end
+
+@inline flatframe(S::NTuple{D,NTuple{D,T}}) where {D,T} =
+    ntuple(k -> S[(k - 1) ÷ D + 1][(k - 1) % D + 1], Val(D * D))
+
+@inline function (m::FrameTerms)(x, p)
+    J, S = geometry_frame(m.geometry, x, p)
+    return (J, flatframe(S)...)
+end
+
+function build_metric(geo::FullGeometry, forest::Forest{D}, el::Element{T},
+                      backend) where {D,T}
+    check_metric_forest(geo, forest, backend)
+    TreeAMR.hasreflecting(forest) && throw(ArgumentError(
+        "a full geometry carries the gradient in Cartesian components, and the " *
+        "forest has reflecting faces, whose mirror flips a logical component, not a " *
+        "Cartesian one: give the outer faces Dirichlet data instead (`boundary`)"))
+    cfs = wave_fieldset(T, forest, 1 + D * D, ntuple(_ -> 0, D),
+                        fill(EvenParity, 1 + D * D), order(el), backend)
+    fill_by_coordinates!(WithPatch(AllVariables(FrameTerms(geo))), cfs)
+    c = cfs.work
+    speed = zero(T)
+    for b in axes(c, D + 2), I in CartesianIndices(ntuple(_ -> forest.N, D))
+        J = c[Tuple(I)..., 1, b]
+        S = ntuple(d -> ntuple(i -> c[Tuple(I)..., 1 + (d - 1) * D + i, b], D), D)
+        g = SMatrix{D,D,T}(ntuple(k -> dot(S[(k - 1) % D + 1], S[(k - 1) ÷ D + 1]) / J^2,
+                                  D * D))
+        speed = max(speed, sqrt(maximum(eigvals(Symmetric(g)))))
+    end
+    return FullMetric(geo, cfs, c, element_truncation(geo, forest, el, backend), speed)
 end
 
 # The reflection symmetry a solid wall puts on each variable: both state
@@ -358,16 +642,28 @@ function wave_fieldset(::Type{T}, forest::Forest{D}, nvars, G, parity, P,
 end
 
 function WaveProblem(forest::Forest{D}, el::Element{T}; truncate::Bool=true,
-                     backend::Backend=CPU(), geometry=nothing) where {D,T}
+                     backend::Backend=CPU(), geometry=nothing,
+                     boundary=nothing) where {D,T}
     check_layout(forest, el)
     fs = wave_fieldset(T, forest, 2, ntuple(_ -> 0, D), state_statesparity(Val(D)),
                        order(el), backend)
-    return WaveProblem(fs, el; truncate=truncate, backend=backend, geometry=geometry)
+    return WaveProblem(fs, el; truncate=truncate, backend=backend, geometry=geometry,
+                       boundary=boundary)
 end
 
 function WaveProblem(fs::FieldSet{T,D}, el::Element{T}; truncate::Bool=true,
                      backend::Backend=get_backend(fs.work),
-                     geometry::Union{Nothing,Geometry}=nothing) where {T,D}
+                     geometry::Union{Nothing,Geometry}=nothing,
+                     boundary=nothing) where {T,D}
+    full = geometry isa FullGeometry
+    boundary === nothing || full || throw(ArgumentError(
+        "Dirichlet data (`boundary`) are given in Cartesian components and taken by a " *
+        "full geometry only: without one the gradient sets hold logical components, " *
+        "and the walls are TreeAMR's reflecting faces"))
+    !full || boundary !== nothing || !geometry_boundary(geometry) || throw(ArgumentError(
+        "the geometry has outer faces, and no data were given for them: pass " *
+        "`boundary = (x, t) -> (u, ∂₁u, …, ∂_D u)`, the Dirichlet data at the " *
+        "physical position x and time t"))
     forest = fs.forest
     check_layout(forest, el)
     check_element_set(fs, el)
@@ -381,8 +677,11 @@ function WaveProblem(fs::FieldSet{T,D}, el::Element{T}; truncate::Bool=true,
         "the set's"))
     P = order(el)
     ufs = wave_fieldset(T, forest, 1, ntuple(_ -> 1, D), [EvenParity], P, backend)
-    grads = ntuple(d -> wave_fieldset(T, forest, 1, ntuple(k -> Int(k == d), D),
+    grads = full ? () :
+            ntuple(d -> wave_fieldset(T, forest, 1, ntuple(k -> Int(k == d), D),
                                       state_gradparity(Val(D), d), P, backend), Val(D))
+    cartgrad = full ? wave_fieldset(T, forest, D, ntuple(_ -> 1, D),
+                                    fill(EvenParity, D), P, backend) : nothing
     # Every operator of an element set follows from its `P`: injection
     # normal to a face, and tangentially the coarse element's polynomial
     # for a fine ghost and its adjoint restriction for a coarse one. The
@@ -393,26 +692,79 @@ function WaveProblem(fs::FieldSet{T,D}, el::Element{T}; truncate::Bool=true,
     schedule = GhostSchedule(fs, ops)
     uschedule = GhostSchedule(ufs, ops)
     gradschedules = map(g -> GhostSchedule(g, ops), grads)
+    cartschedule = cartgrad === nothing ? nothing : GhostSchedule(cartgrad, ops)
     spacings = to_backend(backend, block_spacings(forest, T))
     metric = geometry === nothing ? nothing : build_metric(geometry, forest, el, backend)
     return WaveProblem{T,D,typeof(fs),typeof(schedule),typeof(ufs),typeof(grads),
                        typeof(uschedule),typeof(gradschedules),typeof(spacings),
-                       typeof(el),typeof(metric)}(fs, schedule, ufs, grads, uschedule,
-                                                  gradschedules, spacings, el, truncate,
-                                                  metric, Val(D))
+                       typeof(el),typeof(metric),typeof(cartgrad),typeof(cartschedule),
+                       typeof(boundary)}(fs, schedule, ufs, grads, uschedule,
+                                         gradschedules, spacings, el, truncate, metric,
+                                         cartgrad, cartschedule, boundary, Val(D))
+end
+
+# The Dirichlet data on a full geometry's outer faces, as the two
+# exchanges' boundary callbacks: `u` alone, and the `D` Cartesian
+# components of its gradient, from `data(x, t) -> (u, ∂₁u, …, ∂_D u)` at
+# the ghost's physical position. An element set's outer ghost sits at its
+# face node, on the outer face.
+struct DirichletValues{W,G,B,T}
+    geometry::G
+    data::B
+    t::T
+end
+
+DirichletValues{W}(geo::G, data::B, t::T) where {W,G,B,T} =
+    DirichletValues{W,G,B,T}(geo, data, t)
+
+@inline (d::DirichletValues{:u})(x, p) =
+    (first(d.data(physical_coordinates(d.geometry, x, p), d.t)),)
+@inline (d::DirichletValues{:grad})(x, p) =
+    Base.tail(d.data(physical_coordinates(d.geometry, x, p), d.t))
+
+# One exchange of `fs`: as it always was when there are no Dirichlet data,
+# and otherwise with the data at time `t` on the outer faces.
+function exchange!(fs, schedule, p::WaveProblem{T}, t, ::Val{W}) where {T,W}
+    p.boundary === nothing && return fill_ghosts!(fs, schedule)
+    t === nothing && throw(ArgumentError(
+        "the problem has Dirichlet data, which depend on the time, and none was " *
+        "given: pass `t`"))
+    hook = boundary_by_coordinates(WithPatch(AllVariables(
+        DirichletValues{W}(p.metric.geometry, p.boundary, T(t)))))
+    return fill_ghosts!(fs, schedule; boundary=hook)
 end
 
 # `u`'s exchange, pass 1 and the gradients' exchanges, shared by the RHS
-# and the energy.
-function fill_gradient!(p::WaveProblem, u)
+# and the energy. `t` is the time, which only Dirichlet data read.
+function fill_gradient!(p::WaveProblem, u, t=nothing)
     map_blocks!(scatter_u_kernel!, p.ufs, p.ufs.work, statearray(u, p.fs), p.valD,
                 Val(p.ufs.G))
-    fill_ghosts!(p.ufs, p.uschedule)
+    exchange!(p.ufs, p.uschedule, p, t, Val(:u))
+    gradient_pass!(p, p.metric, t)
+    return nothing
+end
+
+function gradient_pass!(p::WaveProblem, metric, t)
     map_blocks!(gradient_kernel!, p.ufs, map(g -> g.work, p.grads), p.ufs.work,
                 p.spacings, p.element, metric_coef(p), p.valD, Val(p.ufs.G))
     foreach(fill_ghosts!, p.grads, p.gradschedules)
     return nothing
 end
+
+function gradient_pass!(p::WaveProblem, metric::FullMetric, t)
+    map_blocks!(cart_gradient_kernel!, p.ufs, p.cartgrad.work, p.ufs.work, p.spacings,
+                p.element, metric.coef, p.valD, Val(p.ufs.G))
+    exchange!(p.cartgrad, p.cartschedule, p, t, Val(:grad))
+    return nothing
+end
+
+laplacian_pass!(du, u, p::WaveProblem, metric) =
+    map_blocks!(laplacian_kernel!, p.fs, statearray(du, p.fs), statearray(u, p.fs),
+                map(g -> g.work, p.grads), p.spacings, p.element, metric_coef(p), p.valD)
+
+laplacian_pass!(du, u, p::WaveProblem, metric::FullMetric) =
+    map_blocks!(cart_laplacian_kernel!, p.fs, statearray(du, p.fs), statearray(u, p.fs),
+                p.cartgrad.work, p.spacings, p.element, metric.coef, p.valD)
 
 """
     wave_rhs!(du, u, p::WaveProblem, t)
@@ -427,11 +779,13 @@ exchanges and three passes:
 It does not truncate: truncation acts on the state, through
 [`truncate_stage!`](@ref). `u` is never written, and nothing is carried
 between calls.
+
+On a full geometry the gradient exchange is one, of `∇u` in Cartesian
+components, so the count is two; `t` sets the Dirichlet data, if any.
 """
 function wave_rhs!(du, u, p::WaveProblem, t)
-    fill_gradient!(p, u)
-    map_blocks!(laplacian_kernel!, p.fs, statearray(du, p.fs), statearray(u, p.fs),
-                map(g -> g.work, p.grads), p.spacings, p.element, metric_coef(p), p.valD)
+    fill_gradient!(p, u, t)
+    laplacian_pass!(du, u, p, p.metric)
     return nothing
 end
 
@@ -454,12 +808,21 @@ function truncate_state!(u, p::WaveProblem{T,D}) where {T,D}
     # goes through; an element-shaped `ndrange` keeps the block axis last,
     # so each block runs on the thread that owns it there too.
     tables = p.metric === nothing ? p.element : p.metric.truncation
-    TreeAMR.launch_by_owner!(truncate_kernel!, backend, ua, tables,
-                             Val(order(p.element) + 1), 2, p.valD;
-                             ndrange=(ntuple(_ -> E, D)..., nblocks(p.fs)))
+    launch_truncation!(backend, ua, tables, p, E)
     synchronize(backend)
     return u
 end
+
+launch_truncation!(backend, ua, tables, p::WaveProblem{T,D}, E) where {T,D} =
+    TreeAMR.launch_by_owner!(truncate_kernel!, backend, ua, tables,
+                             Val(order(p.element) + 1), 2, p.valD;
+                             ndrange=(ntuple(_ -> E, D)..., nblocks(p.fs)))
+
+launch_truncation!(backend, ua, tables::ElementTruncation, p::WaveProblem{T,D},
+                   E) where {T,D} =
+    TreeAMR.launch_by_owner!(element_truncate_kernel!, backend, ua, tables,
+                             Val(order(p.element) + 1), 2, p.valD, E;
+                             ndrange=(ntuple(_ -> E, D)..., nblocks(p.fs)))
 
 """
     truncate_stage!(u, integrator, p::WaveProblem, t)
@@ -515,13 +878,22 @@ On a geometry it is `½ Σ w (√g v² + Σ_d F_d²/A_d)`, with `F_d = A_d D_d u
 the flux the gradient sets hold: `½ ∫ (v² + |∇u|²) dV` in the physical
 metric. It is an exact invariant there too, across glued faces and
 walls, with the truncation orthogonal in the `√g`-weighted inner product.
+
+On a full geometry it is `½ Σ w √g (v² + |∇u|²)`, with `∇u` in Cartesian
+components; it is invariant to rounding across the glued faces, and
+changes through the outer faces by the flux the Dirichlet data let
+through. `t` is the time of `u`, which those data read.
 """
-function wave_energy(p::WaveProblem{T,D}, u) where {T,D}
-    fill_gradient!(p, u)
+function wave_energy(p::WaveProblem{T,D}, u; t=nothing) where {T,D}
+    fill_gradient!(p, u, t)
     if p.metric === nothing
         kinetic, _ = quadrature_parts(p.fs, p.element, u, 2, 2)
         potential = sum(g -> first(quadrature_parts(g, p.element, nothing, 2, 1)),
                         p.grads)
+    elseif p.metric isa FullMetric
+        geo = p.metric.geometry
+        kinetic, _ = metric_parts(p.fs, p.element, geo, u, 2, 2, 0)
+        potential, _ = metric_parts(p.cartgrad, p.element, geo, nothing, 2, 1:D, 0)
     else
         geo = p.metric.geometry
         kinetic, _ = metric_parts(p.fs, p.element, geo, u, 2, 2, 0)
@@ -559,7 +931,8 @@ end
 smallest element width `hₑ = (P+1)h`, the finest level's on a refined
 forest. That is `cfl · h / (P+1)` in the mesh's spacing. On a geometry
 `hₑ` is logical, and the step is divided by the largest logical wave
-speed `√g^{dd}` at any node. RK4 is stable up to `cfl ≈ 5` in one
+speed at any node: `√g^{dd}` for a diagonal metric, and the square root of
+the largest eigenvalue of `g^{de}` on a full geometry. RK4 is stable up to `cfl ≈ 5` in one
 dimension, measured for every `P` from 1 to 6, and the limit falls as `1/√D`; see "Time step"
 in `CODE.md`.
 """

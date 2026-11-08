@@ -128,6 +128,15 @@ from a rsynced checkout:
 julia --project=. -t 4,0 bin/annulus.jl --P=3 --scales=1,2 --truncate=yes
 ```
 
+The seven-patch ball ("The seven-patch ball"), the plane wave's
+convergence series, in the package environment; on four threads a few
+seconds at `--scales=1,2` for `P = 2`, half a minute for `P = 3`, and
+`s = 3` takes minutes:
+
+```bash
+julia --project=. -t 4,0 bin/sevenpatch.jl --P=2,3 --scales=1,2
+```
+
 From M1 of `INSPIRAL-PLAN.md` on, `src/particle_forms.jl` is generated
 from the Wolfram Language derivations in `derivations/`; do not edit it
 by hand. Regenerate it, and let the suite check that the checked-in
@@ -189,7 +198,9 @@ Each is the rule; the `CODE.md` section named after it has the reason.
 - **Each `∂_d u` set has ghosts along `d` only, and `v` none.** A kernel
   that reads `∂_d u` across another dimension's face, or `v` across any,
   reads past its array; `--check-bounds=yes` catches it ("The
-  right-hand side").
+  right-hand side"). On a full geometry the gradient is one set of `D`
+  Cartesian components with ghosts on every face ("The seven-patch
+  ball").
 - **Pass `d` to the gradient and Laplacian kernels as a `Val`, through
   an `@inline` closure**; a runtime `d` costs 2.5× ("The right-hand
   side").
@@ -197,19 +208,26 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   them in `T` or convert from the `Float64` ones ("Precision").
 - **The time step is `cfl · hₑ/(P+1)²`**, not TreeWave's `cfl · h`
   ("Time step").
-- **A geometry glues by the identity only, in a diagonal metric.** The
-  `d`-th gradient set takes its ghosts across a glue from the same set
-  of the patch across; a glue that swaps or reverses axes needs another
-  layout of the gradient, and an off-diagonal metric a mixed derivative
-  ("Multi-patch forests").
-- **On a geometry the gradient sets hold the flux `A_d D_d u`, not
-  `∂_d u`, and the truncation is `√g`-orthogonal,** one rank-one pair
+- **A diagonal geometry glues by the identity only.** The `d`-th
+  gradient set takes its ghosts across a glue from the same set of the
+  patch across. A glue that swaps or reverses axes, or an off-diagonal
+  metric, needs a `FullGeometry` ("Multi-patch forests").
+- **On a diagonal geometry the gradient sets hold the flux `A_d D_d u`,
+  not `∂_d u`, and the truncation is `√g`-orthogonal,** one rank-one pair
   per line from the factors of `√g`, which must be separable. The
   element's projector there would break the energy invariant ("Truncation
   with a metric").
+- **On a full geometry the gradient is Cartesian and the flux is formed
+  where it is read.** `cartgrad` holds `∇u` in Cartesian components,
+  which a glue carries unchanged; the Laplacian forms `F^d = S[d] ⋅ ∇u`
+  with the frame of the owned face node beside a ghost, never a metric
+  at the ghost. The truncation is a `√g`-orthogonal projection per
+  element, and the outer faces take Dirichlet data through `boundary`,
+  for which `wave_rhs!` passes `t` ("The seven-patch ball").
 - **On a geometry the time step divides by the largest logical wave
-  speed**, `√g^{dd}` at any node, which `oldg_timestep` does ("The
-  metric").
+  speed**, `√g^{dd}` at any node, or `√λ_max(g^{de})` on a full
+  geometry, which `oldg_timestep` does ("The metric", "The seven-patch
+  ball").
 - **The `u` and `v` of a state vector interleave block by block**; use
   `statearray` and `selectdim`, not halves of the vector.
 - **A reflecting box is a TreeAMR reflection symmetry, not a boundary

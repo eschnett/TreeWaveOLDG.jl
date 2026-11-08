@@ -20,8 +20,8 @@ finite-difference stencil replaced by the OLDG one.
 ## What it solves
 
 That is `∂ₜu = v`, `∂ₜv = ∇²u` on a periodic box — or a reflecting
-(solid-wall) box — in any number of dimensions, or on an annulus of four
-patches in polar coordinates. Space is cut into elements
+(solid-wall) box — in any number of dimensions, on an annulus of four
+patches in polar coordinates, or on a ball of seven patches. Space is cut into elements
 of `P + 1` Gauss–Lobatto nodes, with both face nodes of every element
 stored. The derivative at a node reads its own element and, at the two
 face nodes only, the neighbour's face node across the face. The Laplacian
@@ -121,6 +121,16 @@ glued faces and the rotating Bessel mode's error:
 
 ```bash
 julia --project=bin -t 4,0 bin/visualize_annulus.jl
+```
+
+On the seven-patch ball, a cube and six shells glued by quarter turns,
+it runs in a general metric, with the gradient exchanged in Cartesian
+components and Dirichlet data on the outer sphere. A plane wave
+converges at order `P`, and the discrete energy is invariant across
+every glue:
+
+```bash
+julia --project=. -t 4,0 bin/sevenpatch.jl --P=2,3 --scales=1,2
 ```
 
 The mesh is TreeAMR's, with its element centering (TreeAMR 0.2.8), and
