@@ -132,6 +132,41 @@ function quadrature_parts(fs::FieldSet{T,D}, el::Element{T}, u, p::Integer,
     return acc[1].value, acc[2].value
 end
 
+# The same on a geometry, each node's weight also multiplied by a metric
+# factor: `√g` for `which = 0` (the state's norms and kinetic energy), and
+# `1/A_d` for `which = d` (the flux `F_d`'s potential energy, `F_d²/A_d`).
+# The patch reaches the fold as each block's tag.
+struct MetricFold{EL,G,D}
+    el::EL
+    geometry::G
+    p::Int
+    which::Int
+end
+
+function (mf::MetricFold{EL,G,D})(acc, q) where {EL,G,D}
+    w = node_weight(q.I, q.h, mf.el, Val(D))
+    J, A = geometry_terms(mf.geometry, q.x, q.tag)
+    c = mf.which == 0 ? J : inv(A[mf.which])
+    s = zero(w)
+    for x in q.u
+        s += abs(x)^mf.p
+    end
+    return TreeAMR.combine(acc, (Sum(w * c * s), Sum(w * c * length(q.u))))
+end
+
+function metric_parts(fs::FieldSet{T,D}, el::Element{T}, geometry, u, p::Integer, vars,
+                      which::Integer) where {T,D}
+    R = real(float(T))
+    init = (Sum(zero(R)), Sum(zero(R)))
+    rf = MetricFold{typeof(el),typeof(geometry),D}(el, geometry, Int(p), Int(which))
+    forest = fs.forest
+    tag = key -> Int(patch(forest, key))
+    acc = u === nothing ?
+          mesh_fold(rf, TreeAMR.combine, init, fs; vars=vars, tag=tag) :
+          mesh_fold(rf, TreeAMR.combine, init, fs, u; vars=vars, tag=tag)
+    return acc[1].value, acc[2].value
+end
+
 """
     quadrature_norm(fs, el, u; p=2, vars=1:fs.nvars)
 

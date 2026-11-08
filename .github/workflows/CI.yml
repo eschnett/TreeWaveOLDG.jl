@@ -155,10 +155,13 @@ jobs:
         run: |
           julia --project=bin bin/visualize2d.jl --no-display
           julia --project=bin bin/visualize2d.jl --plain --no-display
+      - name: Render the four-patch annulus
+        run: julia --project=bin bin/visualize_annulus.jl --no-display
       - name: Check that every figure was written
         run: |
           test -s bin/output/blast_2d.png
           test -s bin/output/blast_2d_plain.png
+          test -s bin/output/annulus_2d.png
       - uses: actions/upload-artifact@v7
         with:
           name: figures

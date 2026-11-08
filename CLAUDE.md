@@ -50,7 +50,7 @@ julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--check-bounds=yes"])
 julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--threads=4"])'
 ```
 
-The first takes about 6m30 on the laptop, the third about 4m25. The
+The first takes about 6m50 on the laptop, the third about 4m30. The
 kernels are `@inbounds`, so run the second one too after touching a
 kernel or the layout.
 
@@ -62,6 +62,14 @@ faces coloured by level:
 ```bash
 julia --project=bin bin/visualize2d.jl
 julia --project=bin bin/visualize2d.jl --adaptive
+```
+
+The annulus's viewer, in the same environment, about half a minute on
+four threads; it writes `bin/output/annulus_2d.png`, a pulse crossing the
+glued faces and the rotating mode's error ("The viewer"):
+
+```bash
+julia --project=bin -t 4,0 bin/visualize_annulus.jl
 ```
 
 The benchmark, in the package environment; on Symmetry,
@@ -109,6 +117,15 @@ remainder's force without evolving it:
 julia --project=. -t 4,0 bin/prescribed.jl --path=hyperbolic --hdiv=2 --levels=3 --tend=0.25
 julia --project=. -t 4,0 bin/prescribed.jl --path=circle --data=retarded --rx1=10 --rx2=14 --hdiv=2 --levels=3 --tend=0.25
 julia --project=. -t 4,0 bin/prescribed.jl --path=circle --data=retarded --levels=1 --hdiv=4 --rx1=3 --rx2=3.75 --reading
+```
+
+The four-patch annulus ("The annulus"), its convergence series and
+energy loss, in the package environment, a few seconds per run on four
+threads; on Symmetry `sbatch bin/symmetry/annulus.sh` after its `setup`,
+from a rsynced checkout:
+
+```bash
+julia --project=. -t 4,0 bin/annulus.jl --P=3 --scales=1,2 --truncate=yes
 ```
 
 From M1 of `INSPIRAL-PLAN.md` on, `src/particle_forms.jl` is generated
@@ -180,6 +197,19 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   them in `T` or convert from the `Float64` ones ("Precision").
 - **The time step is `cfl · hₑ/(P+1)²`**, not TreeWave's `cfl · h`
   ("Time step").
+- **A geometry glues by the identity only, in a diagonal metric.** The
+  `d`-th gradient set takes its ghosts across a glue from the same set
+  of the patch across; a glue that swaps or reverses axes needs another
+  layout of the gradient, and an off-diagonal metric a mixed derivative
+  ("Multi-patch forests").
+- **On a geometry the gradient sets hold the flux `A_d D_d u`, not
+  `∂_d u`, and the truncation is `√g`-orthogonal,** one rank-one pair
+  per line from the factors of `√g`, which must be separable. The
+  element's projector there would break the energy invariant ("Truncation
+  with a metric").
+- **On a geometry the time step divides by the largest logical wave
+  speed**, `√g^{dd}` at any node, which `oldg_timestep` does ("The
+  metric").
 - **The `u` and `v` of a state vector interleave block by block**; use
   `statearray` and `selectdim`, not halves of the vector.
 - **A reflecting box is a TreeAMR reflection symmetry, not a boundary
@@ -241,15 +271,10 @@ guards.
 - `origin` is `https://github.com/eschnett/TreeWaveOLDG.jl.git`, and
   `main` tracks it. Work on a branch; do not push, open a pull request,
   or merge to `main` without being asked.
-- Not registered. TreeAMR comes from the General registry (but see the
-  next item), not from a local checkout; IMEXRungeKutta, which is not registered, from its
-  GitHub repository through `[sources]` in `Project.toml` and
-  `test/Project.toml`.
-- TreeAMR 0.2.7, the element centering, is tagged but not registered
-  yet, so `Project.toml`, `test/Project.toml` and `bin/Project.toml` take
-  it from its tag `v0.2.7` through `[sources]` (the branch of
-  eschnett/TreeAMR.jl#32 is merged and gone). Remove those
-  three entries once 0.2.7 is registered, and update both Manifests.
+- Not registered. TreeAMR 0.2.8 (with M17's forests of patches) comes
+  from the General registry, not from a local checkout; IMEXRungeKutta,
+  which is not registered, from its GitHub repository through
+  `[sources]` in `Project.toml` and `test/Project.toml`.
 - CI (`.github/workflows/CI.yml`) runs the suite with
   `--check-bounds=yes` on Linux at one and four threads, and on `main`,
   weekly and on dispatch also on macOS, with the coverage; Markdown-only

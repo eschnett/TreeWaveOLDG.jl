@@ -64,7 +64,7 @@ function divergence(p::WaveProblem{T,D}, g, d) where {T,D}
     du = statevector(p.fs)
     map_blocks!(TWR.laplacian_kernel!, p.fs, statearray(du, p.fs),
                 statearray(state_of(p, zero(g)), p.fs), map(s -> s.work, p.grads),
-                p.spacings, p.element, p.valD)
+                p.spacings, p.element, TWR.metric_coef(p), p.valD)
     return copy(selectdim(statearray(du, p.fs), D + 1, 2))
 end
 

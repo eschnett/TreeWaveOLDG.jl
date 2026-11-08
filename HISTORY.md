@@ -7,6 +7,7 @@ How the package got where it is, by topic in `CODE.md`'s order.
 - [Scope and non-goals](#scope-and-non-goals)
 - [The method](#the-method)
 - [The right-hand side](#the-right-hand-side)
+- [Multi-patch forests](#multi-patch-forests)
 - [Refined forests](#refined-forests)
 - [Adaptive refinement](#adaptive-refinement)
 - [Truncation](#truncation)
@@ -82,6 +83,69 @@ How the package got where it is, by topic in `CODE.md`'s order.
   old ones (gradient pass 6.9 ms against 13.6, laptop, one thread). One
   launch per dimension was as fast for the gradient but cannot serve
   the Laplacian, which sums over `d`.
+
+## Multi-patch forests
+
+- 2026-11-07: the four-patch annulus, TreeAMR's acceptance test for its
+  M17 (forests of patches glued at their faces, uniform), whose
+  `PLAN.md` names TreeWaveOLDG's scalar wave on the annulus, converging
+  with its energy conserved across the glued faces, as what finishes
+  it. Erik Schnetter decided the shape the same day:
+  - **A real polar annulus, not the flat equation on the ring.** The flat
+    one would only have been a periodic strip in logical coordinates.
+    So the package gained a metric: `Geometry`, `PolarAnnulus`, the flux
+    form `√g v̇ = Σ_d D_d(A_d D_d u)`, and the `√g`-weighted energy, norm
+    and time step. TreeAMR leaves the map to the application.
+  - **The metric in `src/`**, not in the test, so that the annulus is
+    something the package does, and the spherical shells
+    `INSPIRAL-PLAN.md` set aside as "a multi-patch outer region" have a
+    place to go.
+  - **The rotating Neumann–Neumann Bessel mode** as the exact solution,
+    rather than self-convergence. It is rotating rather than standing,
+    so that flux crosses every glued face.
+  - **TreeAMR from a checkout of its branch beside this one**, through
+    `[sources]` path entries, until it was pushed. TreeAMR 0.2.8, with
+    M17, was registered the same day and replaced them before the work
+    was committed (see "Dependencies").
+  - **The truncation orthogonal in the `√g`-weighted inner product.**
+    The alternatives were to refuse truncation on a geometry, or to keep
+    the element's projector and let the energy drift by the truncation's
+    error. The element's projector is self-adjoint in the flat weights
+    only, which is what the energy invariant needs ("Truncation" in
+    `CODE.md`). Because `√g` factorizes on the annulus, the projector
+    stays a rank-one update per line, with a pair of vectors per block,
+    dimension and element index along it, built in `BigFloat`.
+- 2026-11-07: the gradient sets hold the flux `A_d D_d u` rather than
+  `D_d u`, multiplied in the gradient pass. That way the ghost across a
+  face is the neighbour's own flux, and the energy's rate is
+  `Σ_d Σ w (v D_d F_d + F_d D_d v)`, zero by summation by parts as on
+  the flat box. The metric's coefficients come from a coefficient set
+  filled once at the nodes, and the energy and the norms evaluate the
+  geometry inside their folds, with the patch as each block's tag.
+  Without a geometry the kernels compile to what they were.
+- 2026-11-07: measured on Symmetry (job 593191, cn095, EPYC 7543):
+  with truncation the rotating mode converges at order `P` for
+  `P = 2 … 5` (L2 rates 1.93, 3.01, 3.82, 4.88), and the energy's loss
+  falls 32 to 36 times per halving of the step, RK4's own. Each of
+  three deliberate breaks fails the testset written for it: dropping
+  the division by `√g`, the flux's `A_d`, or the `√g` weight of the
+  projector. See "The annulus" under "Measured
+  results" in `CODE.md`.
+- 2026-11-07: `bin/visualize_annulus.jl` added, on Erik Schnetter's
+  request for a 2D showcase of the annulus, and rendered by CI beside
+  the blast wave. Its parameters were chosen to show the glue rather
+  than to converge (`P = 4`, `(4, 2)` roots per patch, a pulse of
+  `σ = 0.12` off-centre in patch 1, the mode `m = 3`, which does not
+  share the ring's four-fold symmetry). Two things it showed on the way:
+  - The first error map was ten times the nodal error everywhere,
+    because the exact mode was taken at a quarter turn while the
+    snapshot was at the nearest step, half a step away. The exact mode
+    is now taken at the snapshot's own time.
+  - With truncation the mode's error swells and shrinks with the period
+    `2π/k`, to ten times its level without truncation: the frozen top
+    mode of `u` ("Truncation" in `CODE.md`). The pulse's energy loss,
+    `5.9e-7`, falls 32 times per halving of the step, so it is RK4's
+    and not the glue's.
 
 ## Refined forests
 
@@ -768,3 +832,14 @@ How the package got where it is, by topic in `CODE.md`'s order.
   viewer's instantiate step took 8 s, and the viewer job 1 m 53 in all.
   In TreeWave the macOS cache held across an Apple M1 and an M2 Pro,
   although GitHub documents every arm64 macOS runner as an M1.
+- 2026-11-07: TreeAMR taken from a checkout of its unpushed branch
+  `eschnett-claude/multi-patch` (M17) beside this one, through
+  `[sources]` path entries in `Project.toml`, `test/Project.toml` and
+  `bin/Project.toml`, in place of its tag `v0.2.7`, for the annulus.
+  CI cannot resolve a path, so it fails until the entries name the
+  pushed branch.
+- 2026-11-07: TreeAMR 0.2.8 required, which has M17's forests of
+  patches, and registered, so all three `[sources]` entries for TreeAMR
+  are gone, the path entries above and the `v0.2.7` tag's before them;
+  the Symmetry script's `setup` no longer develops a TreeAMR checkout.
+  The suite and the annulus pass against it unchanged.
