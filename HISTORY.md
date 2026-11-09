@@ -2,11 +2,12 @@
 
 How the package got where it is, by topic in `CODE.md`'s order.
 
-M0 to M7, with M3b, M6a and M6b, are the milestones of
+M0 to M8, with M3b, M6a, M6b, M8a, M8b and M8c, are the milestones of
 `INSPIRAL-PLAN.md`: M0 the documents, M1 the analytic particle, M2 the
 transfer operator, M3 a particle at rest and in uniform motion, M3b
 nested boxes, M4 prescribed paths, M5 the lab slice, M6a one particle
-solved, M6b the binary's parts, M7 the binary's warm-up and orbits. M16
+solved, M6b the binary's parts, M7 the binary's warm-up and orbits, M8
+the particles in the seven-patch ball (proposed). M16
 and M17 are TreeAMR's: its element centering and its forests of
 patches.
 
@@ -1004,6 +1005,28 @@ patches.
   hold `d⁴a·∂_äΦ⁽³⁾` (it does, through `a⃜`), and whether a circle can
   tell orders 2 and 3 apart (at `v = 0.2` it can: 0.0050 against
   -0.0001 `F_RR` radially at `d/8`).
+- 2026-11-09: `INSPIRAL-PLAN.md` gained M8, proposed at Erik
+  Schnetter's request: the particles in the seven-patch ball's cube,
+  whose map is affine, with the nested cubes inside it and the shells
+  out to a radiative sphere. M8a measures what the sphere sends back
+  against the nested boxes and is a gate; M8b lifts a geometry's refusal
+  of refined forests where the refinement stays in affine patches; M8c
+  moves the transfer into physical coordinates through the cube's map and
+  needs a patch-aware `locate_point` from TreeAMR. M7's paragraph on the
+  ways out had said:
+
+  > - **A multi-patch outer region,** for example spherical shells
+  >   whose radial spacing grows outward. It is mesh machinery, which
+  >   belongs upstream ("Scope and non-goals"), and OLDG would need an
+  >   interface between patches that keeps summation by parts.
+  > - **An outflow or radiative boundary,** the paper's singleton
+  >   elements `Ω₀` and `Ω_{K+1}`, which `CODE.md` lists as not
+  >   implemented. Even a perfect one at side 24 leaves uniform `d/12`
+  >   above a node's memory (below).
+
+  with the first marked inconsistent with `CODE.md`, which has both
+  since TreeAMR's M17 and the seven-patch ball. Its decisions row on the
+  outer boundary had said "no sponge or outflow boundary in this plan".
 
 ### What the plan said of its finished milestones
 
