@@ -50,7 +50,7 @@ julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--check-bounds=yes"])
 julia --project=. -e 'using Pkg; Pkg.test(; julia_args = ["--threads=4"])'
 ```
 
-The first takes about 6m30 on the laptop, the third about 4m25. The
+The first takes about 6m50 on the laptop, the third about 4m30. The
 kernels are `@inbounds`, so run the second one too after touching a
 kernel or the layout.
 
@@ -62,6 +62,14 @@ faces coloured by level:
 ```bash
 julia --project=bin bin/visualize2d.jl
 julia --project=bin bin/visualize2d.jl --adaptive
+```
+
+The annulus's viewer, in the same environment, about half a minute on
+four threads; it writes `bin/output/annulus_2d.png`, a pulse crossing the
+glued faces and the rotating mode's error ("The viewer"):
+
+```bash
+julia --project=bin -t 4,0 bin/visualize_annulus.jl
 ```
 
 The benchmark, in the package environment; on Symmetry,
@@ -109,6 +117,32 @@ remainder's force without evolving it:
 julia --project=. -t 4,0 bin/prescribed.jl --path=hyperbolic --hdiv=2 --levels=3 --tend=0.25
 julia --project=. -t 4,0 bin/prescribed.jl --path=circle --data=retarded --rx1=10 --rx2=14 --hdiv=2 --levels=3 --tend=0.25
 julia --project=. -t 4,0 bin/prescribed.jl --path=circle --data=retarded --levels=1 --hdiv=4 --rx1=3 --rx2=3.75 --reading
+```
+
+The four-patch annulus ("The annulus"), its convergence series and
+energy loss, in the package environment, a few seconds per run on four
+threads; on Symmetry `sbatch bin/symmetry/annulus.sh` after its `setup`,
+from a rsynced checkout:
+
+```bash
+julia --project=. -t 4,0 bin/annulus.jl --P=3 --scales=1,2 --truncate=yes
+```
+
+The seven-patch ball ("The seven-patch ball"), the plane wave's
+convergence series, in the package environment; on four threads a few
+seconds at `--scales=1,2` for `P = 2`, half a minute for `P = 3`, and
+`s = 3` takes minutes:
+
+```bash
+julia --project=. -t 4,0 bin/sevenpatch.jl --P=2,3 --scales=1,2
+```
+
+With `--boundary=radiative` it evolves an outgoing pulse instead, through
+a radiative outer sphere ("The outer boundary"); by `--tend=5` the pulse
+has left the ball, and what remains is the reflection:
+
+```bash
+julia --project=. -t 4,0 bin/sevenpatch.jl --P=3 --scales=1,2 --boundary=radiative --tend=5
 ```
 
 From M1 of `INSPIRAL-PLAN.md` on, `src/particle_forms.jl` is generated
@@ -172,7 +206,9 @@ Each is the rule; the `CODE.md` section named after it has the reason.
 - **Each `∂_d u` set has ghosts along `d` only, and `v` none.** A kernel
   that reads `∂_d u` across another dimension's face, or `v` across any,
   reads past its array; `--check-bounds=yes` catches it ("The
-  right-hand side").
+  right-hand side"). On a full geometry the gradient is one set of `D`
+  Cartesian components with ghosts on every face ("The seven-patch
+  ball").
 - **Pass `d` to the gradient and Laplacian kernels as a `Val`, through
   an `@inline` closure**; a runtime `d` costs 2.5× ("The right-hand
   side").
@@ -180,6 +216,33 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   them in `T` or convert from the `Float64` ones ("Precision").
 - **The time step is `cfl · hₑ/(P+1)²`**, not TreeWave's `cfl · h`
   ("Time step").
+- **A diagonal geometry glues by the identity only.** The `d`-th
+  gradient set takes its ghosts across a glue from the same set of the
+  patch across. A glue that swaps or reverses axes, or an off-diagonal
+  metric, needs a `FullGeometry` ("Multi-patch forests").
+- **On a diagonal geometry the gradient sets hold the flux `A_d D_d u`,
+  not `∂_d u`, and the truncation is `√g`-orthogonal,** one rank-one pair
+  per line from the factors of `√g`, which must be separable. The
+  element's projector there would break the energy invariant ("Truncation
+  with a metric").
+- **On a full geometry the gradient is Cartesian and the flux is formed
+  where it is read.** `cartgrad` holds `∇u` in Cartesian components,
+  which a glue carries unchanged; the Laplacian forms `F^d = S[d] ⋅ ∇u`
+  with the frame of the owned face node beside a ghost, never a metric
+  at the ghost. The truncation is a `√g`-orthogonal projection per
+  element, and the outer faces take Dirichlet data through `boundary`,
+  for which `wave_rhs!` passes `t`, or a `RadiativeBoundary` ("The
+  seven-patch ball").
+- **A radiative outer face is written after the exchange, not by a
+  TreeAMR hook.** Its ghosts read the interior: `u`'s is the face node's
+  own, and the gradient's makes the face's central flux the target,
+  `S[k] ⋅ V_g = 2F* − F`. Both the energy's boundary term and its sign
+  rest on the two together; do not set `u`'s ghost from data ("The
+  outer boundary").
+- **On a geometry the time step divides by the largest logical wave
+  speed**, `√g^{dd}` at any node, or `√λ_max(g^{de})` on a full
+  geometry, which `oldg_timestep` does ("The metric", "The seven-patch
+  ball").
 - **The `u` and `v` of a state vector interleave block by block**; use
   `statearray` and `selectdim`, not halves of the vector.
 - **A reflecting box is a TreeAMR reflection symmetry, not a boundary
@@ -251,18 +314,16 @@ guards.
 - `origin` is `https://github.com/eschnett/TreeWaveOLDG.jl.git`, and
   `main` tracks it. Work on a branch; do not push, open a pull request,
   or merge to `main` without being asked.
-- Not registered. TreeAMR comes from the General registry (but see the
-  next item), not from a local checkout; IMEXRungeKutta, which is not registered, from its
-  GitHub repository through `[sources]` in `Project.toml` and
-  `test/Project.toml`.
-- TreeAMR 0.2.7, the element centering, is tagged but not registered
-  yet, so `Project.toml`, `test/Project.toml` and `bin/Project.toml` take
-  it from its tag `v0.2.7` through `[sources]` (the branch of
-  eschnett/TreeAMR.jl#32 is merged and gone). Remove those
-  three entries once 0.2.7 is registered, and update both Manifests.
+- Not registered. TreeAMR 0.2.8 (with M17's forests of patches) comes
+  from the General registry, not from a local checkout; IMEXRungeKutta,
+  which is not registered, from its GitHub repository through
+  `[sources]` in `Project.toml` and `test/Project.toml`.
 - CI (`.github/workflows/CI.yml`) runs the suite with
-  `--check-bounds=yes` on Linux and macOS, and on four threads on Linux.
-  Do not drop its `check_bounds: 'yes'` line ("The right-hand side").
+  `--check-bounds=yes` on Linux at one and four threads, and on `main`,
+  weekly and on dispatch also on macOS, with the coverage; Markdown-only
+  changes and tags run nothing. So run the full suite locally before
+  opening a pull request: that is the macOS run the pull request does not
+  get. Do not drop its `check_bounds: 'yes'` line ("The right-hand side").
 - `Manifest.toml` (root and `bin/`), `bin/output/` and `TODO.md` are
   gitignored. `bin/` has its own Manifest, so after a dependency change
   update both, or the viewer fails on an API the tests already use. `TODO.md` is the owner's
