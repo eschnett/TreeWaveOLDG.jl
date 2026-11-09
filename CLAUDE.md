@@ -22,13 +22,17 @@ are the way they are. This file is only about mechanics.
 | `HISTORY.md` | anyone asking how it got here | who decided what and when, alternatives dropped, superseded measurements, by topic in `CODE.md`'s order |
 | `INSPIRAL.md` | anyone building the inspiral | the design proposal for two inspiralling scalar particles; frozen, not edited |
 | `INSPIRAL-PROMPT.md` | anyone asking what `INSPIRAL.md` answers | the task it was written for; frozen, not edited |
-| `INSPIRAL-PLAN.md` | anyone building the inspiral | concrete planned work, milestone by milestone, with how one knows each is done; a status line per milestone |
+| `INSPIRAL-PLAN.md` | anyone building the inspiral | concrete planned work, milestone by milestone, with how one knows each is done; a status line per milestone, and for a finished one only a line saying where its results went |
 | `PLAN.md` | — | does not exist; other planned work would go there |
 
 To amend the documents, fix `CODE.md` to describe the current state and
-record in `HISTORY.md` what changed, when and why. Where the inspiral
-code departs from `INSPIRAL.md` or settles one of its open items, that
-goes into `CODE.md` and `HISTORY.md` too, never into `INSPIRAL.md`. Keep
+record in `HISTORY.md` what changed, when and why. When a milestone of
+`INSPIRAL-PLAN.md` is finished, keep its number and replace its text by
+one line saying where its results went, and move the text to
+`HISTORY.md` ("What the plan said of its finished milestones"). Where
+the inspiral code departs from `INSPIRAL.md` or settles one of its open
+items, that goes into `CODE.md` and `HISTORY.md` too, never into
+`INSPIRAL.md`. Keep
 each file's table of contents current (`##` and `###` in `CODE.md`,
 `INSPIRAL-PLAN.md` and `HISTORY.md`, `##` in `README.md` and here), and
 update every reference to a heading you rename, in code comments and
@@ -259,13 +263,12 @@ Each is the rule; the `CODE.md` section named after it has the reason.
 - **The particle field carries the lab slice of each order it carries**
   (`lab_slice(m, Val(N), …)`, generated from `derivations/labslice.wl`),
   and the near field takes the rest frame's `C` for `ä`
-  (`rest_frame_derivatives`). The lab slice is the field of the
-  lab-sliced density, not `INSPIRAL.md`'s re-expansion of the rest-frame
-  near field: its order 1 is the `t′²` term of `Φ_C` plus the field of
-  the slicing density, without which the bracket keeps `O(a)` inside the
-  particle, and without the `t′²` term the remainder an `r⁰` structure
-  whose force the grid reads the more strongly the finer it is. Do not
-  drop it from `Ψ`, `𝒟Ψ` or the bracket ("The near field").
+  (`rest_frame_derivatives`). It is the field of the lab-sliced
+  density, not `INSPIRAL.md`'s re-expansion of the rest-frame near
+  field. Do not drop it from `Ψ`, `𝒟Ψ` or the bracket: without it the
+  bracket keeps `O(a)` inside the particle, and the remainder an `r⁰`
+  structure whose force the grid reads the more strongly the finer it
+  is ("The near field").
 - **The generated lab slice sums with `+=`, is not inlined, and the
   bracket reads its coefficients in place** (`_coefficient`). One long
   `a + b + …` allocates, inlining makes a `BigFloat` Hessian take minutes

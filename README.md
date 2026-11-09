@@ -143,6 +143,10 @@ run's at the finest spacing, to 0.3%, at 61–90% of its work, with
 thresholds three orders apart. Partly reflecting or outflow boundaries,
 and a device run, are not there yet.
 
+**Inconsistent:** [CODE.md](CODE.md) ("The seven-patch ball") has a
+radiative outer boundary on the seven-patch ball, an outflow condition,
+besides the Dirichlet data named above.
+
 The first parts of [two inspiralling scalar particles](INSPIRAL.md) exist
 ([INSPIRAL-PLAN.md](INSPIRAL-PLAN.md) has the milestones): a scalar
 particle of physical size much smaller than an element, its analytic

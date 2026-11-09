@@ -159,7 +159,7 @@ end
 
 The regions of a forest of `levels` nested cubes about the centre of a
 box of side `L = 2^levels · w₀`, as [`wave_forest`](@ref)'s `refined`
-takes them (INSPIRAL-PLAN.md, M3b, "The layout"). The cube of level `k`
+takes them (CODE.md, "Nested boxes"). The cube of level `k`
 has the half-width `w_{levels-1-k} = 2^(levels-1-k) w₀`, so the finest
 level, `levels - 1`, covers the cube of half-width `w₀` and the root
 level the box, of half-width `w_{levels-1}`. Each level's element width
