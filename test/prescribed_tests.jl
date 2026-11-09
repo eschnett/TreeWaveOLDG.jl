@@ -17,8 +17,8 @@ const TWP = TreeWaveOLDG
 ddt(f, t) = TWP.ForwardDiff.derivative(f, t)
 
 @testset "The paths' derivatives are those of their positions" begin
-    # Guards `CirclePath` and `HyperbolicPath`: `v`, `a`, `ȧ`, `ä` and
-    # `a⃛` must be the derivatives of `z`, and the motions those asked
+    # Guards `CirclePath` and `HyperbolicPath`: `v`, `a`, `ȧ`, `ä`, `a⃛`
+    # and `a⃜` must be the derivatives of `z`, and the motions those asked
     # for: a circle of the given radius and speed with `ȧ = -Ω²v`, and
     # hyperbolic motion at rest at `t = 0` with `a = g`, `ä = -3g³`.
     for motion in (circular_motion((1.0, 2.0, 3.0), 0.5, 0.05; phase=0.3),
@@ -32,6 +32,7 @@ ddt(f, t) = TWP.ForwardDiff.derivative(f, t)
             @test ddt(s -> path(s)[1].a, t) ≈ tr.ȧ atol = 1e-15
             @test ddt(s -> path(s)[1].ȧ, t) ≈ tr.ä atol = 1e-14
             @test ddt(s -> path(s)[1].ä, t) ≈ tr.a⃛ atol = 1e-14
+            @test ddt(s -> path(s)[1].a⃛, t) ≈ tr.a⃜ atol = 1e-14
         end
     end
     circle = circular_motion((1.0, 2.0, 3.0), 0.5, 0.05).path
@@ -51,6 +52,33 @@ ddt(f, t) = TWP.ForwardDiff.derivative(f, t)
     # Proper acceleration g: γ³|a| = g along the motion.
     tr = hyperbolic_motion((1.0, 2.0, 3.0), g).path(0.8)[1]
     @test norm(tr.a) / (1 - dot(tr.v, tr.v))^1.5 ≈ g
+end
+
+@testset "Along the exact circle, the source is the residual of the windowed particle field" begin
+    # Guards `a⃜` in `Trajectory` and `trajectory_at`: the order-3 term
+    # reads `ä` through the rest-frame `C`, so the source's second time
+    # derivative needs the path's sixth derivative. Without it the source
+    # was the residual along the path's Taylor polynomial, off the true
+    # circle's by 3% of the order-3 correction at `v = 0.2`, and the
+    # circle's radial force converged to -0.024 F_RR rather than zero
+    # (CODE.md, "Prescribed paths" under "Measured results").
+    ddt2(f, t) = ddt(s -> ddt(f, s), t)
+    ∇²(f, x) = sum(ddt2(u -> f(x + u * e), zero(eltype(x)))
+                   for e in (SA[1, 0, 0], SA[0, 1, 0], SA[0, 0, 1]))
+    setprecision(BigFloat, 256) do
+        motion = circular_motion(SA[big(0), big(0), big(0)], big"0.5", big"0.2")
+        m = ParticleModel{BigFloat}(sqrt(big"0.005"), big"1e-3", big"1.0")
+        w = Window(SA[big(0), big(0), big(0)], big"1.25", big"2.5"; continuity=4)
+        tr₀ = motion.path(big(0))
+        WΨ(ξ, t) = w(ξ) * particle_field(m, ξ, motion.path(t)[1]; order=3)
+        for x in (SA[big"0.6", big"0.1", big"0.05"], SA[big"0.0", big"0.5", big"0.3"],
+                  SA[big"1.0", big"0.6", big"0.3"], SA[big"1.6", big"0.8", big"0.4"])
+            exact = ddt2(t -> WΨ(x, t), big(0)) - ∇²(ξ -> WΨ(ξ, big(0)), x) +
+                    TWP.particle_density(m, x, tr₀[1].z, tr₀[1].v)
+            S = particle_source((m,), w, x, tr₀; order=3)
+            @test S ≈ exact rtol = 1e-40
+        end
+    end
 end
 
 @testset "The retarded field is the field of a point charge" begin

@@ -57,11 +57,16 @@ end
 self_inertia(m::ParticleModel) = self_inertia(m.Q, m.ℓ)
 
 """
-    Trajectory(; z, v, a = 0, ȧ = 0, ä = 0, a⃛ = 0)
+    Trajectory(; z, v, a = 0, ȧ = 0, ä = 0, a⃛ = 0, a⃜ = 0)
 
 A particle's position, velocity, acceleration and the acceleration's
-first three time derivatives, as `SVector{3}`s: the Taylor polynomial in `t`
-that the time derivatives of [`particle_field`](@ref) act on.
+first four time derivatives, as `SVector{3}`s: the Taylor polynomial in `t`
+that the time derivatives of [`particle_field`](@ref) act on. The order-3
+term reads `ä` through the rest-frame `C`, so the source, which takes its
+second time derivative, needs `a⃜`, the sixth derivative of `z`; without
+it the source along a path whose `a⃜` does not vanish is that of the
+path's Taylor polynomial, not of the path (`CODE.md`, "The near
+field").
 [`trajectory_at`](@ref) evaluates it at a time `t`, which may be a dual
 number. A `Trajectory` of an `isbits` type is `isbits`.
 """
@@ -72,12 +77,13 @@ struct Trajectory{T}
     ȧ::SVector{3,T}
     ä::SVector{3,T}
     a⃛::SVector{3,T}
+    a⃜::SVector{3,T}
 end
 
-function Trajectory(; z, v, a=zero(z), ȧ=zero(z), ä=zero(z), a⃛=zero(z))
+function Trajectory(; z, v, a=zero(z), ȧ=zero(z), ä=zero(z), a⃛=zero(z), a⃜=zero(z))
     T = float(promote_type(eltype(z), eltype(v), eltype(a), eltype(ȧ), eltype(ä),
-                           eltype(a⃛)))
-    return Trajectory{T}(z, v, a, ȧ, ä, a⃛)
+                           eltype(a⃛), eltype(a⃜)))
+    return Trajectory{T}(z, v, a, ȧ, ä, a⃛, a⃜)
 end
 
 """
@@ -87,13 +93,15 @@ The trajectory's Taylor polynomial, and its derivatives, at time `t`
 from the moment `traj` describes.
 """
 @inline function trajectory_at(traj::Trajectory, t)
-    (; z, v, a, ȧ, ä, a⃛) = traj
-    return Trajectory(z + t * (v + t * (a / 2 + t * (ȧ / 6 + t * (ä / 24 + t * a⃛ / 120)))),
-                      v + t * (a + t * (ȧ / 2 + t * (ä / 6 + t * a⃛ / 24))),
-                      a + t * (ȧ + t * (ä / 2 + t * a⃛ / 6)),
-                      ȧ + t * (ä + t * a⃛ / 2),
-                      ä + t * a⃛,
-                      a⃛ + zero(t) * a⃛)
+    (; z, v, a, ȧ, ä, a⃛, a⃜) = traj
+    return Trajectory(z + t * (v + t * (a / 2 + t * (ȧ / 6 + t * (ä / 24 + t * (a⃛ / 120 +
+                                                                          t * a⃜ / 720))))),
+                      v + t * (a + t * (ȧ / 2 + t * (ä / 6 + t * (a⃛ / 24 + t * a⃜ / 120)))),
+                      a + t * (ȧ + t * (ä / 2 + t * (a⃛ / 6 + t * a⃜ / 24))),
+                      ȧ + t * (ä + t * (a⃛ / 2 + t * a⃜ / 6)),
+                      ä + t * (a⃛ + t * a⃜ / 2),
+                      a⃛ + t * a⃜,
+                      a⃜ + zero(t) * a⃜)
 end
 
 # The boost: `Λ(v) r = r + (γ - 1)(v̂·r)v̂`, with `(γ - 1)/v² = γ²/(γ + 1)`,

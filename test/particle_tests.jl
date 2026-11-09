@@ -90,7 +90,8 @@ function big_trajectory(; v=SA[big"0.12", big"-0.1", big"0.1"])
                       a=SA[big"0.03", big"0.1", big"-0.02"],
                       ȧ=SA[big"0.01", big"0.0", big"0.02"],
                       ä=SA[big"-0.01", big"0.02", big"0.03"],
-                      a⃛=SA[big"0.004", big"-0.003", big"0.001"])
+                      a⃛=SA[big"0.004", big"-0.003", big"0.001"],
+                      a⃜=SA[big"-0.002", big"0.001", big"0.003"])
 end
 # Points at σ = |x - z|/ℓ inside and outside the particle, in several
 # directions.
@@ -165,9 +166,10 @@ end
 end
 
 # A trajectory with the derivatives of its velocity scaled as a → εa,
-# ȧ → ε²ȧ, ä → ε³ä, a⃛ → ε⁴a⃛, so that a term of order N scales as εᴺ.
+# ȧ → ε²ȧ, ä → ε³ä, a⃛ → ε⁴a⃛, a⃜ → ε⁵a⃜, so that a term of order N scales
+# as εᴺ.
 scaled(traj, ε) = Trajectory(; traj.z, traj.v, a=ε * traj.a, ȧ=ε^2 * traj.ȧ,
-                             ä=ε^3 * traj.ä, a⃛=ε^4 * traj.a⃛)
+                             ä=ε^3 * traj.ä, a⃛=ε^4 * traj.a⃛, a⃜=ε^5 * traj.a⃜)
 
 @testset "Along a motion through rest, the bracket is the first order not carried" begin
     # Guards the hierarchy ∇²Φₙ = ∂ₜ²Φₙ₋₂ as the bracket sees it. With the

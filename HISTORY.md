@@ -823,6 +823,43 @@ How the package got where it is, by topic in `CODE.md`'s order.
   there, so the value is roundoff, mostly of the retarded time, which
   lies about `r` back; it is under `3·10⁻¹⁷|Φ|` at `r ≤ 1`. The bound
   is now `10⁻¹⁵ max(r, 1)|Φ|`.
+- 2026-11-07: the owner started the circle at `v = 0.2`, orders 2 and 3
+  from `d/4` to `d/16`, on Symmetry. The tangential force was 1.0417
+  `F_RR` throughout, which is `γ²`, not the `γ⁴ = 1.005` that M4's
+  blocks at `v = 0.05` had been set against: for the force the code
+  reads the `a²u_μ` parts of the regular field cancel between `∇̄Φ_r`
+  and `vΠ̄_r`, and M4's 1.002–1.003 agree with `γ² = 1.0025`. At
+  order 2 the radial force fell from 0.0075 to 0.0029 `F_RR`; at order
+  3 it went to `-0.024 F_RR` at every resolution, after a transient
+  that did not depend on `hₑ` either. Evaluating the source along the
+  exact circle showed it off by 3% of the order-3 correction, while it
+  matched the residual of the path's Taylor polynomial to `10⁻⁷²`:
+  `C`'s `ä` had no second time derivative, since the `Trajectory`
+  stopped at `a⃛`. `CODE.md` had called that term, `d⁴a·∂_äΦ⁽³⁾`, of order
+  5 and omitted it, but the source is the residual of `WΨ̂` along the
+  Taylor polynomial, truncated at no order, so without it the source was
+  that of another path. At `v = 0.05` the difference was `10⁻¹⁰` and
+  invisible.
+- 2026-11-08: the owner asked how a dynamic particle would supply a
+  sixth derivative. Not from its equations of motion differentiated
+  four more times: in M6 the order-3 `ä`, and `C`'s `ȧ`, are to come
+  from the predictor, whose time derivatives the chain rule gives from
+  the state and its first two derivatives (`CODE.md`, "The near field",
+  **(proposed)**). The owner then had the sixth derivative added:
+  `Trajectory` holds `a⃜`, the prescribed paths give it in closed form,
+  and a test checks the order-3 source along the exact circle against
+  the exact residual to `10⁻⁴⁰`. The circle at `d/8`, order 3, rerun
+  with it, gives `F_t = 1.0415 F_RR` and `F_r = -0.0001 F_RR`, with no
+  transient, and the field's error falls from `2.5·10⁻⁶` to order 2's
+  `1.3·10⁻⁸`. The owner had the other order-3 resolutions rerun with
+  it, finished on 2026-11-09: the radial force is `-0.0014 F_RR` at `d/4`
+  and below `10⁻⁴` from `d/6` on, the tangential force 1.0417 from `d/12`
+  on, and the field's error the same as order 2's at every resolution.
+  With that M5's gate holds as M4's did at `v = 0.05`. Two open questions
+  in `CODE.md` are settled by it and dropped: whether the bracket should
+  hold `d⁴a·∂_äΦ⁽³⁾` (it does, through `a⃜`), and whether a circle can
+  tell orders 2 and 3 apart (at `v = 0.2` it can: 0.0050 against
+  -0.0001 `F_RR` radially at `d/8`).
 
 ## Dependencies
 

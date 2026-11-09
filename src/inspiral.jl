@@ -16,8 +16,8 @@
     Prescribed(path)
 
 A motion given in advance: `path(t)` returns a tuple of
-[`Trajectory`](@ref)s, one per particle, at time `t`, with `a`, `ȧ`, `ä`
-and `a⃛` exact. The source and the forces read the particles from it, and
+[`Trajectory`](@ref)s, one per particle, at time `t`, with `a`, `ȧ`, `ä`,
+`a⃛` and `a⃜` exact. The source and the forces read the particles from it, and
 the particle part of the state follows it, `ż = v` and `v̇ = a`, as a
 check. `path` must be `isbits`.
 """

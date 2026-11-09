@@ -1001,13 +1001,23 @@ A moving particle carries its rest-frame profile, a Lorentz scalar:
 `∇²Φ_C - (v·∇)²Φ_C = ρ` exactly. The boost is written
 `Λ(v)r = r + γ²/(γ+1) (v·r) v`, which needs no `v̂` at rest.
 
-`Trajectory(; z, v, a, ȧ, ä, a⃛)` is a particle's state with the first
-derivatives of its acceleration, as `SVector{3}`s and `isbits`. It is
-the Taylor polynomial in `t` that time derivatives act on:
-`trajectory_at(traj, t)` evaluates it, and its derivatives, at a time
-that may be a dual number. Holding `a⃛` lets `𝒟Ψ` see the time
-derivative of the order-3 term's `ä`; nothing holds `d⁴a/dt⁴`, so the
-bracket omits `d⁴a·∂_äΦ⁽³⁾`, which is of order 5.
+`Trajectory(; z, v, a, ȧ, ä, a⃛, a⃜)` is a particle's state with the
+first four derivatives of its acceleration, as `SVector{3}`s and
+`isbits`. It is the Taylor polynomial in `t` that time derivatives act
+on: `trajectory_at(traj, t)` evaluates it, and its derivatives, at a
+time that may be a dual number. Holding `a⃛` lets `𝒟Ψ` see the time
+derivative of the order-3 term's `ä`, and `a⃜`, the sixth derivative of
+`z`, lets the bracket see its second, `a⃜·∂_äΦ⁽³⁾`, through the rest-frame
+`C`. That term counts as order 5, but the source is not truncated at
+any order: it is the residual of `WΨ̂` along the path's Taylor
+polynomial, so without `a⃜` it was the residual of the wrong path. On the
+circle at `v = 0.2` that left 3% of the order-3 correction in the source,
+and the circle's radial force converged to `-0.024 F_RR` rather than
+zero ([Prescribed paths](#prescribed-paths-1)). A dynamic particle has
+no sixth derivative; in M6 the order-3 term's `ä`, and `C`'s `ȧ`, are to
+come from the predictor, a function of the state whose time derivatives
+the chain rule gives from `v`, `a` and `ȧ` (`INSPIRAL.md`, "The
+predictor") **(proposed)**.
 
 ### The near field
 
@@ -1799,7 +1809,7 @@ M4 to M7 ([Nested boxes](#nested-boxes)). [`src/prescribed.jl`](src/prescribed.j
 
 - `circular_motion(centre, radius, speed; phase, normal)` and
   `hyperbolic_motion(z₀, g; direction)` are `Prescribed` motions, `isbits`,
-  whose `Trajectory` holds `a`, `ȧ`, `ä` and `a⃛` in closed form: on the
+  whose `Trajectory` holds `a`, `ȧ`, `ä`, `a⃛` and `a⃜` in closed form: on the
   circle `ȧ = -Ω²v`, so that `(Q²/12π)ȧ` opposes the motion; in
   hyperbolic motion, at rest at `z₀` at `t = 0`, `X(t) = (√(1 + g²t²) -
   1)/g`, with `a = g`, `ȧ = 0` and `ä = -3g³` at `t = 0` (a test checks
@@ -1852,12 +1862,13 @@ half-width 4 to 64, the particle off the faces' planes by
   later"): about `c + o` in the `xy` plane, of radius `r_c = 0.5`, the
   first run's, at `v = 0.05`, so `Ω = 0.1`, `|a| = 0.005`,
   `|ȧ| = 5·10⁻⁴`, and the radiation-reaction force
-  `(Q²/12π)|ȧ| = 6.63·10⁻⁸`; its relativistic correction is `γ⁴ - 1 =
-  0.5%`. The particle starts at `c + o + (r_c, 0, 0)` and stays well
-  inside `R₁`. Its force is recorded every step to `t = 8`, a fifth of
-  the clean time at the window's edge, 0.8 rad of the orbit, with two to
-  eight face crossings depending on `hₑ`. The measuring time, also
-  chosen here, is `t = 2` to 8, leaving out 0.25 about each crossing:
+  `(Q²/12π)|ȧ| = 6.63·10⁻⁸`; the force the code reads is `γ²` times it,
+  a relativistic correction of `γ² - 1 = 0.25%`. M5 runs it at `v = 0.2`
+  too (`--v=0.2`, `Ω = 0.4`). The particle starts at `c + o + (r_c, 0, 0)`
+  and stays well inside `R₁`. Its force is recorded every step to `t = 8`,
+  a fifth of the clean time at the window's edge, 0.8 rad of the orbit,
+  with two to eight face crossings depending on `hₑ`. The measuring time,
+  also chosen here, is `t = 2` to 8, leaving out 0.25 about each crossing:
   the force is averaged over every step there, since a single step
   scatters about the mean by more than `F_RR` up to `d/8`. Started from
   the retarded field, no junk has to leave; starting at `t = 2` leaves
@@ -2161,7 +2172,9 @@ tests about 40 s on one.
   3 from `hₑ = 1/2` to `1/4` at `t = 1/4`, its force falls by more than
   100, and its state follows the path to `10⁻¹³`.
 - `prescribed_tests.jl`: the circle's and hyperbolic motion's `v`, `a`,
-  `ȧ`, `ä` and `a⃛` are the dual-number derivatives of their positions,
+  `ȧ`, `ä`, `a⃛` and `a⃜` are the dual-number derivatives of their
+  positions; along the exact circle at `v = 0.2` the order-3 source is
+  the residual of the windowed particle field in `BigFloat`, to `10⁻⁴⁰`;
   the circle has its radius, speed and `ȧ = -Ω²v`, and hyperbolic motion
   `a = g`, `ä = -3g³` at `t = 0` and proper acceleration `g` later; the
   retarded field is the boosted Coulomb field in uniform motion and
@@ -3001,7 +3014,8 @@ digits shown, in both series, so one row stands for both:
 
 - **With the `t′²` term carried, the gate's two conditions hold at
   order 3:** the tangential force converges to radiation reaction, 0.95
-  to 1.003, against `γ⁴ = 1.005` for the relativistic correction, and
+  to 1.003, against `γ² = 1.0025` for the relativistic correction (see
+  [the circle at `v = 0.2`](#prescribed-paths-1) below), and
   the radial force to zero, below 0.005 `F_RR` from `d/6` on. The single
   steps' scatter about the mean, the window's discretization error,
   falls at about second order to `d/8`, fourth to `d/12` and fifth to
@@ -3041,7 +3055,7 @@ every digit printed:
   grid reads it the more strongly the finer it is, as `INSPIRAL.md`'s
   table says of any `r⁰` structure. Order 2 reads the same, to `10⁻³`.
 - **With it the tangential reading converges to radiation reaction,**
-  1.051 to 1.012 at `d/16`, against `γ⁴ = 1.005`; without it it is
+  1.051 to 1.012 at `d/16`, against `γ² = 1.0025`; without it it is
   8–16% high and does not converge.
 
 **Face crossings.** The largest `|F_t|` and `|F_r|` within 0.25 of a
@@ -3145,7 +3159,7 @@ as in the table above:
   plain reading of it shows (28 and 67 at `d/8`'s slow crossing, against
   34 and 75 with the source written plain).
 - **The means are the same,** 0.998 and 1.002 `F_RR` at `d/8` and `d/12`
-  against `γ⁴ = 1.005`, and the radial force below 0.01.
+  against `γ² = 1.0025`, and the radial force below 0.01.
 - **It costs nothing measurable:** a step takes 0.896 s at `d/8` on an
   EPYC 7532 against 0.880 s without (job 587989), and 1.96 s at `d/12`
   on a 7543 against 2.00 s (587990). At `d/16` it took 5.06 s on a 7532,
@@ -3209,11 +3223,13 @@ layout, so the convergence series starts from the retarded field.
   remainder of `7.7·10⁻⁷` there in the first series and `9.7·10⁻⁸` with
   the term (whose part of the remainder is now in the particle field).
   With order 3 the error of `Φ_r` alone stops at `2.7·10⁻⁸` at every
-  resolution, where order 2's falls to `1.4·10⁻⁹`: the bracket omits
-  `d⁴a·∂_äΦ⁽³⁾` ([The particle](#the-particle)), and in hyperbolic motion
-  `d⁴a = 45g⁵` at `t = 0`, a source error of about `3·10⁻⁷r²` over the
-  window, which over `t = 1/2` leaves about this much in `Φ_r`. On the
-  circle `d⁴a` is `Ω⁴|a| = 5·10⁻⁷`, a thousand times smaller.
+  resolution, where order 2's falls to `1.4·10⁻⁹`: the bracket then
+  omitted `d⁴a·∂_äΦ⁽³⁾`, and in hyperbolic motion `d⁴a = 45g⁵` at
+  `t = 0`, a source error of about `3·10⁻⁷r²` over the window, which over
+  `t = 1/2` leaves about this much in `Φ_r`. On the circle at `v = 0.05`
+  `d⁴a` is `Ω⁴|a| = 5·10⁻⁷`, a thousand times smaller. The bracket holds
+  it since the trajectory carries `a⃜` ([The particle](#the-particle));
+  these runs have not been repeated with it.
 - **The first series' `d/8` order-3 row is job 587903's,** run before
   the far kernels moved to the ball's blocks and before the retarded
   field's root-finding was made type-stable, which changed neither.
@@ -3433,6 +3449,72 @@ rather than in every group ([The near field](#the-near-field)):
   and `3·10⁵` times at order 1, where the point limit vanishes for some
   directions **(open)**.
 
+**The circle at `v = 0.2`** (M5; `--v=0.2`, Julia 1.13.3, 64 threads).
+Orders 2 and 3 without `a⃜`, branch `inspiral-m5-labslice` at `31d065b`,
+2026-11-07: jobs 592979, `cn091`, EPYC 7532, `d/4` and `d/6`; 592980,
+`cn103`, 7543, `d/8`; 592981, `cn112`, 8534P, `d/12` at order 3; 592982,
+`cn095`, 7543, `d/12` at order 2; 592983, `cn103`, and 592984, `cn108`,
+7543, `d/16` at orders 3 and 2. Order 3 with `a⃜`, 2026-11-08: jobs
+593531, `cn103`, `d/8`; 593554, `cn103`, `d/4` and `d/6`; 593555,
+`cn107`, `d/12`; 593556, `cn094`, `d/16`; all EPYC 7543. The circle of
+[Prescribed paths](#prescribed-paths) from its retarded field, the
+radius 0.5 kept, so `Ω = 0.4`, `|a| = 0.08`, `|ȧ| = 0.032` and
+`F_RR = (Q²/12π)|ȧ| = 4.24·10⁻⁶`; to `t = 8`, half an orbit. The forces
+in units of `F_RR` as above, averaged over every step of `t = 3` to 8;
+no crossing is left out, since at this speed the support crosses a face
+in a step or two and the averaged reading leaves no impulse above the
+scatter. At `t = 0` every run reads `F_t = 1.0417`, and `F_r` is
+0.0024–0.0030 at order 2 and below `10⁻⁴` at order 3; `F_n` stays below
+`5·10⁻⁴` throughout. `sd` is the single steps' scatter about the mean,
+the same at both orders and with or without `a⃜`; `Φ` the error of `Φ_r`
+in the clean ball at `t = 8`:
+
+| `hₑ` | order 2, `F_t/F_RR` | `F_r/F_RR` | order 3, `F_t/F_RR` | `F_r/F_RR` | with `a⃜`, `F_t/F_RR` | `F_r/F_RR` | sd of `F_t` | sd of `F_r` | `Φ`, order 2 | order 3 | with `a⃜` |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `d/4` | 1.0389 | 0.0075 | 1.0407 | -0.0256 | 1.0392 | -0.0014 | 0.034 | 0.107 | 3.3e-7 | | 3.2e-7 |
+| `d/6` | 1.0417 | 0.0062 | 1.0432 | -0.0243 | 1.0417 | -0.0001 | 0.018 | 0.031 | 6.0e-8 | | 5.9e-8 |
+| `d/8` | 1.0414 | 0.0050 | 1.0430 | -0.0243 | 1.0415 | -0.0001 | 0.0065 | 0.013 | 1.3e-8 | 2.5e-6 | 1.3e-8 |
+| `d/12` | 1.0417 | 0.0037 | 1.0432 | -0.0242 | 1.0417 | -0.00003 | 0.0010 | 0.002 | 1.9e-9 | | 1.8e-9 |
+| `d/16` | 1.0417 | 0.0029 | 1.0432 | -0.0242 | 1.0417 | -0.00001 | 0.0003 | 0.0005 | 4.9e-10 | | 4.9e-10 |
+
+- **The tangential force is `γ²F_RR`, 1.0417.** For the force the
+  code reads, `F = -(Q/γ)(∇̄Φ_r + vΠ̄_r)`, the regular field
+  `∂_μΦ_R = (Q/12π)(ȧ_μ - a²u_μ)` gives on the circle, where `a⁰` and
+  `ȧ⁰` vanish, `∇Φ_R = (Q/12π)(γ³ȧ - a²γv)` and `Π_R = (Q/12π)a²γ`; the
+  `a²` parts cancel, and `F = -γ²(Q²/12π)ȧ`. So the relativistic
+  correction is `γ² - 1`: 4.2% here, 0.25% at `v = 0.05`, where the
+  earlier blocks' 1.002–1.003 agree with `γ² = 1.0025` rather than
+  `γ⁴ = 1.005`, against which they were first set. With `a⃜` it is
+  1.0417 to five digits from `d/12` on, at order 2 as at 3.
+- **M5's gate holds with `a⃜`:** at order 3 the radial force converges to
+  zero, `-0.0014` at `d/4` and below `10⁻⁴` from `d/6` on, within the
+  scatter's error of the mean, and the tangential one to `γ²F_RR`, as at
+  `v = 0.05`.
+- **At order 2 the radial force falls with resolution,** 0.0075 to
+  0.0029 from `d/4` to `d/16`, at a rate of about 0.6 to 0.8, 30 to 300
+  times order 3's: this circle tells the two orders apart, which the one
+  at `v = 0.05` could not. The field's error does not; it is the same
+  at both orders, falling at about fourth to fifth order, so it is the
+  evolution's, not the source's.
+- **At order 3 without `a⃜` the radial force converged to `-0.024 F_RR`,**
+  not to zero, the same at every resolution from `d/6` on, after a
+  transient at `t = 1`–3 (`F_t` up to 1.058, `F_r` to -0.032) that also
+  did not depend on `hₑ`. The continuum source was wrong: along the
+  exact circle, `S` minus the exact `□(WΨ̂) + ρ` was `-6.3·10⁻⁷` against
+  `S = -8.3·10⁻⁷` at `|x - z| = 0.58`, and `6.9·10⁻⁷` against
+  `-4.8·10⁻⁶` at 1.2, where `S` and the residual of the path's Taylor
+  polynomial agreed to `10⁻⁷²`; order 2's was exact, and at `v = 0.05`
+  the difference was `10⁻¹⁰`. The Taylor polynomial stopped at `a⃛`, so
+  `C`'s `ä` had no second time derivative ([The particle](#the-particle)).
+  With `a⃜` the source is the exact residual to `10⁻⁴⁰` (a test), the
+  transient is gone (`F_t` within 0.002 of 1.0417 over each of
+  `t = 1`–2 and 2–3 from `d/6` on), and the field's error at `d/8` falls
+  from `2.5·10⁻⁶` to order 2's.
+- **A step** takes 0.58, 1.18, 2.25, 6.09 and 13.3 s at order 3 from
+  `d/4` to `d/16` on an EPYC 7543, against 1.02 s at order 2 at `d/8`
+  and 6.3 s at `d/16`; carrying `a⃜` costs nothing measurable (2.22 s
+  without it at `d/8`). The `d/16` order-3 run took 16 hours.
+
 ## What carried over from TreeWave, and what did not
 
 Carried over: the equation and its variables, the periodic box, the sine
@@ -3517,16 +3599,6 @@ and the device and threading test files.
 - Whether truncation should stay the default for a linear problem,
   where it costs accuracy in `u` and buys no stability (both schemes are
   linearly stable).
-- Whether the bracket should hold `d⁴a·∂_äΦ⁽³⁾`. It is of order 5 near
-  the particle but polynomial in `r` across the window, and in
-  hyperbolic motion at `g = 0.1` it leaves an error in `Φ_r` of 3.5% of
-  the remainder that no resolution removes ([Prescribed
-  paths](#prescribed-paths-1)); on the circle and for the binary it is a
-  thousand times smaller.
-- Whether a circle at `v = 0.05` and `r_c = 0.5` can tell orders 2 and 3
-  apart at all: its order-3 terms are too small for the grid to see, and
-  the two agree to 1% in both series. A smaller radius, or M5's circle at
-  `v = 0.2`, would.
 - What to do about the cost of the projection, about 90 times the wave
   equation's work where `INSPIRAL-PLAN.md`'s "Gates and fallbacks" asks
   for ten (see [The transfer's cost](#the-transfers-cost)). It is

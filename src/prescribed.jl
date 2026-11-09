@@ -24,7 +24,8 @@ function (p::CirclePath)(t)
     τ = -s * p.e₁ + c * p.e₂            # along the motion
     r, Ω = p.r, p.Ω
     return (Trajectory(; z=p.centre + r * ρ, v=r * Ω * τ, a=-r * Ω^2 * ρ,
-                       ȧ=-r * Ω^3 * τ, ä=r * Ω^4 * ρ, a⃛=r * Ω^5 * τ),)
+                       ȧ=-r * Ω^3 * τ, ä=r * Ω^4 * ρ, a⃛=r * Ω^5 * τ,
+                       a⃜=-r * Ω^6 * ρ),)
 end
 
 """
@@ -63,7 +64,7 @@ struct HyperbolicPath{T}
     g::T
 end
 
-# The distance travelled, `X(t) = (√(1 + g²t²) - 1)/g`, and its first five
+# The distance travelled, `X(t) = (√(1 + g²t²) - 1)/g`, and its first six
 # derivatives, in closed form.
 @inline function hyperbolic_jet(g, t)
     s² = 1 + (g * t)^2
@@ -74,14 +75,15 @@ end
     X3 = -3g^3 * t / (s * s²^2)
     X4 = -3g^3 * (1 - 4(g * t)^2) / (s * s²^3)
     X5 = 15g^5 * t * (3 - 4(g * t)^2) / (s * s²^4)
-    return X, X1, X2, X3, X4, X5
+    X6 = 45g^5 * (1 - 12(g * t)^2 + 8(g * t)^4) / (s * s²^5)
+    return X, X1, X2, X3, X4, X5, X6
 end
 
 function (p::HyperbolicPath)(t)
-    X, X1, X2, X3, X4, X5 = hyperbolic_jet(p.g, t)
+    X, X1, X2, X3, X4, X5, X6 = hyperbolic_jet(p.g, t)
     n = p.n
     return (Trajectory(; z=p.z₀ + X * n, v=X1 * n, a=X2 * n, ȧ=X3 * n, ä=X4 * n,
-                       a⃛=X5 * n),)
+                       a⃛=X5 * n, a⃜=X6 * n),)
 end
 
 """

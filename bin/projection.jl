@@ -73,8 +73,10 @@ function measure(hdiv, rnear, order, reps, offgrid)
     v = SVector(0.0, Ω / 2, 0.0)
     a = -Ω^2 * r
     off = offgrid ? SVector(0.31, 0.17, 0.43) * hₑ : zero(c)
-    tr₁ = Trajectory(; z=c + r + off, v=v, a=a, ȧ=-Ω^2 * v, ä=-Ω^2 * a, a⃛=Ω^4 * v)
-    tr₂ = Trajectory(; z=c - r + off, v=-v, a=-a, ȧ=Ω^2 * v, ä=Ω^2 * a, a⃛=-Ω^4 * v)
+    tr₁ = Trajectory(; z=c + r + off, v=v, a=a, ȧ=-Ω^2 * v, ä=-Ω^2 * a, a⃛=Ω^4 * v,
+                     a⃜=Ω^4 * a)
+    tr₂ = Trajectory(; z=c - r + off, v=-v, a=-a, ȧ=Ω^2 * v, ä=Ω^2 * a, a⃛=-Ω^4 * v,
+                     a⃜=-Ω^4 * a)
     w = Window(c, 1.25, 2.5; continuity=P + 1)
     S = ParticleSource((m₁, m₂), w, (tr₁, tr₂); order=order)
     particles = (ParticleSupport(m₁, tr₁), ParticleSupport(m₂, tr₂))

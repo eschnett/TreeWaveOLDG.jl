@@ -631,13 +631,21 @@ The derivation, the regenerated `particle_forms.jl` and the exact
 hyperbolic check are done, and the particle field and the bracket carry
 the lab slice; in hyperbolic motion the remainder's force is a few
 `10⁻¹²` at order 3 up to `v = 0.2` (`CODE.md`, "Prescribed paths" under
-"Measured results"), and the circle at `v = 0.2` waits for the owner. The
-lab slice is that of the lab-sliced density, not of `INSPIRAL.md`'s
-re-expansion of the rest-frame near field (`CODE.md`, "The near field";
-`HISTORY.md`, 2026-11-05). `derivations/labslice.wl` exists since M4,
-with the `t′²` term of `Φ_C` that the owner had carried ahead of this
-milestone; M5 extends it. `INSPIRAL.md`: "Moving particles and the lab
-slice"; validation step 5.
+"Measured results"). The circle at `v = 0.2` ran from `d/4` to `d/16` on
+2026-11-07: order 2 converges, and order 3 converged to a radial force
+of `-0.024 F_RR` until the trajectory carried the sixth derivative of
+`z`, `a⃜`. Rerun with it on 2026-11-08 and 09, order 3's radial force
+converges to zero, below `10⁻⁴ F_RR` from `d/6` on, and its tangential
+force to `γ²F_RR` (not `γ⁴F_RR`, which M4 had expected), as at
+`v = 0.05`; order 2's radial force falls only from 0.0075 to 0.0029
+`F_RR` (`CODE.md`; `HISTORY.md`, 2026-11-07 and 08). M5's work is done;
+its pull request waits for the owner. The lab slice is that of the
+lab-sliced density, not of `INSPIRAL.md`'s re-expansion of the
+rest-frame near field (`CODE.md`, "The near field"; `HISTORY.md`,
+2026-11-05). `derivations/labslice.wl` exists since M4, with the `t′²`
+term of `Φ_C` that the owner had carried ahead of this milestone; M5
+extends it. `INSPIRAL.md`: "Moving particles and the lab slice";
+validation step 5.
 
 - `derivations/labslice.wl`: the re-expansion
   `Ψ_lab(r) = Σⱼ (t′ʲ/j!) ∂ⱼ_{t′} Ψ′(0, y)` for orders 1–3, with

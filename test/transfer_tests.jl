@@ -362,8 +362,10 @@ end
     m₂ = ParticleModel(; Q=-q, ℓ=1e-3, M=1.0)
     r = SVector(0.5, 0.0, 0.0)
     v = SVector(0.0, Ω / 2, 0.0)
-    tr₁ = Trajectory(; z=r, v=v, a=-Ω^2 * r, ȧ=-Ω^2 * v, ä=Ω^4 * r, a⃛=Ω^4 * v)
-    tr₂ = Trajectory(; z=-r, v=-v, a=Ω^2 * r, ȧ=Ω^2 * v, ä=-Ω^4 * r, a⃛=-Ω^4 * v)
+    tr₁ = Trajectory(; z=r, v=v, a=-Ω^2 * r, ȧ=-Ω^2 * v, ä=Ω^4 * r, a⃛=Ω^4 * v,
+                     a⃜=-Ω^6 * r)
+    tr₂ = Trajectory(; z=-r, v=-v, a=Ω^2 * r, ȧ=Ω^2 * v, ä=-Ω^4 * r, a⃛=-Ω^4 * v,
+                     a⃜=Ω^6 * r)
     R₁, R₂ = 1.25, 2.5
     S = ParticleSource((m₁, m₂), Window(zero(r), R₁, R₂; continuity=P + 1), (tr₁, tr₂))
     t = TransferTables(Float64, P)
