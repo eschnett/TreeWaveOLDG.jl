@@ -784,7 +784,12 @@ end
 # are summed per segment and the segments per element in the order the
 # nested rule sums them, so the result does not depend on the thread
 # count, and is the serial nested rule's to roundoff (the compiler may fuse
-# a `muladd` in one and not in the other).
+# a `muladd` in one and not in the other). The items are handed out one at
+# a time (`:greedy`): `:dynamic` cuts the list into one contiguous chunk
+# per thread, the items near a particle lie together in it and cost
+# hundreds of times the others, and with the lab slice's source one chunk
+# held most of the work, 0.96 s where the evaluations take about 0.2 s on
+# 64 threads (CODE.md, "Prescribed paths" under "Measured results").
 function project_near!(dua, plan, t::TransferTables{T,P1}, S, factor, var) where {T,P1}
     near = plan.near
     isempty(near) && return nothing    # and the loops are not compiled
@@ -803,7 +808,7 @@ function project_near!(dua, plan, t::TransferTables{T,P1}, S, factor, var) where
     items = [(j, k) for j in eachindex(segments) for k in eachindex(segments[j][2])]
     wₙ = element_weights(t, plan.hₑ, Val(D))
     values = Vector{typeof(wₙ)}(undef, length(items))
-    Threads.@threads :dynamic for n in eachindex(items)
+    Threads.@threads :greedy for n in eachindex(items)
         j, k = items[n]
         i = segments[j][1]
         lo, hi = box(i)

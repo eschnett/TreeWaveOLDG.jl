@@ -13,7 +13,7 @@ also brings the binary's warm-up and orbits back as M7. M4's go/no-go
 gate fired on 2026-11-02, and passes since the owner had the `t′²` term
 of `Φ_C`'s lab slice carried ahead of M5 and the source written and the
 forces read through the averaging over shared nodes (2026-11-03).
-Nothing else is started. The decisions below were settled with the
+M5 is started (2026-11-05). Nothing else is started. The decisions below were settled with the
 owner on 2026-10-30, 2026-11-01, 2026-11-02 and 2026-11-03. A milestone's status line changes here when its work starts
 and when its pull request merges.
 
@@ -626,10 +626,26 @@ force to zero. If not, stop and take it to the owner before M5; see
 
 ## M5: The lab slice
 
-**Status:** not started. `derivations/labslice.wl` exists since M4,
-with the `t′²` term of `Φ_C` that the owner had carried ahead of this
-milestone; M5 extends it. `INSPIRAL.md`: "Moving particles and the lab
-slice"; validation step 5.
+**Status:** started on 2026-11-05 on branch `inspiral-m5-labslice`.
+The derivation, the regenerated `particle_forms.jl` and the exact
+hyperbolic check are done, and the particle field and the bracket carry
+the lab slice; in hyperbolic motion the remainder's force is a few
+`10⁻¹²` at order 3 up to `v = 0.2` (`CODE.md`, "Prescribed paths" under
+"Measured results"). The circle at `v = 0.2` ran from `d/4` to `d/16` on
+2026-11-07: order 2 converges, and order 3 converged to a radial force
+of `-0.024 F_RR` until the trajectory carried the sixth derivative of
+`z`, `a⃜`. Rerun with it on 2026-11-08 and 09, order 3's radial force
+converges to zero, below `10⁻⁴ F_RR` from `d/6` on, and its tangential
+force to `γ²F_RR` (not `γ⁴F_RR`, which M4 had expected), as at
+`v = 0.05`; order 2's radial force falls only from 0.0075 to 0.0029
+`F_RR` (`CODE.md`; `HISTORY.md`, 2026-11-07 and 08). M5's work is done;
+its pull request waits for the owner. The lab slice is that of the
+lab-sliced density, not of `INSPIRAL.md`'s re-expansion of the
+rest-frame near field (`CODE.md`, "The near field"; `HISTORY.md`,
+2026-11-05). `derivations/labslice.wl` exists since M4, with the `t′²`
+term of `Φ_C` that the owner had carried ahead of this milestone; M5
+extends it. `INSPIRAL.md`: "Moving particles and the lab slice";
+validation step 5.
 
 - `derivations/labslice.wl`: the re-expansion
   `Ψ_lab(r) = Σⱼ (t′ʲ/j!) ∂ⱼ_{t′} Ψ′(0, y)` for orders 1–3, with

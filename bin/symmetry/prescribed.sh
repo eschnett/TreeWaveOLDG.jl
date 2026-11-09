@@ -9,8 +9,10 @@
 # from instantaneous data (`circle`) or from the retarded field
 # (`circle-ret`, with the error against it every `1/4`), and hyperbolic
 # motion (`hyperbolic`) of proper acceleration `TREEWAVEOLDG_G` until its
-# speed reaches 0.05, with the error against the exact retarded field
-# every `1/32`. Each run ends with its cost (`--cost`).
+# speed reaches 0.05, or until `tend` where the run names one, with the
+# error against the exact retarded field every `1/32`. Each run ends with
+# its cost (`--cost`). With `TREEWAVEOLDG_EXTRA=--reading`, nothing is
+# evolved: each run reads the exact remainder's force at `tend` (M5).
 # `TREEWAVEOLDG_EXTRA` is passed on to every run, for instance `--plain`
 # for the source and the force without the averaging, or `--both` for
 # the force read both ways.
@@ -84,16 +86,23 @@ export JULIA_EXCLUSIVE=1
 export OPENBLAS_NUM_THREADS=1
 for run in $RUNS; do
     IFS=: read -r path hdiv order tend <<< "$run"
-    tend="${tend:-$TEND}"
-    # The circle's files name their end time.
+    # The circle's files name their end time, and hyperbolic motion's
+    # where the run gives one.
     label=""
-    [ "$path" = hyperbolic ] || label="-t$tend"
+    hyptend=()
+    if [ "$path" = hyperbolic ]; then
+        [ -n "$tend" ] && { label="-t$tend"; hyptend=(--tend="$tend"); }
+    else
+        tend="${tend:-$TEND}"
+        label="-t$tend"
+    fi
     simwatch_stage "$path at d/$hdiv, order $order"
     case $path in
         circle) args=(--path=circle --rc="$RC" --tend="$tend" --every=0.25 --fevery=1) ;;
         circle-ret) args=(--path=circle --data=retarded --rc="$RC" --tend="$tend"
                           --every=0.25 --fevery=1) ;;
-        hyperbolic) args=(--path=hyperbolic --g="$G" --every=0.03125 --fevery=1) ;;
+        hyperbolic) args=(--path=hyperbolic --g="$G" --every=0.03125 --fevery=1
+                          "${hyptend[@]}") ;;
         *) echo "unknown path $path"; exit 1 ;;
     esac
     # shellcheck disable=SC2086

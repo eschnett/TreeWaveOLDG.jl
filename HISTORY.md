@@ -546,6 +546,16 @@ How the package got where it is, by topic in `CODE.md`'s order.
   `hₑ = d/8`, since the window is only `C^{P+1}` there. It is static,
   and `INSPIRAL.md`'s tolerance of `10⁻¹²` does not hold on those
   elements.
+- 2026-11-06: the owner asked to try the plan's first fallback, a far
+  rule of `q = P + 1` away from the particles. Measured per element on
+  the first run off the grid, with the M5 source, it does not pay: of
+  the far rule's 31 102 elements 24 lie inside `R₁`, and the others in
+  the window's transition or cut by its spheres, where `q = 4` errs by
+  `10⁻⁵`–`4·10⁻⁴` of the element's largest `|PS|` against `q = 6`'s
+  `10⁻¹¹`–`10⁻⁹`: the window is a polynomial of degree nine in `r` over
+  ten elements. Not implemented. The same measurement put the cut
+  elements' error at about `10⁻⁴` at `q = 6`, also on `main`, not M2's
+  `10⁻⁸`–`3·10⁻⁷`, whose measure is not recorded.
 - 2026-10-30: the pairing reads the state on the host, over the support's
   elements found from `z` (`INSPIRAL-PLAN.md`, "Left to settle later"),
   measured against the `mesh_fold` it replaces (`CODE.md`, "The
@@ -835,12 +845,142 @@ How the package got where it is, by topic in `CODE.md`'s order.
   and 0.17 `F_RR` from `d/4` to `d/16`, 5–15% below the read-only
   runs', at 2% of a step or less. The gate passes, and M4 is done on its
   branch.
+- 2026-11-05: M5 of `INSPIRAL-PLAN.md`, the lab slice, started on branch
+  `inspiral-m5-labslice`, with its derivation and the exact check first.
+  Found, and at odds with `INSPIRAL.md`'s "Moving particles and the lab
+  slice": the re-expansion of the rest-frame near field at `t′` describes
+  a particle whose density is rigid on the rest frame's slices, but the
+  model's `ρ₀(|Λ(v)(x - z)|)` is rigid on the lab's. They differ inside
+  the particle at order 1 by `½(v·y)²(α′·∇ρ₀)`, so that with `T₂` alone
+  the bracket keeps `Q(v·y)²(α′·y)ρ₀′`, linear in the acceleration; on
+  `main` the bracket divided by `|a|` tends to `8.4·10⁻⁴` as `a → 0` at a
+  point inside, at `v = (0.2, 0.1, 0)`, against `8.42·10⁻⁴` for that
+  term. It is also what M1 found an extended particle's bracket to keep
+  at rest, in `(ℓ/r)²`. `labslice.wl` therefore takes the time-symmetric
+  field of the lab-sliced density's history in the rest frame, from the
+  same retardation series at any `t′`, at `t′ = -v·y`; its order 1 is
+  `T₂` plus the field of that density. The point limits are the same
+  either way, and the Born field of uniform acceleration on the tilted
+  slice agrees with them through order 3. Decided here: the rest-frame
+  `ä` of the near field is the worldline's fourth derivative in the rest
+  frame's coordinate time, `C`, not the lab's `ä`, and the lab slice
+  takes the third, `B`, which orders 1–3 at rest did not need;
+  `rest_frame_derivatives` gives both. Also found: `Λ₁` exerts no force
+  on the particle at rest, where `T₂` alone exerts
+  `(11/60)δm v²α′ + (11/30)δm (v·α′)v`. `generate.wl` emits the lab slice
+  as 98 invariant terms and 98 Laplacian terms, about 2400 lines of
+  `particle_forms.jl`, and takes the exterior power of `r` from the
+  homogeneity degree, so that a finite-size term without a point limit
+  has one; the existing forms are unchanged byte for byte. The particle
+  field and the bracket still carry `T₂` and the lab's `ä`.
+- 2026-11-05: the owner asked for the lab slice to be wired in and
+  hyperbolic motion studied before the circle at `v = 0.2`, and for large
+  tests and benchmarks to run on Symmetry. The particle field carries
+  `Λ_N` with order `N`, the near field takes `C` for `ä`, and the
+  bracket's invariants are now eleven: `q`, the four `u·y` and the six
+  dot products of the rest-frame vectors. `T₂` is no longer generated on
+  its own, nor its self-force coefficients. Along a motion at `v = 0.19`
+  the bracket with orders up to `N` carried now falls as `ε^{N+1}`,
+  inside the particle and out. Found on the way, each in the generated
+  code: a sum of 74 terms written as one expression allocates, since
+  Julia makes it one call of `+`; a `BigFloat` Hessian of order 3 with
+  every radial function inlined takes 178 s to compile, 17 s without;
+  and wrapping the coefficient tables for every point copied about 10 KB
+  per evaluation. The source's cost per point at order 3 went from
+  102 ns to 4.4 µs with each term on its own, 1.9 µs with one function
+  per order, and 1.0 µs with the terms grouped by their monomial in the
+  invariants linear in `y` and the other invariants folded into
+  coefficients computed once per particle and step. The particle tests
+  take 5m46 on the laptop, against 43 s before M5, mostly `BigFloat`
+  compilation.
+- 2026-11-05: hyperbolic motion with the lab slice, on Symmetry against
+  `main`. The exact remainder's force read at `v = 0.05`, 0.1 and 0.2 is
+  a few `10⁻¹²` at order 3 from `d/4` to `d/12`, where `main`'s grows
+  with `v` to `10⁻⁸`; M4's `v²` force was the lab slice, not finite-size
+  terms. The evolutions to `v = 0.2` match the reading to `t ≈ 1/4` and
+  are then covered by the evolved field's own discretization error,
+  the same as `main`'s. The projection costs 8.2 times `main`'s at order
+  3 and a step 4.9 times. The full suite took 60 minutes on one thread
+  of an EPYC 7543. The circle at `v = 0.2` waits for the owner.
+- 2026-11-06: the owner asked where the lab slice's projection goes
+  before choosing how to speed it up. `bin/projection.jl` now counts the
+  nested rule's points inside a particle and times the source there.
+  Found: 0.25–1.9% of the points lie inside a particle; a quarter of the
+  order-3 source per point is `ParticleSource` copying its 12.9 KB jets
+  for each point, which inlining with constant particle indices removes;
+  and the nested rule runs on few threads off the grid, 0.81 s where its
+  evaluations would take 0.14 s spread evenly.
+- 2026-11-06: the owner had both fixes made. `ParticleSource` sums its
+  particles by constant index, with `s` passed rather than captured; a
+  first version that also inlined the call made the inspiral's
+  right-hand side differ from a separate projection by an ulp, since the
+  compiler fused a `muladd` differently in the two compiled projections,
+  so the call stays a function of its own. For the nested rule, its
+  items were first split over the first two lines; that allocated
+  3.2 GiB per call and gained nothing, and counting the items showed
+  they were fine enough already (1 664, the largest 0.46% of the work).
+  The cause was `Threads.@threads :dynamic`, which cuts the list into one
+  contiguous chunk per thread, where the heavy items near a particle lie
+  together; `:greedy` hands them out one at a time. On one EPYC 7543
+  the order-3 projection went from 2.18 to 1.34 s (`main` 0.21 s), its
+  nested rule from 0.82 to 0.17 s, and a hyperbolic step at `d/8` from
+  3.74 to 2.85 s. The suite on four threads went from 28 to 21 minutes.
+- 2026-11-06: the owner asked for the lab slice's closed form outside
+  the particles. Outside, each group is already `r^p` times a polynomial
+  in `ℓ²/q`, so there was no form to derive; timing the parts showed the
+  order-3 term on the bracket's dual numbers at half the source, and the
+  powers of `v·y`, `α′·y` and `r` formed in every group at as much as
+  its polynomials. The generator now forms them once per evaluation. On
+  the laptop one particle's source outside it went from 940 to 540 ns at
+  order 3; on one EPYC 7532 the projection from 1.67 to 1.24 s and a
+  hyperbolic step at `d/8` from 3.47 to 2.71 s. Dropping the
+  polynomials' later coefficients far out would take the term from 274
+  to 190 ns, but needs a bound relative to the whole field, and is not
+  done. The three suites pass on one EPYC 7532, in 67, 67 and 25
+  minutes; that node is slower than the 7543 of the earlier times.
 - 2026-11-06: CI failed on main from M4 on, on every job, on one
   assertion: the retarded field's `∂ₜΦ` at `t = 0` of hyperbolic motion,
   bounded by `10⁻¹⁵|Φ|`, is `1.2·10⁻¹⁵|Φ|` at `r = 3`. It vanishes
   there, so the value is roundoff, mostly of the retarded time, which
   lies about `r` back; it is under `3·10⁻¹⁷|Φ|` at `r ≤ 1`. The bound
   is now `10⁻¹⁵ max(r, 1)|Φ|`.
+- 2026-11-07: the owner started the circle at `v = 0.2`, orders 2 and 3
+  from `d/4` to `d/16`, on Symmetry. The tangential force was 1.0417
+  `F_RR` throughout, which is `γ²`, not the `γ⁴ = 1.005` that M4's
+  blocks at `v = 0.05` had been set against: for the force the code
+  reads the `a²u_μ` parts of the regular field cancel between `∇̄Φ_r`
+  and `vΠ̄_r`, and M4's 1.002–1.003 agree with `γ² = 1.0025`. At
+  order 2 the radial force fell from 0.0075 to 0.0029 `F_RR`; at order
+  3 it went to `-0.024 F_RR` at every resolution, after a transient
+  that did not depend on `hₑ` either. Evaluating the source along the
+  exact circle showed it off by 3% of the order-3 correction, while it
+  matched the residual of the path's Taylor polynomial to `10⁻⁷²`:
+  `C`'s `ä` had no second time derivative, since the `Trajectory`
+  stopped at `a⃛`. `CODE.md` had called that term, `d⁴a·∂_äΦ⁽³⁾`, of order
+  5 and omitted it, but the source is the residual of `WΨ̂` along the
+  Taylor polynomial, truncated at no order, so without it the source was
+  that of another path. At `v = 0.05` the difference was `10⁻¹⁰` and
+  invisible.
+- 2026-11-08: the owner asked how a dynamic particle would supply a
+  sixth derivative. Not from its equations of motion differentiated
+  four more times: in M6 the order-3 `ä`, and `C`'s `ȧ`, are to come
+  from the predictor, whose time derivatives the chain rule gives from
+  the state and its first two derivatives (`CODE.md`, "The near field",
+  **(proposed)**). The owner then had the sixth derivative added:
+  `Trajectory` holds `a⃜`, the prescribed paths give it in closed form,
+  and a test checks the order-3 source along the exact circle against
+  the exact residual to `10⁻⁴⁰`. The circle at `d/8`, order 3, rerun
+  with it, gives `F_t = 1.0415 F_RR` and `F_r = -0.0001 F_RR`, with no
+  transient, and the field's error falls from `2.5·10⁻⁶` to order 2's
+  `1.3·10⁻⁸`. The owner had the other order-3 resolutions rerun with
+  it, finished on 2026-11-09: the radial force is `-0.0014 F_RR` at `d/4`
+  and below `10⁻⁴` from `d/6` on, the tangential force 1.0417 from `d/12`
+  on, and the field's error the same as order 2's at every resolution.
+  With that M5's gate holds as M4's did at `v = 0.05`. Two open questions
+  in `CODE.md` are settled by it and dropped: whether the bracket should
+  hold `d⁴a·∂_äΦ⁽³⁾` (it does, through `a⃜`), and whether a circle can
+  tell orders 2 and 3 apart (at `v = 0.2` it can: 0.0050 against
+  -0.0001 `F_RR` radially at `d/8`).
 
 ## Dependencies
 

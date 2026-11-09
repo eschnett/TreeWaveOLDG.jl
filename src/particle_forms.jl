@@ -253,57 +253,1111 @@ end
                 ay * ay * ay * _L3_3(q, ℓ))
 end
 
-# The t′² term of Φ_C, radial factor of (v·y)²(α′·y): -Φ₀′(q).
-@inline function _TP2(q, ℓ)
+@inline function _lab_invariants(y, v, a, b, c)
+    return (y[1]^2 + y[2]^2 + y[3]^2, dot(v, y), dot(a, y), dot(b, y), dot(c, y),
+            dot(v, v), dot(v, a), dot(a, a), dot(v, b), dot(a, b), dot(v, c))
+end
+
+# The lab slice of order N and its Laplacian at the rest-frame position y,
+# for lab velocity v and the rest-frame acceleration α′ and its derivatives
+# B and C, through the invariants.
+@inline lab_slice_term(::Val{N}, Q, ℓ, y, v, α′, B, C) where {N} =
+    _lab_slice_term(Val(N), Q, ℓ, _lab_invariants(y, v, α′, B, C)...)
+@inline lab_slice_laplacian(::Val{N}, Q, ℓ, y, v, α′, B, C) where {N} =
+    _lab_slice_laplacian(Val(N), Q, ℓ, _lab_invariants(y, v, α′, B, C)...)
+
+# The lab slice of order 1, term: 3 terms in 3 groups inside and 3 outside, 26 coefficients.
+function _lab_coefficients(::Val{1}, ::Val{:term}, ℓ, vv, va, aa, bv, ab, cv)
     T = typeof(ℓ)
+    return SVector(_q(T, 1, 130) * vv,
+                   _q(T, 1, 104) * vv,
+                   _q(T, 1, 104) * vv,
+                   _q(T, 7, 832) * vv,
+                   _q(T, 21, 3328) * vv,
+                   _q(T, 231, 66560) * vv,
+                   _q(T, 1, 65) * va,
+                   _q(T, 1, 52) * va,
+                   _q(T, 1, 52) * va,
+                   _q(T, 7, 416) * va,
+                   _q(T, 21, 1664) * va,
+                   _q(T, 231, 33280) * va,
+                   _q(T, -3, 26),
+                   _q(T, -2, 13),
+                   _q(T, -33, 208),
+                   _q(T, -7, 52),
+                   _q(T, -21, 256),
+                   zero(T),
+                   _q(T, 1, 104) * vv,
+                   _q(T, -1, 520) * vv,
+                   zero(T),
+                   _q(T, 1, 52) * va,
+                   _q(T, -1, 260) * va,
+                   _q(T, -1, 8),
+                   zero(T),
+                   _q(T, 1, 104))
+end
+
+function _lab_evaluate(::Val{1}, ::Val{:term}, Q, ℓ, q, vy, ay, by, cy, c, d=())
+    T = typeof(ℓ)
+    s₀ = s₁ = zero(q * _coefficient(c, 1, d))
     if q < ℓ^2
-        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -1, 8), _q(T, -3, 16), _q(T, -15, 64), _q(T, -35, 128), _q(T, -315, 1024))) / T(π)
+        σ² = q / ℓ^2
+        w = 1 - σ²
+        vy² = vy * vy
+        ℓ⁻¹ = 1 / ℓ
+        ℓ⁻² = ℓ⁻¹ * ℓ⁻¹
+        ℓ⁻³ = ℓ⁻² * ℓ⁻¹
+        s₁ += ay * ℓ⁻¹ * evalpoly(w, (_coefficient(c, 1, d), _coefficient(c, 2, d), _coefficient(c, 3, d), _coefficient(c, 4, d), _coefficient(c, 5, d), _coefficient(c, 6, d)))
+        s₁ += vy * ℓ⁻¹ * evalpoly(w, (_coefficient(c, 7, d), _coefficient(c, 8, d), _coefficient(c, 9, d), _coefficient(c, 10, d), _coefficient(c, 11, d), _coefficient(c, 12, d)))
+        s₁ += vy² * ay * ℓ⁻³ * evalpoly(w, (_coefficient(c, 13, d), _coefficient(c, 14, d), _coefficient(c, 15, d), _coefficient(c, 16, d), _coefficient(c, 17, d)))
     else
         r = sqrt(q)
-        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -1, 8),)) / T(π)
+        u = ℓ^2 / q
+        vy² = vy * vy
+        r⁻¹ = 1 / r
+        r⁻² = r⁻¹ * r⁻¹
+        r⁻³ = r⁻² * r⁻¹
+        s₁ += ay * r⁻¹ * evalpoly(u, (_coefficient(c, 18, d), _coefficient(c, 19, d), _coefficient(c, 20, d)))
+        s₁ += vy * r⁻¹ * evalpoly(u, (_coefficient(c, 21, d), _coefficient(c, 22, d), _coefficient(c, 23, d)))
+        s₁ += vy² * ay * r⁻³ * evalpoly(u, (_coefficient(c, 24, d), _coefficient(c, 25, d), _coefficient(c, 26, d)))
     end
+    return Q * (s₀ + s₁ / T(π))
 end
 
-# Its Laplacian, radial factor of vv * ay.
-@inline function _TP2L_1(q, ℓ)
+# The lab slice of order 1, laplacian: 3 terms in 3 groups inside and 3 outside, 17 coefficients.
+function _lab_coefficients(::Val{1}, ::Val{:laplacian}, ℓ, vv, va, aa, bv, ab, cv)
     T = typeof(ℓ)
+    return SVector(_q(T, 3, 2),
+                   _q(T, 15, 4),
+                   _q(T, 105, 16),
+                   _q(T, 315, 32),
+                   _q(T, -1, 2) * va,
+                   _q(T, -3, 4) * va,
+                   _q(T, -15, 16) * va,
+                   _q(T, -35, 32) * va,
+                   _q(T, -315, 256) * va,
+                   _q(T, -1, 4) * vv,
+                   _q(T, -3, 8) * vv,
+                   _q(T, -15, 32) * vv,
+                   _q(T, -35, 64) * vv,
+                   _q(T, -315, 512) * vv,
+                   _q(T, 3, 2),
+                   _q(T, -1, 2) * va,
+                   _q(T, -1, 4) * vv)
+end
+
+function _lab_evaluate(::Val{1}, ::Val{:laplacian}, Q, ℓ, q, vy, ay, by, cy, c, d=())
+    T = typeof(ℓ)
+    s₀ = s₁ = zero(q * _coefficient(c, 1, d))
     if q < ℓ^2
-        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -1, 4), _q(T, -3, 8), _q(T, -15, 32), _q(T, -35, 64), _q(T, -315, 512))) / T(π)
+        σ² = q / ℓ^2
+        w = 1 - σ²
+        vy² = vy * vy
+        ℓ⁻¹ = 1 / ℓ
+        ℓ⁻² = ℓ⁻¹ * ℓ⁻¹
+        ℓ⁻³ = ℓ⁻² * ℓ⁻¹
+        ℓ⁻⁴ = ℓ⁻² * ℓ⁻²
+        ℓ⁻⁵ = ℓ⁻⁴ * ℓ⁻¹
+        s₁ += vy² * ay * ℓ⁻⁵ * evalpoly(w, (_coefficient(c, 1, d), _coefficient(c, 2, d), _coefficient(c, 3, d), _coefficient(c, 4, d)))
+        s₁ += vy * ℓ⁻³ * evalpoly(w, (_coefficient(c, 5, d), _coefficient(c, 6, d), _coefficient(c, 7, d), _coefficient(c, 8, d), _coefficient(c, 9, d)))
+        s₁ += ay * ℓ⁻³ * evalpoly(w, (_coefficient(c, 10, d), _coefficient(c, 11, d), _coefficient(c, 12, d), _coefficient(c, 13, d), _coefficient(c, 14, d)))
     else
         r = sqrt(q)
-        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -1, 4),)) / T(π)
+        u = ℓ^2 / q
+        vy² = vy * vy
+        r⁻¹ = 1 / r
+        r⁻² = r⁻¹ * r⁻¹
+        r⁻³ = r⁻² * r⁻¹
+        r⁻⁴ = r⁻² * r⁻²
+        r⁻⁵ = r⁻⁴ * r⁻¹
+        s₁ += vy² * ay * r⁻⁵ * evalpoly(u, (_coefficient(c, 15, d),))
+        s₁ += vy * r⁻³ * evalpoly(u, (_coefficient(c, 16, d),))
+        s₁ += ay * r⁻³ * evalpoly(u, (_coefficient(c, 17, d),))
     end
+    return Q * (s₀ + s₁ / T(π))
 end
 
-# Its Laplacian, radial factor of vy * va.
-@inline function _TP2L_2(q, ℓ)
+# The lab slice of order 2, term: 21 terms in 10 groups inside and 10 outside, 103 coefficients.
+function _lab_coefficients(::Val{2}, ::Val{:term}, ℓ, vv, va, aa, bv, ab, cv)
     T = typeof(ℓ)
+    return SVector(_q(T, -1036, 20995) * vv * va^2 + _q(T, 7, 20995) * vv^2 * aa + _q(T, 56, 3315) * vv * bv + _q(T, 28, 1105) * va^2 + _q(T, 14, 1105) * vv * aa,
+                   _q(T, -147, 8398) * vv * va^2 + _q(T, 63, 167960) * vv^2 * aa + _q(T, 7, 1105) * vv * bv + _q(T, 21, 2210) * va^2 + _q(T, 21, 4420) * vv * aa,
+                   _q(T, -297, 33592) * vv * va^2 + _q(T, 45, 134368) * vv^2 * aa + _q(T, 3, 884) * vv * bv + _q(T, 9, 1768) * va^2 + _q(T, 9, 3536) * vv * aa,
+                   _q(T, -155, 33592) * vv * va^2 + _q(T, 35, 134368) * vv^2 * aa + _q(T, 5, 2652) * vv * bv + _q(T, 5, 1768) * va^2 + _q(T, 5, 3536) * vv * aa,
+                   _q(T, -609, 268736) * vv * va^2 + _q(T, 189, 1074944) * vv^2 * aa + _q(T, 7, 7072) * vv * bv + _q(T, 21, 14144) * va^2 + _q(T, 21, 28288) * vv * aa,
+                   _q(T, -5103, 5374720) * vv * va^2 + _q(T, 2079, 21498880) * vv^2 * aa + _q(T, 63, 141440) * vv * bv + _q(T, 189, 282880) * va^2 + _q(T, 189, 565760) * vv * aa,
+                   _q(T, -1155, 4299776) * vv * va^2 + _q(T, 231, 6615040) * vv^2 * aa + _q(T, 77, 565760) * vv * bv + _q(T, 231, 1131520) * va^2 + _q(T, 231, 2263040) * vv * aa,
+                   _q(T, -63, 83980) * vv^2 + _q(T, -2, 1105) * vv,
+                   _q(T, -45, 33592) * vv^2 + _q(T, -1, 1768) * vv,
+                   _q(T, -105, 67184) * vv^2 + _q(T, 1, 884) * vv,
+                   _q(T, -189, 134368) * vv^2 + _q(T, 35, 14144) * vv,
+                   _q(T, -2079, 2149888) * vv^2 + _q(T, 21, 7072) * vv,
+                   _q(T, -693, 1653760) * vv^2 + _q(T, 2541, 1131520) * vv,
+                   _q(T, 223, 41990) * vv * va + _q(T, -67, 2210) * va,
+                   _q(T, 1, 33592) * vv * va + _q(T, -55, 1768) * va,
+                   _q(T, -173, 33592) * vv * va + _q(T, -43, 1768) * va,
+                   _q(T, -161, 20672) * vv * va + _q(T, -217, 14144) * va,
+                   _q(T, -609, 82688) * vv * va + _q(T, -399, 56576) * va,
+                   _q(T, -94017, 21498880) * vv * va + _q(T, -1617, 1131520) * va,
+                   _q(T, 336, 20995) * va^2 + _q(T, -139, 41990) * vv * aa + _q(T, -14, 1105) * bv + _q(T, -157, 2210) * aa,
+                   _q(T, 63, 4199) * va^2 + _q(T, -109, 33592) * vv * aa + _q(T, -3, 221) * bv + _q(T, -69, 1768) * aa,
+                   _q(T, 45, 4199) * va^2 + _q(T, -67, 33592) * vv * aa + _q(T, -5, 442) * bv + _q(T, -49, 1768) * aa,
+                   _q(T, 105, 16796) * va^2 + _q(T, -7, 20672) * vv * aa + _q(T, -7, 884) * bv + _q(T, -271, 14144) * aa,
+                   _q(T, 189, 67184) * va^2 + _q(T, 1113, 1074944) * vv * aa + _q(T, -63, 14144) * bv + _q(T, -665, 56576) * aa,
+                   _q(T, 2079, 2687360) * va^2 + _q(T, 30261, 21498880) * vv * aa + _q(T, -231, 141440) * bv + _q(T, -6027, 1131520) * aa,
+                   _q(T, -3, 512) * vv + _q(T, 363, 512),
+                   _q(T, 115, 1664) * vv + _q(T, -151, 128),
+                   _q(T, -357, 3328) * vv + _q(T, 3165, 3328),
+                   _q(T, 1827, 28288) * vv + _q(T, -651, 1664),
+                   _q(T, -30261, 2149888) * vv + _q(T, 7455, 113152),
+                   _q(T, 87, 4199) * va,
+                   _q(T, 165, 4199) * va,
+                   _q(T, 777, 16796) * va,
+                   _q(T, 2583, 67184) * va,
+                   _q(T, 10395, 537472) * va,
+                   _q(T, 113, 4199) * aa,
+                   _q(T, 137, 4199) * aa,
+                   _q(T, 489, 16796) * aa,
+                   _q(T, 1337, 67184) * aa,
+                   _q(T, 21, 2432) * aa,
+                   _q(T, -274, 4199),
+                   _q(T, -489, 4199),
+                   _q(T, -4011, 33592),
+                   _q(T, -21, 304),
+                   _q(T, -11, 2210) * vv + _q(T, -3, 26),
+                   _q(T, -7, 1768) * vv + _q(T, -5, 104),
+                   _q(T, -3, 1768) * vv + _q(T, -3, 104),
+                   _q(T, 7, 14144) * vv + _q(T, -15, 832),
+                   _q(T, 105, 56576) * vv + _q(T, -35, 3328),
+                   _q(T, 2079, 1131520) * vv + _q(T, -63, 13312),
+                   _q(T, 23, 663),
+                   _q(T, 9, 221),
+                   _q(T, 31, 884),
+                   _q(T, 245, 10608),
+                   _q(T, 21, 2176),
+                   zero(T),
+                   _q(T, -3, 52) * vv * va^2 + _q(T, 1, 52) * vv * bv + _q(T, 3, 104) * va^2 + _q(T, 3, 208) * vv * aa,
+                   _q(T, 1, 104) * vv * va^2 + _q(T, 1, 2080) * vv^2 * aa + _q(T, -1, 390) * vv * bv + _q(T, -1, 260) * va^2 + _q(T, -1, 520) * vv * aa,
+                   _q(T, -3, 2210) * vv * va^2 + _q(T, -3, 17680) * vv^2 * aa + _q(T, 1, 4420) * vv * bv + _q(T, 3, 8840) * va^2 + _q(T, 3, 17680) * vv * aa,
+                   _q(T, 3, 33592) * vv * va^2 + _q(T, 3, 134368) * vv^2 * aa,
+                   zero(T),
+                   _q(T, -1, 208) * vv,
+                   _q(T, -3, 2080) * vv^2 + _q(T, 1, 260) * vv,
+                   _q(T, 3, 3536) * vv^2 + _q(T, -3, 3536) * vv,
+                   _q(T, -21, 134368) * vv^2,
+                   zero(T),
+                   _q(T, 1, 52) * vv * va + _q(T, -5, 104) * va,
+                   _q(T, -11, 520) * vv * va + _q(T, 11, 520) * va,
+                   _q(T, 15, 1768) * vv * va + _q(T, -3, 884) * va,
+                   _q(T, -21, 16796) * vv * va,
+                   _q(T, -1, 16) * aa,
+                   _q(T, 3, 104) * va^2 + _q(T, -1, 208) * vv * aa + _q(T, -1, 52) * bv + _q(T, -3, 208) * aa,
+                   _q(T, -9, 520) * va^2 + _q(T, 1, 1040) * vv * aa + _q(T, 1, 130) * bv + _q(T, 7, 1040) * aa,
+                   _q(T, 9, 1768) * va^2 + _q(T, 3, 3536) * vv * aa + _q(T, -1, 884) * bv + _q(T, -3, 3536) * aa,
+                   _q(T, -21, 33592) * va^2 + _q(T, -21, 67184) * vv * aa,
+                   _q(T, 3, 16),
+                   _q(T, 3, 208) * vv + _q(T, -3, 208),
+                   _q(T, -1, 208) * vv + _q(T, -5, 208),
+                   _q(T, -21, 3536) * vv + _q(T, 21, 3536),
+                   _q(T, 189, 67184) * vv,
+                   zero(T),
+                   _q(T, 3, 104) * va,
+                   zero(T),
+                   _q(T, -21, 1768) * va,
+                   _q(T, 63, 16796) * va,
+                   _q(T, 1, 32) * aa,
+                   zero(T),
+                   _q(T, -1, 208) * aa,
+                   zero(T),
+                   _q(T, 63, 134368) * aa,
+                   _q(T, -3, 32),
+                   zero(T),
+                   _q(T, 7, 208),
+                   zero(T),
+                   _q(T, -693, 134368),
+                   _q(T, -1, 8),
+                   _q(T, -1, 104) * vv + _q(T, 1, 104),
+                   _q(T, 3, 520) * vv,
+                   _q(T, -1, 884) * vv,
+                   _q(T, 1, 24),
+                   zero(T),
+                   _q(T, -1, 104),
+                   _q(T, 7, 2652))
+end
+
+function _lab_evaluate(::Val{2}, ::Val{:term}, Q, ℓ, q, vy, ay, by, cy, c, d=())
+    T = typeof(ℓ)
+    s₀ = s₁ = zero(q * _coefficient(c, 1, d))
     if q < ℓ^2
-        return ℓ^(-3) * evalpoly(1 - q / ℓ^2, (_q(T, -1, 2), _q(T, -3, 4), _q(T, -15, 16), _q(T, -35, 32), _q(T, -315, 256))) / T(π)
+        σ² = q / ℓ^2
+        w = 1 - σ²
+        vy² = vy * vy
+        vy³ = vy² * vy
+        vy⁴ = vy² * vy²
+        ay² = ay * ay
+        ℓ⁻¹ = 1 / ℓ
+        ℓ⁻² = ℓ⁻¹ * ℓ⁻¹
+        ℓ⁻³ = ℓ⁻² * ℓ⁻¹
+        ℓ⁻⁴ = ℓ⁻² * ℓ⁻²
+        ℓ⁻⁵ = ℓ⁻⁴ * ℓ⁻¹
+        s₁ += ℓ * evalpoly(w, (_coefficient(c, 1, d), _coefficient(c, 2, d), _coefficient(c, 3, d), _coefficient(c, 4, d), _coefficient(c, 5, d), _coefficient(c, 6, d), _coefficient(c, 7, d)))
+        s₁ += ay² * ℓ⁻¹ * evalpoly(w, (_coefficient(c, 8, d), _coefficient(c, 9, d), _coefficient(c, 10, d), _coefficient(c, 11, d), _coefficient(c, 12, d), _coefficient(c, 13, d)))
+        s₁ += vy * ay * ℓ⁻¹ * evalpoly(w, (_coefficient(c, 14, d), _coefficient(c, 15, d), _coefficient(c, 16, d), _coefficient(c, 17, d), _coefficient(c, 18, d), _coefficient(c, 19, d)))
+        s₁ += vy² * ℓ⁻¹ * evalpoly(w, (_coefficient(c, 20, d), _coefficient(c, 21, d), _coefficient(c, 22, d), _coefficient(c, 23, d), _coefficient(c, 24, d), _coefficient(c, 25, d)))
+        s₁ += vy² * ay² * ℓ⁻³ * evalpoly(σ², (_coefficient(c, 26, d), _coefficient(c, 27, d), _coefficient(c, 28, d), _coefficient(c, 29, d), _coefficient(c, 30, d)))
+        s₁ += vy³ * ay * ℓ⁻³ * evalpoly(w, (_coefficient(c, 31, d), _coefficient(c, 32, d), _coefficient(c, 33, d), _coefficient(c, 34, d), _coefficient(c, 35, d)))
+        s₁ += vy⁴ * ℓ⁻³ * evalpoly(w, (_coefficient(c, 36, d), _coefficient(c, 37, d), _coefficient(c, 38, d), _coefficient(c, 39, d), _coefficient(c, 40, d)))
+        s₁ += vy⁴ * ay² * ℓ⁻⁵ * evalpoly(w, (_coefficient(c, 41, d), _coefficient(c, 42, d), _coefficient(c, 43, d), _coefficient(c, 44, d)))
+        s₁ += vy * by * ℓ⁻¹ * evalpoly(w, (_coefficient(c, 45, d), _coefficient(c, 46, d), _coefficient(c, 47, d), _coefficient(c, 48, d), _coefficient(c, 49, d), _coefficient(c, 50, d)))
+        s₁ += vy³ * by * ℓ⁻³ * evalpoly(w, (_coefficient(c, 51, d), _coefficient(c, 52, d), _coefficient(c, 53, d), _coefficient(c, 54, d), _coefficient(c, 55, d)))
     else
         r = sqrt(q)
-        return r^(-3) * evalpoly(ℓ^2 / q, (_q(T, -1, 2),)) / T(π)
+        u = ℓ^2 / q
+        vy² = vy * vy
+        vy³ = vy² * vy
+        vy⁴ = vy² * vy²
+        ay² = ay * ay
+        r⁻¹ = 1 / r
+        r⁻² = r⁻¹ * r⁻¹
+        r⁻³ = r⁻² * r⁻¹
+        r⁻⁴ = r⁻² * r⁻²
+        r⁻⁵ = r⁻⁴ * r⁻¹
+        s₁ += r * evalpoly(u, (_coefficient(c, 56, d), _coefficient(c, 57, d), _coefficient(c, 58, d), _coefficient(c, 59, d), _coefficient(c, 60, d)))
+        s₁ += ay² * r⁻¹ * evalpoly(u, (_coefficient(c, 61, d), _coefficient(c, 62, d), _coefficient(c, 63, d), _coefficient(c, 64, d), _coefficient(c, 65, d)))
+        s₁ += vy * ay * r⁻¹ * evalpoly(u, (_coefficient(c, 66, d), _coefficient(c, 67, d), _coefficient(c, 68, d), _coefficient(c, 69, d), _coefficient(c, 70, d)))
+        s₁ += vy² * r⁻¹ * evalpoly(u, (_coefficient(c, 71, d), _coefficient(c, 72, d), _coefficient(c, 73, d), _coefficient(c, 74, d), _coefficient(c, 75, d)))
+        s₁ += vy² * ay² * r⁻³ * evalpoly(u, (_coefficient(c, 76, d), _coefficient(c, 77, d), _coefficient(c, 78, d), _coefficient(c, 79, d), _coefficient(c, 80, d)))
+        s₁ += vy³ * ay * r⁻³ * evalpoly(u, (_coefficient(c, 81, d), _coefficient(c, 82, d), _coefficient(c, 83, d), _coefficient(c, 84, d), _coefficient(c, 85, d)))
+        s₁ += vy⁴ * r⁻³ * evalpoly(u, (_coefficient(c, 86, d), _coefficient(c, 87, d), _coefficient(c, 88, d), _coefficient(c, 89, d), _coefficient(c, 90, d)))
+        s₁ += vy⁴ * ay² * r⁻⁵ * evalpoly(u, (_coefficient(c, 91, d), _coefficient(c, 92, d), _coefficient(c, 93, d), _coefficient(c, 94, d), _coefficient(c, 95, d)))
+        s₁ += vy * by * r⁻¹ * evalpoly(u, (_coefficient(c, 96, d), _coefficient(c, 97, d), _coefficient(c, 98, d), _coefficient(c, 99, d)))
+        s₁ += vy³ * by * r⁻³ * evalpoly(u, (_coefficient(c, 100, d), _coefficient(c, 101, d), _coefficient(c, 102, d), _coefficient(c, 103, d)))
     end
+    return Q * (s₀ + s₁ / T(π))
 end
 
-# Its Laplacian, radial factor of vy * vy * ay.
-@inline function _TP2L_3(q, ℓ)
+# The lab slice of order 2, laplacian: 21 terms in 10 groups inside and 10 outside, 75 coefficients.
+function _lab_coefficients(::Val{2}, ::Val{:laplacian}, ℓ, vv, va, aa, bv, ab, cv)
     T = typeof(ℓ)
+    return SVector(_q(T, 33, 13),
+                   _q(T, 84, 13),
+                   _q(T, 63, 8),
+                   _q(T, -8, 13) * aa,
+                   _q(T, -33, 26) * aa,
+                   _q(T, -21, 13) * aa,
+                   _q(T, -21, 16) * aa,
+                   _q(T, -20, 13) * va,
+                   _q(T, -87, 26) * va,
+                   _q(T, -231, 52) * va,
+                   _q(T, -777, 208) * va,
+                   _q(T, -8, 13),
+                   _q(T, -33, 26),
+                   _q(T, -21, 13),
+                   _q(T, -21, 16),
+                   _q(T, -49, 52) * vv + _q(T, -11, 4),
+                   _q(T, -177, 104) * vv + _q(T, -615, 104),
+                   _q(T, -567, 416) * vv + _q(T, -3465, 416),
+                   _q(T, 903, 832) * vv + _q(T, -7455, 832),
+                   _q(T, 19, 52) * vv * aa + _q(T, 33, 52) * aa + _q(T, 4, 13) * bv,
+                   _q(T, 49, 104) * vv * aa + _q(T, 95, 104) * aa + _q(T, 6, 13) * bv,
+                   _q(T, 177, 416) * vv * aa + _q(T, 435, 416) * aa + _q(T, 27, 52) * bv,
+                   _q(T, 189, 832) * vv * aa + _q(T, 875, 832) * aa + _q(T, 49, 104) * bv,
+                   _q(T, -903, 6656) * vv * aa + _q(T, 6195, 6656) * aa + _q(T, 63, 208) * bv,
+                   _q(T, 7, 52) * vv * va + _q(T, 77, 52) * va,
+                   _q(T, 31, 104) * vv * va + _q(T, 209, 104) * va,
+                   _q(T, 189, 416) * vv * va + _q(T, 855, 416) * va,
+                   _q(T, 483, 832) * vv * va + _q(T, 105, 64) * va,
+                   _q(T, 4389, 6656) * vv * va + _q(T, 4935, 6656) * va,
+                   _q(T, 1, 4) * vv + _q(T, 23, 52),
+                   _q(T, 33, 104) * vv + _q(T, 63, 104),
+                   _q(T, 111, 416) * vv + _q(T, 285, 416),
+                   _q(T, 77, 832) * vv + _q(T, 595, 832),
+                   _q(T, -1449, 6656) * vv + _q(T, 4725, 6656),
+                   _q(T, 1, 52) * vv^2 + _q(T, 17, 52) * vv,
+                   _q(T, 1, 26) * vv^2 + _q(T, 41, 104) * vv,
+                   _q(T, 21, 416) * vv^2 + _q(T, 135, 416) * vv,
+                   _q(T, 21, 416) * vv^2 + _q(T, 105, 832) * vv,
+                   _q(T, 231, 6656) * vv^2 + _q(T, -105, 512) * vv,
+                   _q(T, -1, 130) * vv^2 * aa + _q(T, 1, 13) * vv * va^2 + _q(T, -2, 13) * vv * aa + _q(T, -3, 65) * vv * bv + _q(T, -1, 13) * va^2 + _q(T, -3, 13) * bv,
+                   _q(T, -1, 104) * vv^2 * aa + _q(T, 5, 52) * vv * va^2 + _q(T, -5, 52) * vv * aa + _q(T, -3, 52) * vv * bv + _q(T, -5, 52) * va^2 + _q(T, -5, 52) * bv,
+                   _q(T, -1, 104) * vv^2 * aa + _q(T, 5, 52) * vv * va^2 + _q(T, -1, 13) * vv * aa + _q(T, -3, 52) * vv * bv + _q(T, -5, 52) * va^2 + _q(T, -3, 52) * bv,
+                   _q(T, -7, 832) * vv^2 * aa + _q(T, 35, 416) * vv * va^2 + _q(T, -25, 416) * vv * aa + _q(T, -21, 416) * vv * bv + _q(T, -35, 416) * va^2 + _q(T, -15, 416) * bv,
+                   _q(T, -21, 3328) * vv^2 * aa + _q(T, 105, 1664) * vv * va^2 + _q(T, -35, 832) * vv * aa + _q(T, -63, 1664) * vv * bv + _q(T, -105, 1664) * va^2 + _q(T, -35, 1664) * bv,
+                   _q(T, -231, 66560) * vv^2 * aa + _q(T, 231, 6656) * vv * va^2 + _q(T, -147, 6656) * vv * aa + _q(T, -693, 33280) * vv * bv + _q(T, -231, 6656) * va^2 + _q(T, -63, 6656) * bv,
+                   _q(T, 15, 4),
+                   zero(T),
+                   _q(T, -63, 52),
+                   _q(T, -3, 4) * aa,
+                   zero(T),
+                   _q(T, 7, 52) * aa,
+                   _q(T, -3, 2) * va,
+                   _q(T, -15, 26) * va,
+                   _q(T, 7, 13) * va,
+                   _q(T, -3, 4),
+                   zero(T),
+                   _q(T, 7, 52),
+                   _q(T, -9, 8) * vv + _q(T, -27, 8),
+                   _q(T, -15, 52) * vv + _q(T, 15, 52),
+                   _q(T, 49, 104) * vv + _q(T, 35, 104),
+                   _q(T, 3, 8) * vv * aa + _q(T, 5, 8) * aa + _q(T, 1, 4) * bv,
+                   _q(T, 3, 52) * vv * aa + _q(T, 3, 52) * aa + _q(T, 3, 26) * bv,
+                   _q(T, -7, 104) * vv * aa + _q(T, -5, 104) * aa + _q(T, -3, 52) * bv,
+                   _q(T, 3, 2) * va,
+                   _q(T, 9, 52) * vv * va + _q(T, 9, 52) * va,
+                   _q(T, -1, 26) * vv * va + _q(T, -5, 26) * va,
+                   _q(T, 1, 4) * vv + _q(T, 1, 2),
+                   _q(T, 3, 52) * vv + _q(T, -3, 52),
+                   _q(T, -3, 52) * vv,
+                   _q(T, 3, 8) * vv,
+                   _q(T, 3, 104) * vv^2,
+                   _q(T, -1, 104) * vv^2 + _q(T, -5, 104) * vv,
+                   _q(T, -1, 8) * vv * aa + _q(T, -1, 4) * bv,
+                   _q(T, -1, 104) * vv^2 * aa + _q(T, 5, 52) * vv * va^2 + _q(T, -1, 26) * vv * aa + _q(T, -3, 52) * vv * bv + _q(T, -5, 52) * va^2 + _q(T, 1, 52) * bv,
+                   _q(T, 1, 520) * vv^2 * aa + _q(T, -1, 52) * vv * va^2 + _q(T, 1, 104) * vv * aa + _q(T, 3, 260) * vv * bv + _q(T, 1, 52) * va^2)
+end
+
+function _lab_evaluate(::Val{2}, ::Val{:laplacian}, Q, ℓ, q, vy, ay, by, cy, c, d=())
+    T = typeof(ℓ)
+    s₀ = s₁ = zero(q * _coefficient(c, 1, d))
     if q < ℓ^2
-        return ℓ^(-5) * evalpoly(1 - q / ℓ^2, (_q(T, 3, 2), _q(T, 15, 4), _q(T, 105, 16), _q(T, 4725, 128))) / T(π)
+        σ² = q / ℓ^2
+        w = 1 - σ²
+        vy² = vy * vy
+        vy³ = vy² * vy
+        vy⁴ = vy² * vy²
+        ay² = ay * ay
+        ℓ⁻¹ = 1 / ℓ
+        ℓ⁻² = ℓ⁻¹ * ℓ⁻¹
+        ℓ⁻³ = ℓ⁻² * ℓ⁻¹
+        ℓ⁻⁴ = ℓ⁻² * ℓ⁻²
+        ℓ⁻⁵ = ℓ⁻⁴ * ℓ⁻¹
+        ℓ⁻⁶ = ℓ⁻³ * ℓ⁻³
+        ℓ⁻⁷ = ℓ⁻⁶ * ℓ⁻¹
+        s₁ += vy⁴ * ay² * ℓ⁻⁷ * evalpoly(w, (_coefficient(c, 1, d), _coefficient(c, 2, d), _coefficient(c, 3, d)))
+        s₁ += vy⁴ * ℓ⁻⁵ * evalpoly(w, (_coefficient(c, 4, d), _coefficient(c, 5, d), _coefficient(c, 6, d), _coefficient(c, 7, d)))
+        s₁ += vy³ * ay * ℓ⁻⁵ * evalpoly(w, (_coefficient(c, 8, d), _coefficient(c, 9, d), _coefficient(c, 10, d), _coefficient(c, 11, d)))
+        s₁ += vy³ * by * ℓ⁻⁵ * evalpoly(w, (_coefficient(c, 12, d), _coefficient(c, 13, d), _coefficient(c, 14, d), _coefficient(c, 15, d)))
+        s₁ += vy² * ay² * ℓ⁻⁵ * evalpoly(w, (_coefficient(c, 16, d), _coefficient(c, 17, d), _coefficient(c, 18, d), _coefficient(c, 19, d)))
+        s₁ += vy² * ℓ⁻³ * evalpoly(w, (_coefficient(c, 20, d), _coefficient(c, 21, d), _coefficient(c, 22, d), _coefficient(c, 23, d), _coefficient(c, 24, d)))
+        s₁ += vy * ay * ℓ⁻³ * evalpoly(w, (_coefficient(c, 25, d), _coefficient(c, 26, d), _coefficient(c, 27, d), _coefficient(c, 28, d), _coefficient(c, 29, d)))
+        s₁ += vy * by * ℓ⁻³ * evalpoly(w, (_coefficient(c, 30, d), _coefficient(c, 31, d), _coefficient(c, 32, d), _coefficient(c, 33, d), _coefficient(c, 34, d)))
+        s₁ += ay² * ℓ⁻³ * evalpoly(w, (_coefficient(c, 35, d), _coefficient(c, 36, d), _coefficient(c, 37, d), _coefficient(c, 38, d), _coefficient(c, 39, d)))
+        s₁ += ℓ⁻¹ * evalpoly(w, (_coefficient(c, 40, d), _coefficient(c, 41, d), _coefficient(c, 42, d), _coefficient(c, 43, d), _coefficient(c, 44, d), _coefficient(c, 45, d)))
     else
         r = sqrt(q)
-        return r^(-5) * evalpoly(ℓ^2 / q, (_q(T, 3, 2),)) / T(π)
+        u = ℓ^2 / q
+        vy² = vy * vy
+        vy³ = vy² * vy
+        vy⁴ = vy² * vy²
+        ay² = ay * ay
+        r⁻¹ = 1 / r
+        r⁻² = r⁻¹ * r⁻¹
+        r⁻³ = r⁻² * r⁻¹
+        r⁻⁴ = r⁻² * r⁻²
+        r⁻⁵ = r⁻⁴ * r⁻¹
+        r⁻⁶ = r⁻³ * r⁻³
+        r⁻⁷ = r⁻⁶ * r⁻¹
+        s₁ += vy⁴ * ay² * r⁻⁷ * evalpoly(u, (_coefficient(c, 46, d), _coefficient(c, 47, d), _coefficient(c, 48, d)))
+        s₁ += vy⁴ * r⁻⁵ * evalpoly(u, (_coefficient(c, 49, d), _coefficient(c, 50, d), _coefficient(c, 51, d)))
+        s₁ += vy³ * ay * r⁻⁵ * evalpoly(u, (_coefficient(c, 52, d), _coefficient(c, 53, d), _coefficient(c, 54, d)))
+        s₁ += vy³ * by * r⁻⁵ * evalpoly(u, (_coefficient(c, 55, d), _coefficient(c, 56, d), _coefficient(c, 57, d)))
+        s₁ += vy² * ay² * r⁻⁵ * evalpoly(u, (_coefficient(c, 58, d), _coefficient(c, 59, d), _coefficient(c, 60, d)))
+        s₁ += vy² * r⁻³ * evalpoly(u, (_coefficient(c, 61, d), _coefficient(c, 62, d), _coefficient(c, 63, d)))
+        s₁ += vy * ay * r⁻³ * evalpoly(u, (_coefficient(c, 64, d), _coefficient(c, 65, d), _coefficient(c, 66, d)))
+        s₁ += vy * by * r⁻³ * evalpoly(u, (_coefficient(c, 67, d), _coefficient(c, 68, d), _coefficient(c, 69, d)))
+        s₁ += ay² * r⁻³ * evalpoly(u, (_coefficient(c, 70, d), _coefficient(c, 71, d), _coefficient(c, 72, d)))
+        s₁ += r⁻¹ * evalpoly(u, (_coefficient(c, 73, d), _coefficient(c, 74, d), _coefficient(c, 75, d)))
     end
+    return Q * (s₀ + s₁ / T(π))
 end
 
-@inline _tprime2_term(Q, ℓ, q, ay, vy) = Q * (vy * vy * ay * _TP2(q, ℓ))
-
-@inline function _tprime2_laplacian(Q, ℓ, q, ay, vy, vv, va)
-    return Q * (vv * ay * _TP2L_1(q, ℓ) +
-                vy * va * _TP2L_2(q, ℓ) +
-                vy * vy * ay * _TP2L_3(q, ℓ))
+# The lab slice of order 3, term: 74 terms in 23 groups inside and 23 outside, 273 coefficients.
+function _lab_coefficients(::Val{3}, ::Val{:term}, ℓ, vv, va, aa, bv, ab, cv)
+    T = typeof(ℓ)
+    return SVector(_q(T, 1073, 96577) * vv^2 * va^2 + _q(T, -9, 96577) * vv^3 * aa + _q(T, -148, 62985) * vv^2 * bv + _q(T, -278, 20995) * vv * va^2 + _q(T, -1, 1235) * vv^2 * aa + _q(T, 112, 62985) * vv * bv + _q(T, 63, 1615) * va^2 + _q(T, -189, 20995) * vv * aa + _q(T, -28, 1105) * bv,
+                   _q(T, 8457, 772616) * vv^2 * va^2 + _q(T, -15, 96577) * vv^3 * aa + _q(T, -101, 41990) * vv^2 * bv + _q(T, -1161, 83980) * vv * va^2 + _q(T, -27, 41990) * vv^2 * aa + _q(T, 42, 20995) * vv * bv + _q(T, 2583, 167960) * va^2 + _q(T, -63, 20995) * vv * aa + _q(T, -21, 2210) * bv,
+                   _q(T, 26175, 3090464) * vv^2 * va^2 + _q(T, -525, 3090464) * vv^3 * aa + _q(T, -5, 2584) * vv^2 * bv + _q(T, -45, 3952) * vv * va^2 + _q(T, -45, 134368) * vv^2 * aa + _q(T, 15, 8398) * vv * bv + _q(T, 1161, 134368) * va^2 + _q(T, -189, 134368) * vv * aa + _q(T, -9, 1768) * bv,
+                   _q(T, 1025, 181792) * vv^2 * va^2 + _q(T, -225, 1545232) * vv^3 * aa + _q(T, -45, 33592) * vv^2 * bv + _q(T, -545, 67184) * vv * va^2 + _q(T, -5, 67184) * vv^2 * aa + _q(T, 35, 25194) * vv * bv + _q(T, 675, 134368) * va^2 + _q(T, -45, 67184) * vv * aa + _q(T, -5, 1768) * bv,
+                   _q(T, 79335, 24723712) * vv^2 * va^2 + _q(T, -2475, 24723712) * vv^3 * aa + _q(T, -213, 268736) * vv^2 * bv + _q(T, -2673, 537472) * vv * va^2 + _q(T, 81, 1074944) * vv^2 * aa + _q(T, 63, 67184) * vv * bv + _q(T, 2961, 1074944) * va^2 + _q(T, -315, 1074944) * vv * aa + _q(T, -21, 14144) * bv,
+                   _q(T, 144441, 98894848) * vv^2 * va^2 + _q(T, -99, 1901824) * vv^3 * aa + _q(T, -2013, 5374720) * vv^2 * bv + _q(T, -26433, 10749440) * vv * va^2 + _q(T, 297, 2687360) * vv^2 * aa + _q(T, 693, 1343680) * vv * bv + _q(T, 27783, 21498880) * va^2 + _q(T, -567, 5374720) * vv * aa + _q(T, -189, 282880) * bv,
+                   _q(T, 12969, 30429184) * vv^2 * va^2 + _q(T, -495, 30429184) * vv^3 * aa + _q(T, -11, 97280) * vv^2 * bv + _q(T, -2607, 3307520) * vv * va^2 + _q(T, 429, 6615040) * vv^2 * aa + _q(T, 77, 413440) * vv * bv + _q(T, 2079, 5058560) * va^2 + _q(T, -2079, 85995520) * vv * aa + _q(T, -231, 1131520) * bv,
+                   _q(T, 10, 96577) * vv^3 + _q(T, -3, 41990) * vv^2 + _q(T, 42, 20995) * vv,
+                   _q(T, 175, 772616) * vv^3 + _q(T, -15, 33592) * vv^2 + _q(T, 63, 33592) * vv,
+                   _q(T, 225, 772616) * vv^3 + _q(T, -15, 16796) * vv^2 + _q(T, 45, 33592) * vv,
+                   _q(T, 825, 3090464) * vv^3 + _q(T, -9, 7904) * vv^2 + _q(T, 105, 134368) * vv,
+                   _q(T, 165, 950912) * vv^3 + _q(T, -1089, 1074944) * vv^2 + _q(T, 189, 537472) * vv,
+                   _q(T, 495, 7607296) * vv^3 + _q(T, -891, 1653760) * vv^2 + _q(T, 2079, 21498880) * vv,
+                   _q(T, -1251, 5120) * vv * va^3 + _q(T, -17, 5120) * vv^2 * va * aa + _q(T, 187, 960) * vv * va * bv + _q(T, 11, 30720) * vv^2 * ab + _q(T, 649, 5120) * va^3 + _q(T, 33, 320) * vv * va * aa + _q(T, -121, 5120) * vv * cv + _q(T, -11, 256) * va * bv + _q(T, -341, 5120) * vv * ab + _q(T, -99, 1024) * va * aa + _q(T, -77, 5120) * cv + _q(T, -847, 10240) * ab,
+                   _q(T, 675, 6656) * vv * va^3 + _q(T, 99, 8320) * vv^2 * va * aa + _q(T, -29, 320) * vv * va * bv + _q(T, -17, 5120) * vv^2 * ab + _q(T, -141, 2560) * va^3 + _q(T, -81, 1280) * vv * va * aa + _q(T, 33, 2560) * vv * cv + _q(T, 11, 640) * va * bv + _q(T, 121, 2560) * vv * ab + _q(T, 99, 1280) * va * aa + _q(T, 33, 2560) * cv + _q(T, -33, 5120) * ab,
+                   _q(T, -537, 13312) * vv * va^3 + _q(T, -225, 13312) * vv^2 * va * aa + _q(T, 17, 416) * vv * va * bv + _q(T, 155, 26624) * vv^2 * ab + _q(T, 291, 13312) * va^3 + _q(T, 153, 3328) * vv * va * aa + _q(T, -7, 1024) * vv * cv + _q(T, -1, 256) * va * bv + _q(T, -35, 1024) * vv * ab + _q(T, -63, 1024) * va * aa + _q(T, -11, 1024) * cv + _q(T, -33, 2048) * ab,
+                   _q(T, 545, 56576) * vv * va^3 + _q(T, 385, 28288) * vv^2 * va * aa + _q(T, -5, 416) * vv * va * bv + _q(T, -35, 6656) * vv^2 * ab + _q(T, -15, 3328) * va^3 + _q(T, -45, 1664) * vv * va * aa + _q(T, 25, 9984) * vv * cv + _q(T, -5, 2496) * va * bv + _q(T, 185, 9984) * vv * ab + _q(T, 15, 416) * va * aa + _q(T, 5, 768) * cv + _q(T, 19, 1536) * ab,
+                   _q(T, -1239, 4299776) * vv * va^3 + _q(T, -28161, 4299776) * vv^2 * va * aa + _q(T, 21, 14144) * vv * va * bv + _q(T, 1239, 452608) * vv^2 * ab + _q(T, -105, 226304) * va^3 + _q(T, 315, 28288) * vv * va * aa + _q(T, -7, 13312) * vv * cv + _q(T, 7, 3328) * va * bv + _q(T, -7, 1024) * vv * ab + _q(T, -189, 13312) * va * aa + _q(T, -35, 13312) * cv + _q(T, -145, 26624) * ab,
+                   _q(T, -5211, 10749440) * vv * va^3 + _q(T, 297, 167960) * vv^2 * va * aa + _q(T, 21, 103360) * vv * va * bv + _q(T, -16863, 21498880) * vv^2 * ab + _q(T, 5229, 10749440) * va^3 + _q(T, -14931, 5374720) * vv * va * aa + _q(T, 21, 565760) * vv * cv + _q(T, -21, 28288) * va * bv + _q(T, 861, 565760) * vv * ab + _q(T, 189, 56576) * va * aa + _q(T, 21, 33280) * cv + _q(T, 7, 5120) * ab,
+                   _q(T, 9141, 98894848) * vv * va^3 + _q(T, -7887, 38036480) * vv^2 * va * aa + _q(T, -11, 167960) * vv * va * bv + _q(T, 319, 3307520) * vv^2 * ab + _q(T, -1749, 21498880) * va^3 + _q(T, 99, 316160) * vv * va * aa + _q(T, 77, 21498880) * vv * cv + _q(T, 539, 5374720) * va * bv + _q(T, -3311, 21498880) * vv * ab + _q(T, -7623, 21498880) * va * aa + _q(T, -77, 1131520) * cv + _q(T, -343, 2263040) * ab,
+                   _q(T, 33, 50830) * vv^2 * va + _q(T, -33, 4199) * vv * va + _q(T, 1701, 41990) * va,
+                   _q(T, 615, 193154) * vv^2 * va + _q(T, -18, 4199) * vv * va + _q(T, 27, 646) * va,
+                   _q(T, 4395, 772616) * vv^2 * va + _q(T, -45, 16796) * vv * va + _q(T, 1125, 33592) * va,
+                   _q(T, 2529, 386308) * vv^2 * va + _q(T, -3, 988) * vv * va + _q(T, 189, 8398) * va,
+                   _q(T, 7623, 1454336) * vv^2 * va + _q(T, -1809, 537472) * vv * va + _q(T, 13041, 1074944) * va,
+                   _q(T, 23661, 9509120) * vv^2 * va + _q(T, -297, 134368) * vv * va + _q(T, 22869, 5374720) * va,
+                   _q(T, -7791, 482885) * vv * va^2 + _q(T, 693, 965770) * vv^2 * aa + _q(T, 118, 20995) * vv * bv + _q(T, -711, 20995) * va^2 + _q(T, 18, 1235) * vv * aa + _q(T, 42, 1235) * bv + _q(T, 14217, 41990) * aa,
+                   _q(T, -165, 7429) * vv * va^2 + _q(T, 135, 193154) * vv^2 * aa + _q(T, 35, 4199) * vv * bv + _q(T, -99, 4199) * va^2 + _q(T, 9, 646) * vv * aa + _q(T, 141, 4199) * bv + _q(T, 672, 4199) * aa,
+                   _q(T, -7335, 386308) * vv * va^2 + _q(T, -45, 772616) * vv^2 * aa + _q(T, 5, 646) * vv * bv + _q(T, -15, 1292) * va^2 + _q(T, 75, 8398) * vv * aa + _q(T, 215, 8398) * bv + _q(T, 3327, 33592) * aa,
+                   _q(T, -1116, 96577) * vv * va^2 + _q(T, -783, 772616) * vv^2 * aa + _q(T, 87, 16796) * vv * bv + _q(T, -18, 4199) * va^2 + _q(T, 9, 2584) * vv * aa + _q(T, 21, 1292) * bv + _q(T, 987, 16796) * aa,
+                   _q(T, -57123, 12361856) * vv * va^2 + _q(T, -36531, 24723712) * vv^2 * aa + _q(T, 33, 14144) * vv * bv + _q(T, -675, 537472) * va^2 + _q(T, -27, 268736) * vv * aa + _q(T, 2205, 268736) * bv + _q(T, 31857, 1074944) * aa,
+                   _q(T, -3663, 4754560) * vv * va^2 + _q(T, -9801, 9509120) * vv^2 * aa + _q(T, 99, 206720) * vv * bv + _q(T, -1089, 2687360) * va^2 + _q(T, -5247, 5374720) * vv * aa + _q(T, 7161, 2687360) * bv + _q(T, 6741, 671840) * aa,
+                   _q(T, -45, 96577) * vv^2 + _q(T, -24, 4199) * vv + _q(T, -771, 4199),
+                   _q(T, 15, 193154) * vv^2 + _q(T, -15, 4199) * vv + _q(T, -135, 646),
+                   _q(T, 783, 386308) * vv^2 + _q(T, 18, 4199) * vv + _q(T, -2943, 16796),
+                   _q(T, 12177, 3090464) * vv^2 + _q(T, 711, 67184) * vv + _q(T, -15141, 134368),
+                   _q(T, 3267, 950912) * vv^2 + _q(T, 297, 33592) * vv + _q(T, -24759, 537472),
+                   _q(T, 7024, 482885) * va^3 + _q(T, -1056, 482885) * vv * va * aa + _q(T, -32, 1615) * va * bv + _q(T, 1, 323) * vv * ab + _q(T, 288, 20995) * va * aa + _q(T, 112, 20995) * cv + _q(T, 1967, 20995) * ab,
+                   _q(T, 957, 96577) * va^3 + _q(T, 67, 96577) * vv * va * aa + _q(T, -194, 12597) * va * bv + _q(T, 49, 25194) * vv * ab + _q(T, 69, 4199) * va * aa + _q(T, 21, 4199) * cv + _q(T, 1213, 25194) * ab,
+                   _q(T, 35, 7429) * va^3 + _q(T, 280, 96577) * vv * va * aa + _q(T, -110, 12597) * va * bv + _q(T, 5, 50388) * vv * ab + _q(T, 60, 4199) * va * aa + _q(T, 15, 4199) * cv + _q(T, 517, 16796) * ab,
+                   _q(T, 35, 22724) * va^3 + _q(T, 1295, 386308) * vv * va * aa + _q(T, -5, 1326) * va * bv + _q(T, -127, 100776) * vv * ab + _q(T, 165, 16796) * va * aa + _q(T, 35, 16796) * cv + _q(T, 619, 33592) * ab,
+                   _q(T, 27, 118864) * va^3 + _q(T, 141, 59432) * vv * va * aa + _q(T, -37, 33592) * va * bv + _q(T, -863, 537472) * vv * ab + _q(T, 9, 1768) * va * aa + _q(T, 63, 67184) * cv + _q(T, 14917, 1612416) * ab,
+                   _q(T, -2739, 61809280) * va^3 + _q(T, 56991, 61809280) * vv * va * aa + _q(T, -11, 79040) * va * bv + _q(T, -55, 56576) * vv * ab + _q(T, 4257, 2687360) * va * aa + _q(T, 693, 2687360) * cv + _q(T, 16611, 5374720) * ab,
+                   _q(T, -134, 96577) * vv * va + _q(T, -222, 4199) * va,
+                   _q(T, -1120, 96577) * vv * va + _q(T, -360, 4199) * va,
+                   _q(T, -3885, 193154) * vv * va + _q(T, -705, 8398) * va,
+                   _q(T, -141, 7429) * vv * va + _q(T, -18, 323) * va,
+                   _q(T, -56991, 6180928) * vv * va + _q(T, -297, 14144) * va,
+                   _q(T, 1474, 96577) * va^2 + _q(T, -321, 96577) * vv * aa + _q(T, -176, 12597) * bv + _q(T, -37, 247) * aa,
+                   _q(T, 1970, 96577) * va^2 + _q(T, -165, 96577) * vv * aa + _q(T, -280, 12597) * bv + _q(T, -3, 17) * aa,
+                   _q(T, 90, 5681) * va^2 + _q(T, 1611, 386308) * vv * aa + _q(T, -90, 4199) * bv + _q(T, -2517, 16796) * aa,
+                   _q(T, 3027, 386308) * va^2 + _q(T, 14265, 1545232) * vv * aa + _q(T, -59, 4199) * bv + _q(T, -6431, 67184) * aa,
+                   _q(T, 12111, 6180928) * va^2 + _q(T, 97119, 12361856) * vv * aa + _q(T, -22, 4199) * bv + _q(T, -20493, 537472) * aa,
+                   _q(T, 110, 96577) * vv + _q(T, 590, 4199),
+                   _q(T, -537, 96577) * vv + _q(T, 3, 13),
+                   _q(T, -14265, 772616) * vv + _q(T, 555, 2584),
+                   _q(T, -32373, 1545232) * vv + _q(T, 7461, 67184),
+                   _q(T, -524, 96577) * va * aa + _q(T, -206, 12597) * ab,
+                   _q(T, -940, 96577) * va * aa + _q(T, -224, 12597) * ab,
+                   _q(T, -1005, 96577) * va * aa + _q(T, -115, 8398) * ab,
+                   _q(T, -111, 14858) * va * aa + _q(T, -97, 12597) * ab,
+                   _q(T, -9339, 3090464) * va * aa + _q(T, -53, 20672) * ab,
+                   _q(T, 1880, 96577) * va,
+                   _q(T, 4020, 96577) * va,
+                   _q(T, 333, 7429) * va,
+                   _q(T, 9339, 386308) * va,
+                   _q(T, 144, 5083) * aa,
+                   _q(T, 4350, 96577) * aa,
+                   _q(T, 3792, 96577) * aa,
+                   _q(T, 63, 3496) * aa,
+                   _q(T, -2900, 96577),
+                   _q(T, -5056, 96577),
+                   _q(T, -63, 1748),
+                   _q(T, -4, 1235) * vv^2 * va + _q(T, 392, 20995) * vv * va + _q(T, -28, 1105) * va,
+                   _q(T, -11, 3230) * vv^2 * va + _q(T, 35, 4199) * vv * va + _q(T, -21, 2210) * va,
+                   _q(T, -5, 1768) * vv^2 * va + _q(T, 87, 16796) * vv * va + _q(T, -9, 1768) * va,
+                   _q(T, -205, 100776) * vv^2 * va + _q(T, 55, 16796) * vv * va + _q(T, -5, 1768) * va,
+                   _q(T, -339, 268736) * vv^2 * va + _q(T, 259, 134368) * vv * va + _q(T, -21, 14144) * va,
+                   _q(T, -3399, 5374720) * vv^2 * va + _q(T, 2583, 2687360) * vv * va + _q(T, -189, 282880) * va,
+                   _q(T, -341, 1653760) * vv^2 * va + _q(T, 693, 2149888) * vv * va + _q(T, -231, 1131520) * va,
+                   _q(T, 1, 3230) * vv^2 + _q(T, 14, 1615) * vv + _q(T, 49, 170),
+                   _q(T, -5, 16796) * vv^2 + _q(T, 27, 4199) * vv + _q(T, 103, 884),
+                   _q(T, -45, 33592) * vv^2 + _q(T, 25, 8398) * vv + _q(T, 115, 1768),
+                   _q(T, -141, 67184) * vv^2 + _q(T, 7, 16796) * vv + _q(T, 127, 3536),
+                   _q(T, -2211, 1074944) * vv^2 + _q(T, -189, 268736) * vv + _q(T, 973, 56576),
+                   _q(T, -957, 826880) * vv^2 + _q(T, -1617, 2687360) * vv + _q(T, 3171, 565760),
+                   _q(T, -64, 20995) * vv * va + _q(T, 448, 20995) * va,
+                   _q(T, 8, 4199) * vv * va + _q(T, 84, 4199) * va,
+                   _q(T, 20, 4199) * vv * va + _q(T, 60, 4199) * va,
+                   _q(T, 20, 4199) * vv * va + _q(T, 35, 4199) * va,
+                   _q(T, 3, 988) * vv * va + _q(T, 63, 16796) * va,
+                   _q(T, 363, 335920) * vv * va + _q(T, 693, 671840) * va,
+                   _q(T, -49, 12597) * vv + _q(T, -2011, 12597),
+                   _q(T, -5, 12597) * vv + _q(T, -745, 4199),
+                   _q(T, 127, 16796) * vv + _q(T, -2427, 16796),
+                   _q(T, 863, 67184) * vv + _q(T, -1393, 15504),
+                   _q(T, 275, 28288) * vv + _q(T, -19005, 537472),
+                   _q(T, -92, 12597) * va,
+                   _q(T, -160, 12597) * va,
+                   _q(T, -55, 4199) * va,
+                   _q(T, -2, 221) * va,
+                   _q(T, -473, 134368) * va,
+                   _q(T, 448, 12597),
+                   _q(T, 230, 4199),
+                   _q(T, 194, 4199),
+                   _q(T, 53, 2584),
+                   _q(T, 7, 20995) * vv^2 + _q(T, -14, 3315) * vv,
+                   _q(T, 63, 167960) * vv^2 + _q(T, -7, 4420) * vv,
+                   _q(T, 45, 134368) * vv^2 + _q(T, -3, 3536) * vv,
+                   _q(T, 35, 134368) * vv^2 + _q(T, -5, 10608) * vv,
+                   _q(T, 189, 1074944) * vv^2 + _q(T, -7, 28288) * vv,
+                   _q(T, 2079, 21498880) * vv^2 + _q(T, -63, 565760) * vv,
+                   _q(T, 231, 6615040) * vv^2 + _q(T, -77, 2263040) * vv,
+                   _q(T, 33, 320),
+                   _q(T, 1, 128) * vv + _q(T, -11, 128),
+                   _q(T, -5, 416) * vv + _q(T, 1, 16),
+                   _q(T, 7, 832) * vv + _q(T, -25, 832),
+                   _q(T, -21, 7072) * vv + _q(T, 7, 832),
+                   _q(T, 231, 537472) * vv + _q(T, -147, 141440),
+                   _q(T, -98, 12597),
+                   _q(T, -2, 247),
+                   _q(T, -25, 4199),
+                   _q(T, -161, 50388),
+                   _q(T, -21, 20672),
+                   zero(T),
+                   _q(T, 9, 208) * va^2 + _q(T, -9, 832) * vv * aa + _q(T, -3, 104) * bv,
+                   _q(T, 1, 52) * vv^2 * va^2 + _q(T, -1, 260) * vv^2 * bv + _q(T, -11, 520) * vv * va^2 + _q(T, -7, 4160) * vv^2 * aa + _q(T, 1, 390) * vv * bv + _q(T, -9, 2080) * va^2 + _q(T, 9, 4160) * vv * aa + _q(T, 1, 260) * bv,
+                   _q(T, -3, 272) * vv^2 * va^2 + _q(T, -3, 14144) * vv^3 * aa + _q(T, 1, 520) * vv^2 * bv + _q(T, 177, 17680) * vv * va^2 + _q(T, 87, 70720) * vv^2 * aa + _q(T, -1, 1105) * vv * bv + _q(T, -27, 70720) * vv * aa + _q(T, -3, 8840) * bv,
+                   _q(T, 465, 134368) * vv^2 * va^2 + _q(T, 45, 268736) * vv^3 * aa + _q(T, -2, 4199) * vv^2 * bv + _q(T, -3, 1292) * vv * va^2 + _q(T, -111, 268736) * vv^2 * aa + _q(T, 1, 8398) * vv * bv + _q(T, 9, 134368) * va^2 + _q(T, 9, 268736) * vv * aa,
+                   _q(T, -5, 8398) * vv^2 * va^2 + _q(T, -15, 268736) * vv^3 * aa + _q(T, 5, 100776) * vv^2 * bv + _q(T, 15, 67184) * vv * va^2 + _q(T, 15, 268736) * vv^2 * aa,
+                   _q(T, 135, 3090464) * vv^2 * va^2 + _q(T, 45, 6180928) * vv^3 * aa,
+                   zero(T),
+                   _q(T, 3, 832) * vv,
+                   _q(T, 3, 4160) * vv^2 + _q(T, -9, 4160) * vv,
+                   _q(T, 5, 14144) * vv^3 + _q(T, -21, 14144) * vv^2 + _q(T, 9, 14144) * vv,
+                   _q(T, -105, 268736) * vv^3 + _q(T, 231, 268736) * vv^2 + _q(T, -21, 268736) * vv,
+                   _q(T, 45, 268736) * vv^3 + _q(T, -45, 268736) * vv^2,
+                   _q(T, -165, 6180928) * vv^3,
+                   _q(T, -1, 16) * ab,
+                   _q(T, -3, 13) * vv * va^3 + _q(T, 9, 52) * vv * va * bv + _q(T, 3, 26) * va^3 + _q(T, 9, 104) * vv * va * aa + _q(T, -1, 52) * vv * cv + _q(T, -1, 26) * va * bv + _q(T, -5, 104) * vv * ab + _q(T, -27, 416) * va * aa + _q(T, -1, 104) * cv + _q(T, -1, 26) * ab,
+                   _q(T, 1, 13) * vv * va^3 + _q(T, 1, 520) * vv^2 * va * aa + _q(T, -1, 20) * vv * va * bv + _q(T, -1, 1040) * vv^2 * ab + _q(T, -9, 260) * va^3 + _q(T, -27, 1040) * vv * va * aa + _q(T, 7, 1560) * vv * cv + _q(T, 2, 195) * va * bv + _q(T, 7, 780) * vv * ab + _q(T, 21, 2080) * va * aa + _q(T, 1, 780) * cv + _q(T, 1, 240) * ab,
+                   _q(T, -57, 2210) * vv * va^3 + _q(T, -99, 35360) * vv^2 * va * aa + _q(T, 61, 4420) * vv * va * bv + _q(T, 1, 1105) * vv^2 * ab + _q(T, 87, 8840) * va^3 + _q(T, 9, 1040) * vv * va * aa + _q(T, -1, 1105) * vv * cv + _q(T, -1, 442) * va * bv + _q(T, -1, 680) * vv * ab + _q(T, -9, 7072) * va * aa + _q(T, -1, 8840) * cv + _q(T, -3, 8840) * ab,
+                   _q(T, 207, 33592) * vv * va^3 + _q(T, 207, 134368) * vv^2 * va * aa + _q(T, -41, 16796) * vv * va * bv + _q(T, -23, 67184) * vv^2 * ab + _q(T, -15, 8398) * va^3 + _q(T, -135, 67184) * vv * va * aa + _q(T, 3, 33592) * vv * cv + _q(T, 1, 4199) * va * bv + _q(T, 1, 8398) * vv * ab + _q(T, 9, 134368) * va * aa,
+                   _q(T, -15, 16796) * vv * va^3 + _q(T, -55, 134368) * vv^2 * va * aa + _q(T, 5, 25194) * vv * va * bv + _q(T, 5, 100776) * vv^2 * ab + _q(T, 5, 33592) * va^3 + _q(T, 15, 67184) * vv * va * aa,
+                   _q(T, 45, 772616) * vv * va^3 + _q(T, 135, 3090464) * vv^2 * va * aa,
+                   zero(T),
+                   _q(T, -3, 104) * vv * va + _q(T, 27, 416) * va,
+                   _q(T, -3, 520) * vv^2 * va + _q(T, 9, 208) * vv * va + _q(T, -63, 2080) * va,
+                   _q(T, 99, 7072) * vv^2 * va + _q(T, -9, 272) * vv * va + _q(T, 45, 7072) * va,
+                   _q(T, -1449, 134368) * vv^2 * va + _q(T, 861, 67184) * vv * va + _q(T, -63, 134368) * va,
+                   _q(T, 495, 134368) * vv^2 * va + _q(T, -135, 67184) * vv * va,
+                   _q(T, -1485, 3090464) * vv^2 * va,
+                   _q(T, 21, 64) * aa,
+                   _q(T, -9, 104) * va^2 + _q(T, 9, 416) * vv * aa + _q(T, 3, 52) * bv + _q(T, 15, 416) * aa,
+                   _q(T, -27, 520) * vv * va^2 + _q(T, 9, 4160) * vv^2 * aa + _q(T, 1, 65) * vv * bv + _q(T, 93, 1040) * va^2 + _q(T, -3, 1040) * vv * aa + _q(T, -2, 65) * bv + _q(T, -33, 1040) * aa,
+                   _q(T, 213, 3536) * vv * va^2 + _q(T, -9, 7072) * vv^2 * aa + _q(T, -1, 68) * vv * bv + _q(T, -177, 3536) * va^2 + _q(T, -15, 1768) * vv * aa + _q(T, 7, 884) * bv + _q(T, 45, 7072) * aa,
+                   _q(T, -2163, 67184) * vv * va^2 + _q(T, -63, 67184) * vv^2 * aa + _q(T, 49, 8398) * vv * bv + _q(T, 1029, 67184) * va^2 + _q(T, 21, 3952) * vv * aa + _q(T, -7, 8398) * bv + _q(T, -63, 268736) * aa,
+                   _q(T, 45, 5168) * vv * va^2 + _q(T, 135, 134368) * vv^2 * aa + _q(T, -15, 16796) * vv * bv + _q(T, -135, 67184) * va^2 + _q(T, -135, 134368) * vv * aa,
+                   _q(T, -1485, 1545232) * vv * va^2 + _q(T, -1485, 6180928) * vv^2 * aa,
+                   _q(T, -15, 64),
+                   _q(T, -9, 416) * vv + _q(T, 9, 416),
+                   _q(T, -3, 832) * vv^2 + _q(T, 3, 208) * vv + _q(T, 9, 208),
+                   _q(T, 21, 7072) * vv^2 + _q(T, 21, 1768) * vv + _q(T, -105, 7072),
+                   _q(T, 189, 67184) * vv^2 + _q(T, -945, 67184) * vv + _q(T, 189, 268736),
+                   _q(T, -495, 134368) * vv^2 + _q(T, 495, 134368) * vv,
+                   _q(T, 495, 475456) * vv^2,
+                   _q(T, 1, 12) * ab,
+                   _q(T, 1, 26) * va^3 + _q(T, -1, 104) * vv * va * aa + _q(T, -7, 156) * va * bv + _q(T, 1, 156) * vv * ab + _q(T, 3, 208) * va * aa + _q(T, 1, 104) * cv + _q(T, 7, 312) * ab,
+                   _q(T, -11, 260) * va^3 + _q(T, 11, 1040) * vv * va * aa + _q(T, 31, 780) * va * bv + _q(T, -1, 312) * vv * ab + _q(T, 3, 520) * va * aa + _q(T, -3, 520) * cv + _q(T, -1, 65) * ab,
+                   _q(T, 47, 1768) * va^3 + _q(T, -3, 1768) * vv * va * aa + _q(T, -1, 52) * va * bv + _q(T, -1, 884) * vv * ab + _q(T, -9, 884) * va * aa + _q(T, 3, 1768) * cv + _q(T, 19, 5304) * ab,
+                   _q(T, -343, 33592) * va^3 + _q(T, -49, 16796) * vv * va * aa + _q(T, 259, 50388) * va * bv + _q(T, 7, 5304) * vv * ab + _q(T, 147, 33592) * va * aa + _q(T, -7, 33592) * cv + _q(T, -7, 25194) * ab,
+                   _q(T, 75, 33592) * va^3 + _q(T, 15, 8398) * vv * va * aa + _q(T, -5, 8398) * va * bv + _q(T, -5, 16796) * vv * ab + _q(T, -45, 67184) * va * aa,
+                   _q(T, -165, 772616) * va^3 + _q(T, -495, 1545232) * vv * va * aa,
+                   zero(T),
+                   _q(T, 3, 104) * vv * va + _q(T, -21, 208) * va,
+                   _q(T, -11, 208) * vv * va + _q(T, 3, 104) * va,
+                   _q(T, 21, 1768) * vv * va + _q(T, 21, 442) * va,
+                   _q(T, 441, 16796) * vv * va + _q(T, -63, 1768) * va,
+                   _q(T, -165, 8398) * vv * va + _q(T, 495, 67184) * va,
+                   _q(T, 495, 118864) * vv * va,
+                   _q(T, -11, 64) * aa,
+                   _q(T, 9, 208) * va^2 + _q(T, -9, 832) * vv * aa + _q(T, -3, 104) * bv + _q(T, -15, 832) * aa,
+                   _q(T, -1, 32) * va^2 + _q(T, 3, 832) * vv * aa + _q(T, 1, 78) * bv + _q(T, 21, 416) * aa,
+                   _q(T, -21, 1768) * va^2 + _q(T, 63, 7072) * vv * aa + _q(T, 7, 884) * bv + _q(T, -35, 7072) * aa,
+                   _q(T, 1701, 67184) * va^2 + _q(T, -567, 134368) * vv * aa + _q(T, -63, 8398) * bv + _q(T, -1953, 268736) * aa,
+                   _q(T, -825, 67184) * va^2 + _q(T, -495, 268736) * vv * aa + _q(T, 55, 33592) * bv + _q(T, 495, 268736) * aa,
+                   _q(T, 495, 237728) * va^2 + _q(T, 495, 475456) * vv * aa,
+                   _q(T, 15, 64),
+                   _q(T, 15, 832) * vv + _q(T, -15, 832),
+                   _q(T, -7, 832) * vv + _q(T, -49, 416),
+                   _q(T, -189, 7072) * vv + _q(T, 189, 7072),
+                   _q(T, 2079, 134368) * vv + _q(T, 6237, 268736),
+                   _q(T, 165, 20672) * vv + _q(T, -165, 20672),
+                   _q(T, -2475, 475456) * vv,
+                   _q(T, -1, 48) * ab,
+                   _q(T, -3, 416) * va * aa,
+                   _q(T, -1, 416) * va * aa + _q(T, 1, 156) * ab,
+                   _q(T, 21, 3536) * va * aa + _q(T, -7, 5304) * ab,
+                   _q(T, -63, 67184) * va * aa + _q(T, -63, 67184) * ab,
+                   _q(T, -165, 134368) * va * aa + _q(T, 11, 33592) * ab,
+                   _q(T, 99, 237728) * va * aa,
+                   zero(T),
+                   _q(T, 15, 416) * va,
+                   _q(T, 7, 416) * va,
+                   _q(T, -189, 3536) * va,
+                   _q(T, 693, 67184) * va,
+                   _q(T, 165, 10336) * va,
+                   _q(T, -1485, 237728) * va,
+                   _q(T, 3, 64) * aa,
+                   zero(T),
+                   _q(T, -21, 832) * aa,
+                   zero(T),
+                   _q(T, 2079, 268736) * aa,
+                   zero(T),
+                   _q(T, -495, 475456) * aa,
+                   _q(T, -5, 64),
+                   zero(T),
+                   _q(T, 63, 832),
+                   zero(T),
+                   _q(T, -693, 20672),
+                   zero(T),
+                   _q(T, 165, 27968),
+                   zero(T),
+                   _q(T, 1, 52) * vv * va + _q(T, -3, 104) * va,
+                   _q(T, -1, 195) * vv^2 * va + _q(T, 1, 260) * va,
+                   _q(T, 21, 8840) * vv^2 * va + _q(T, -3, 4420) * vv * va + _q(T, -3, 8840) * va,
+                   _q(T, -9, 16796) * vv^2 * va + _q(T, 1, 8398) * vv * va,
+                   _q(T, 5, 100776) * vv^2 * va,
+                   _q(T, 5, 16),
+                   _q(T, 1, 52) * vv + _q(T, -1, 52),
+                   _q(T, 3, 1040) * vv^2 + _q(T, -1, 65) * vv + _q(T, -7, 1040),
+                   _q(T, -1, 221) * vv^2 + _q(T, 5, 884) * vv + _q(T, 3, 1768),
+                   _q(T, 161, 67184) * vv^2 + _q(T, -7, 8398) * vv,
+                   _q(T, -15, 33592) * vv^2,
+                   zero(T),
+                   _q(T, -1, 52) * vv * va + _q(T, 1, 26) * va,
+                   _q(T, 2, 65) * vv * va + _q(T, -3, 130) * va,
+                   _q(T, -9, 442) * vv * va + _q(T, 3, 442) * va,
+                   _q(T, 28, 4199) * vv * va + _q(T, -7, 8398) * va,
+                   _q(T, -15, 16796) * vv * va,
+                   _q(T, -5, 24),
+                   _q(T, -1, 52) * vv + _q(T, 1, 52),
+                   _q(T, 5, 312) * vv + _q(T, 5, 104),
+                   _q(T, 7, 884) * vv + _q(T, -14, 663),
+                   _q(T, -21, 1768) * vv + _q(T, 21, 8398),
+                   _q(T, 55, 16796) * vv,
+                   zero(T),
+                   _q(T, -1, 104) * va,
+                   _q(T, -1, 156) * va,
+                   _q(T, 7, 442) * va,
+                   _q(T, -147, 16796) * va,
+                   _q(T, 55, 33592) * va,
+                   _q(T, 1, 16),
+                   zero(T),
+                   _q(T, -7, 156),
+                   _q(T, 21, 1768),
+                   _q(T, 693, 67184),
+                   _q(T, -11, 2584),
+                   zero(T),
+                   _q(T, -1, 208) * vv,
+                   _q(T, 1, 2080) * vv^2 + _q(T, 1, 1560) * vv,
+                   _q(T, -3, 17680) * vv^2 + _q(T, -1, 17680) * vv,
+                   _q(T, 3, 134368) * vv^2,
+                   _q(T, 1, 16),
+                   _q(T, 1, 208) * vv + _q(T, -1, 208),
+                   _q(T, -1, 208) * vv + _q(T, -1, 1040),
+                   _q(T, 7, 3536) * vv + _q(T, 1, 3536),
+                   _q(T, -21, 67184) * vv,
+                   _q(T, -1, 96),
+                   zero(T),
+                   _q(T, 1, 208),
+                   _q(T, -7, 2652),
+                   _q(T, 63, 134368))
 end
+
+function _lab_evaluate(::Val{3}, ::Val{:term}, Q, ℓ, q, vy, ay, by, cy, c, d=())
+    T = typeof(ℓ)
+    s₀ = s₁ = zero(q * _coefficient(c, 1, d))
+    if q < ℓ^2
+        σ² = q / ℓ^2
+        w = 1 - σ²
+        vy² = vy * vy
+        vy³ = vy² * vy
+        vy⁴ = vy² * vy²
+        vy⁵ = vy⁴ * vy
+        vy⁶ = vy³ * vy³
+        ay² = ay * ay
+        ay³ = ay² * ay
+        ℓ⁻¹ = 1 / ℓ
+        ℓ⁻² = ℓ⁻¹ * ℓ⁻¹
+        ℓ⁻³ = ℓ⁻² * ℓ⁻¹
+        ℓ⁻⁴ = ℓ⁻² * ℓ⁻²
+        ℓ⁻⁵ = ℓ⁻⁴ * ℓ⁻¹
+        ℓ⁻⁶ = ℓ⁻³ * ℓ⁻³
+        ℓ⁻⁷ = ℓ⁻⁶ * ℓ⁻¹
+        s₁ += ay * ℓ * evalpoly(w, (_coefficient(c, 1, d), _coefficient(c, 2, d), _coefficient(c, 3, d), _coefficient(c, 4, d), _coefficient(c, 5, d), _coefficient(c, 6, d), _coefficient(c, 7, d)))
+        s₁ += ay³ * ℓ⁻¹ * evalpoly(w, (_coefficient(c, 8, d), _coefficient(c, 9, d), _coefficient(c, 10, d), _coefficient(c, 11, d), _coefficient(c, 12, d), _coefficient(c, 13, d)))
+        s₁ += vy * ℓ * evalpoly(σ², (_coefficient(c, 14, d), _coefficient(c, 15, d), _coefficient(c, 16, d), _coefficient(c, 17, d), _coefficient(c, 18, d), _coefficient(c, 19, d), _coefficient(c, 20, d)))
+        s₁ += vy * ay² * ℓ⁻¹ * evalpoly(w, (_coefficient(c, 21, d), _coefficient(c, 22, d), _coefficient(c, 23, d), _coefficient(c, 24, d), _coefficient(c, 25, d), _coefficient(c, 26, d)))
+        s₁ += vy² * ay * ℓ⁻¹ * evalpoly(w, (_coefficient(c, 27, d), _coefficient(c, 28, d), _coefficient(c, 29, d), _coefficient(c, 30, d), _coefficient(c, 31, d), _coefficient(c, 32, d)))
+        s₁ += vy² * ay³ * ℓ⁻³ * evalpoly(w, (_coefficient(c, 33, d), _coefficient(c, 34, d), _coefficient(c, 35, d), _coefficient(c, 36, d), _coefficient(c, 37, d)))
+        s₁ += vy³ * ℓ⁻¹ * evalpoly(w, (_coefficient(c, 38, d), _coefficient(c, 39, d), _coefficient(c, 40, d), _coefficient(c, 41, d), _coefficient(c, 42, d), _coefficient(c, 43, d)))
+        s₁ += vy³ * ay² * ℓ⁻³ * evalpoly(w, (_coefficient(c, 44, d), _coefficient(c, 45, d), _coefficient(c, 46, d), _coefficient(c, 47, d), _coefficient(c, 48, d)))
+        s₁ += vy⁴ * ay * ℓ⁻³ * evalpoly(w, (_coefficient(c, 49, d), _coefficient(c, 50, d), _coefficient(c, 51, d), _coefficient(c, 52, d), _coefficient(c, 53, d)))
+        s₁ += vy⁴ * ay³ * ℓ⁻⁵ * evalpoly(w, (_coefficient(c, 54, d), _coefficient(c, 55, d), _coefficient(c, 56, d), _coefficient(c, 57, d)))
+        s₁ += vy⁵ * ℓ⁻³ * evalpoly(w, (_coefficient(c, 58, d), _coefficient(c, 59, d), _coefficient(c, 60, d), _coefficient(c, 61, d), _coefficient(c, 62, d)))
+        s₁ += vy⁵ * ay² * ℓ⁻⁵ * evalpoly(w, (_coefficient(c, 63, d), _coefficient(c, 64, d), _coefficient(c, 65, d), _coefficient(c, 66, d)))
+        s₁ += vy⁶ * ay * ℓ⁻⁵ * evalpoly(w, (_coefficient(c, 67, d), _coefficient(c, 68, d), _coefficient(c, 69, d), _coefficient(c, 70, d)))
+        s₁ += vy⁶ * ay³ * ℓ⁻⁷ * evalpoly(w, (_coefficient(c, 71, d), _coefficient(c, 72, d), _coefficient(c, 73, d)))
+        s₁ += by * ℓ * evalpoly(w, (_coefficient(c, 74, d), _coefficient(c, 75, d), _coefficient(c, 76, d), _coefficient(c, 77, d), _coefficient(c, 78, d), _coefficient(c, 79, d), _coefficient(c, 80, d)))
+        s₁ += vy * ay * by * ℓ⁻¹ * evalpoly(w, (_coefficient(c, 81, d), _coefficient(c, 82, d), _coefficient(c, 83, d), _coefficient(c, 84, d), _coefficient(c, 85, d), _coefficient(c, 86, d)))
+        s₁ += vy² * by * ℓ⁻¹ * evalpoly(w, (_coefficient(c, 87, d), _coefficient(c, 88, d), _coefficient(c, 89, d), _coefficient(c, 90, d), _coefficient(c, 91, d), _coefficient(c, 92, d)))
+        s₁ += vy³ * ay * by * ℓ⁻³ * evalpoly(w, (_coefficient(c, 93, d), _coefficient(c, 94, d), _coefficient(c, 95, d), _coefficient(c, 96, d), _coefficient(c, 97, d)))
+        s₁ += vy⁴ * by * ℓ⁻³ * evalpoly(w, (_coefficient(c, 98, d), _coefficient(c, 99, d), _coefficient(c, 100, d), _coefficient(c, 101, d), _coefficient(c, 102, d)))
+        s₁ += vy⁵ * ay * by * ℓ⁻⁵ * evalpoly(w, (_coefficient(c, 103, d), _coefficient(c, 104, d), _coefficient(c, 105, d), _coefficient(c, 106, d)))
+        s₁ += cy * ℓ * evalpoly(w, (_coefficient(c, 107, d), _coefficient(c, 108, d), _coefficient(c, 109, d), _coefficient(c, 110, d), _coefficient(c, 111, d), _coefficient(c, 112, d), _coefficient(c, 113, d)))
+        s₁ += vy² * cy * ℓ⁻¹ * evalpoly(σ², (_coefficient(c, 114, d), _coefficient(c, 115, d), _coefficient(c, 116, d), _coefficient(c, 117, d), _coefficient(c, 118, d), _coefficient(c, 119, d)))
+        s₁ += vy⁴ * cy * ℓ⁻³ * evalpoly(w, (_coefficient(c, 120, d), _coefficient(c, 121, d), _coefficient(c, 122, d), _coefficient(c, 123, d), _coefficient(c, 124, d)))
+    else
+        r = sqrt(q)
+        u = ℓ^2 / q
+        vy² = vy * vy
+        vy³ = vy² * vy
+        vy⁴ = vy² * vy²
+        vy⁵ = vy⁴ * vy
+        vy⁶ = vy³ * vy³
+        ay² = ay * ay
+        ay³ = ay² * ay
+        r⁻¹ = 1 / r
+        r⁻² = r⁻¹ * r⁻¹
+        r⁻³ = r⁻² * r⁻¹
+        r⁻⁴ = r⁻² * r⁻²
+        r⁻⁵ = r⁻⁴ * r⁻¹
+        r⁻⁶ = r⁻³ * r⁻³
+        r⁻⁷ = r⁻⁶ * r⁻¹
+        s₁ += ay * r * evalpoly(u, (_coefficient(c, 125, d), _coefficient(c, 126, d), _coefficient(c, 127, d), _coefficient(c, 128, d), _coefficient(c, 129, d), _coefficient(c, 130, d), _coefficient(c, 131, d)))
+        s₁ += ay³ * r⁻¹ * evalpoly(u, (_coefficient(c, 132, d), _coefficient(c, 133, d), _coefficient(c, 134, d), _coefficient(c, 135, d), _coefficient(c, 136, d), _coefficient(c, 137, d), _coefficient(c, 138, d)))
+        s₁ += vy * r * evalpoly(u, (_coefficient(c, 139, d), _coefficient(c, 140, d), _coefficient(c, 141, d), _coefficient(c, 142, d), _coefficient(c, 143, d), _coefficient(c, 144, d), _coefficient(c, 145, d)))
+        s₁ += vy * ay² * r⁻¹ * evalpoly(u, (_coefficient(c, 146, d), _coefficient(c, 147, d), _coefficient(c, 148, d), _coefficient(c, 149, d), _coefficient(c, 150, d), _coefficient(c, 151, d), _coefficient(c, 152, d)))
+        s₁ += vy² * ay * r⁻¹ * evalpoly(u, (_coefficient(c, 153, d), _coefficient(c, 154, d), _coefficient(c, 155, d), _coefficient(c, 156, d), _coefficient(c, 157, d), _coefficient(c, 158, d), _coefficient(c, 159, d)))
+        s₁ += vy² * ay³ * r⁻³ * evalpoly(u, (_coefficient(c, 160, d), _coefficient(c, 161, d), _coefficient(c, 162, d), _coefficient(c, 163, d), _coefficient(c, 164, d), _coefficient(c, 165, d), _coefficient(c, 166, d)))
+        s₁ += vy³ * r⁻¹ * evalpoly(u, (_coefficient(c, 167, d), _coefficient(c, 168, d), _coefficient(c, 169, d), _coefficient(c, 170, d), _coefficient(c, 171, d), _coefficient(c, 172, d), _coefficient(c, 173, d)))
+        s₁ += vy³ * ay² * r⁻³ * evalpoly(u, (_coefficient(c, 174, d), _coefficient(c, 175, d), _coefficient(c, 176, d), _coefficient(c, 177, d), _coefficient(c, 178, d), _coefficient(c, 179, d), _coefficient(c, 180, d)))
+        s₁ += vy⁴ * ay * r⁻³ * evalpoly(u, (_coefficient(c, 181, d), _coefficient(c, 182, d), _coefficient(c, 183, d), _coefficient(c, 184, d), _coefficient(c, 185, d), _coefficient(c, 186, d), _coefficient(c, 187, d)))
+        s₁ += vy⁴ * ay³ * r⁻⁵ * evalpoly(u, (_coefficient(c, 188, d), _coefficient(c, 189, d), _coefficient(c, 190, d), _coefficient(c, 191, d), _coefficient(c, 192, d), _coefficient(c, 193, d), _coefficient(c, 194, d)))
+        s₁ += vy⁵ * r⁻³ * evalpoly(u, (_coefficient(c, 195, d), _coefficient(c, 196, d), _coefficient(c, 197, d), _coefficient(c, 198, d), _coefficient(c, 199, d), _coefficient(c, 200, d), _coefficient(c, 201, d)))
+        s₁ += vy⁵ * ay² * r⁻⁵ * evalpoly(u, (_coefficient(c, 202, d), _coefficient(c, 203, d), _coefficient(c, 204, d), _coefficient(c, 205, d), _coefficient(c, 206, d), _coefficient(c, 207, d), _coefficient(c, 208, d)))
+        s₁ += vy⁶ * ay * r⁻⁵ * evalpoly(u, (_coefficient(c, 209, d), _coefficient(c, 210, d), _coefficient(c, 211, d), _coefficient(c, 212, d), _coefficient(c, 213, d), _coefficient(c, 214, d), _coefficient(c, 215, d)))
+        s₁ += vy⁶ * ay³ * r⁻⁷ * evalpoly(u, (_coefficient(c, 216, d), _coefficient(c, 217, d), _coefficient(c, 218, d), _coefficient(c, 219, d), _coefficient(c, 220, d), _coefficient(c, 221, d), _coefficient(c, 222, d)))
+        s₁ += by * r * evalpoly(u, (_coefficient(c, 223, d), _coefficient(c, 224, d), _coefficient(c, 225, d), _coefficient(c, 226, d), _coefficient(c, 227, d), _coefficient(c, 228, d)))
+        s₁ += vy * ay * by * r⁻¹ * evalpoly(u, (_coefficient(c, 229, d), _coefficient(c, 230, d), _coefficient(c, 231, d), _coefficient(c, 232, d), _coefficient(c, 233, d), _coefficient(c, 234, d)))
+        s₁ += vy² * by * r⁻¹ * evalpoly(u, (_coefficient(c, 235, d), _coefficient(c, 236, d), _coefficient(c, 237, d), _coefficient(c, 238, d), _coefficient(c, 239, d), _coefficient(c, 240, d)))
+        s₁ += vy³ * ay * by * r⁻³ * evalpoly(u, (_coefficient(c, 241, d), _coefficient(c, 242, d), _coefficient(c, 243, d), _coefficient(c, 244, d), _coefficient(c, 245, d), _coefficient(c, 246, d)))
+        s₁ += vy⁴ * by * r⁻³ * evalpoly(u, (_coefficient(c, 247, d), _coefficient(c, 248, d), _coefficient(c, 249, d), _coefficient(c, 250, d), _coefficient(c, 251, d), _coefficient(c, 252, d)))
+        s₁ += vy⁵ * ay * by * r⁻⁵ * evalpoly(u, (_coefficient(c, 253, d), _coefficient(c, 254, d), _coefficient(c, 255, d), _coefficient(c, 256, d), _coefficient(c, 257, d), _coefficient(c, 258, d)))
+        s₁ += cy * r * evalpoly(u, (_coefficient(c, 259, d), _coefficient(c, 260, d), _coefficient(c, 261, d), _coefficient(c, 262, d), _coefficient(c, 263, d)))
+        s₁ += vy² * cy * r⁻¹ * evalpoly(u, (_coefficient(c, 264, d), _coefficient(c, 265, d), _coefficient(c, 266, d), _coefficient(c, 267, d), _coefficient(c, 268, d)))
+        s₁ += vy⁴ * cy * r⁻³ * evalpoly(u, (_coefficient(c, 269, d), _coefficient(c, 270, d), _coefficient(c, 271, d), _coefficient(c, 272, d), _coefficient(c, 273, d)))
+    end
+    return Q * (s₀ + s₁ / T(π))
+end
+
+# The lab slice of order 3, laplacian: 74 terms in 23 groups inside and 23 outside, 213 coefficients.
+function _lab_coefficients(::Val{3}, ::Val{:laplacian}, ℓ, vv, va, aa, bv, ab, cv)
+    T = typeof(ℓ)
+    return SVector(_q(T, 8022, 4199),
+                   _q(T, 63, 19),
+                   _q(T, -5868, 4199) * aa,
+                   _q(T, -12033, 4199) * aa,
+                   _q(T, -189, 76) * aa,
+                   _q(T, -528, 247) * va,
+                   _q(T, -19782, 4199) * va,
+                   _q(T, -36477, 8398) * va,
+                   _q(T, -6268, 4199),
+                   _q(T, -12677, 4199),
+                   _q(T, -3339, 1292),
+                   _q(T, 2304, 4199) * va * aa + _q(T, 1780, 4199) * ab,
+                   _q(T, 264, 247) * va * aa + _q(T, 3134, 4199) * ab,
+                   _q(T, 9891, 8398) * va * aa + _q(T, 12677, 16796) * ab,
+                   _q(T, 12159, 16796) * va * aa + _q(T, 1113, 2584) * ab,
+                   _q(T, 3, 104) * vv + _q(T, -3513, 104),
+                   _q(T, -2163, 884) * vv + _q(T, 36813, 884),
+                   _q(T, 52353, 33592) * vv + _q(T, -470043, 33592),
+                   _q(T, 3924, 4199) * vv * aa + _q(T, -60, 4199) * va^2 + _q(T, 17772, 4199) * aa + _q(T, 3200, 4199) * bv,
+                   _q(T, 10827, 8398) * vv * aa + _q(T, 294, 4199) * va^2 + _q(T, 67845, 8398) * aa + _q(T, 6284, 4199) * bv,
+                   _q(T, 4221, 8398) * vv * aa + _q(T, 189, 988) * va^2 + _q(T, 38724, 4199) * aa + _q(T, 406, 247) * bv,
+                   _q(T, -52353, 67184) * vv * aa + _q(T, 6237, 33592) * va^2 + _q(T, 434133, 67184) * aa + _q(T, 16821, 16796) * bv,
+                   _q(T, 2440, 4199) * va,
+                   _q(T, 4688, 4199) * va,
+                   _q(T, 10213, 8398) * va,
+                   _q(T, 3108, 4199) * va,
+                   _q(T, 36, 221),
+                   _q(T, 62, 221),
+                   _q(T, 245, 884),
+                   _q(T, 21, 136),
+                   _q(T, 180, 323) * vv * va + _q(T, 20700, 4199) * va,
+                   _q(T, 6090, 4199) * vv * va + _q(T, 38790, 4199) * va,
+                   _q(T, 32697, 16796) * vv * va + _q(T, 165123, 16796) * va,
+                   _q(T, 46431, 33592) * vv * va + _q(T, 196749, 33592) * va,
+                   _q(T, 3284, 4199) * vv + _q(T, 764, 221),
+                   _q(T, 7979, 8398) * vv + _q(T, 2879, 442),
+                   _q(T, 1351, 16796) * vv + _q(T, 6601, 884),
+                   _q(T, -71715, 67184) * vv + _q(T, 19005, 3536),
+                   _q(T, -534, 4199) * vv * va * aa + _q(T, -4649, 12597) * vv * ab + _q(T, -6, 323) * va^3 + _q(T, -6238, 4199) * va * aa + _q(T, 12, 323) * va * bv + _q(T, -623, 663) * ab + _q(T, -82, 663) * cv,
+                   _q(T, -90, 323) * vv * va * aa + _q(T, -1642, 4199) * vv * ab + _q(T, -30, 4199) * va^3 + _q(T, -8298, 4199) * va * aa + _q(T, 60, 4199) * va * bv + _q(T, -280, 221) * ab + _q(T, -38, 221) * cv,
+                   _q(T, -3045, 8398) * vv * va * aa + _q(T, -7979, 33592) * vv * ab + _q(T, 147, 8398) * va^3 + _q(T, -933, 494) * va * aa + _q(T, -147, 4199) * va * bv + _q(T, -2267, 1768) * ab + _q(T, -73, 442) * cv,
+                   _q(T, -10899, 33592) * vv * va * aa + _q(T, -1351, 100776) * vv * ab + _q(T, 63, 1976) * va^3 + _q(T, -45731, 33592) * va * aa + _q(T, -63, 988) * va * bv + _q(T, -2765, 2652) * ab + _q(T, -623, 5304) * cv,
+                   _q(T, -46431, 268736) * vv * va * aa + _q(T, 71715, 537472) * vv * ab + _q(T, 6237, 268736) * va^3 + _q(T, -165627, 268736) * va * aa + _q(T, -6237, 134368) * va * bv + _q(T, -16863, 28288) * ab + _q(T, -735, 14144) * cv,
+                   _q(T, 9, 323) * vv^2 + _q(T, 7614, 4199) * vv + _q(T, 891, 221),
+                   _q(T, -1575, 16796) * vv^2 + _q(T, 23229, 8398) * vv + _q(T, 531, 68),
+                   _q(T, -30807, 67184) * vv^2 + _q(T, 64575, 33592) * vv + _q(T, 32823, 3536),
+                   _q(T, -51975, 67184) * vv^2 + _q(T, -189, 16796) * vv + _q(T, 24759, 3536),
+                   _q(T, -18, 323) * vv^2 * aa + _q(T, 1740, 4199) * vv * va^2 + _q(T, -8445, 4199) * vv * aa + _q(T, -1172, 4199) * vv * bv + _q(T, -1272, 4199) * va^2 + _q(T, -705, 221) * aa + _q(T, -300, 221) * bv,
+                   _q(T, -27, 646) * vv^2 * aa + _q(T, 2787, 4199) * vv * va^2 + _q(T, -10281, 4199) * vv * aa + _q(T, -2038, 4199) * vv * bv + _q(T, -2607, 4199) * va^2 + _q(T, -1857, 442) * aa + _q(T, -398, 221) * bv,
+                   _q(T, 4725, 67184) * vv^2 * aa + _q(T, 21105, 33592) * vv * va^2 + _q(T, -8604, 4199) * vv * aa + _q(T, -651, 1292) * vv * bv + _q(T, -1449, 1976) * va^2 + _q(T, -14895, 3536) * aa + _q(T, -1539, 884) * bv,
+                   _q(T, 30807, 134368) * vv^2 * aa + _q(T, 24129, 67184) * vv * va^2 + _q(T, -77343, 67184) * vv * aa + _q(T, -861, 2584) * vv * bv + _q(T, -36981, 67184) * va^2 + _q(T, -24255, 7072) * aa + _q(T, -2317, 1768) * bv,
+                   _q(T, 155925, 537472) * vv^2 * aa + _q(T, 693, 15808) * vv * va^2 + _q(T, -128205, 537472) * vv * aa + _q(T, -5775, 67184) * vv * bv + _q(T, -49203, 268736) * va^2 + _q(T, -28035, 14144) * aa + _q(T, -147, 221) * bv,
+                   _q(T, -450, 4199) * vv * va + _q(T, -266, 221) * va,
+                   _q(T, -1050, 4199) * vv * va + _q(T, -330, 221) * va,
+                   _q(T, -2835, 8398) * vv * va + _q(T, -591, 442) * va,
+                   _q(T, -10395, 33592) * vv * va + _q(T, -1603, 1768) * va,
+                   _q(T, -3465, 20672) * vv * va + _q(T, -5481, 14144) * va,
+                   _q(T, -24, 221) * vv + _q(T, -4, 13),
+                   _q(T, -23, 221) * vv + _q(T, -5, 13),
+                   _q(T, -81, 1768) * vv + _q(T, -3, 8),
+                   _q(T, 7, 272) * vv + _q(T, -63, 208),
+                   _q(T, 861, 14144) * vv + _q(T, -147, 832),
+                   _q(T, -108, 4199) * vv^2 * va + _q(T, -1386, 4199) * vv * va + _q(T, -594, 221) * va,
+                   _q(T, -1359, 8398) * vv^2 * va + _q(T, -2151, 4199) * vv * va + _q(T, -117, 34) * va,
+                   _q(T, -23877, 67184) * vv^2 * va + _q(T, -12663, 33592) * vv * va + _q(T, -891, 272) * va,
+                   _q(T, -66717, 134368) * vv^2 * va + _q(T, 1323, 67184) * vv * va + _q(T, -17451, 7072) * va,
+                   _q(T, -234927, 537472) * vv^2 * va + _q(T, 47817, 134368) * vv * va + _q(T, -36099, 28288) * va,
+                   _q(T, -241, 8398) * vv^2 + _q(T, -232, 221) * vv + _q(T, -41, 26),
+                   _q(T, 2, 323) * vv^2 + _q(T, -262, 221) * vv + T(-2),
+                   _q(T, 7413, 67184) * vv^2 + _q(T, -825, 884) * vv + _q(T, -411, 208),
+                   _q(T, 3885, 16796) * vv^2 + _q(T, -889, 1768) * vv + _q(T, -21, 13),
+                   _q(T, 274197, 1074944) * vv^2 + _q(T, -777, 7072) * vv + _q(T, -3171, 3328),
+                   _q(T, -39, 3230) * vv^2 * va * aa + _q(T, 448, 20995) * vv^2 * ab + _q(T, 1494, 4199) * vv * va^3 + _q(T, -123, 20995) * vv * va * aa + _q(T, -1572, 4199) * vv * va * bv + _q(T, 734, 1105) * vv * ab + _q(T, 6, 85) * vv * cv + _q(T, -6504, 20995) * va^3 + _q(T, 687, 442) * va * aa + _q(T, 24, 85) * va * bv + _q(T, 2, 5) * ab + _q(T, 16, 65) * cv,
+                   _q(T, 54, 4199) * vv^2 * va * aa + _q(T, 241, 16796) * vv^2 * ab + _q(T, 2559, 8398) * vv * va^3 + _q(T, 9, 4199) * vv * va * aa + _q(T, -1412, 4199) * vv * va * bv + _q(T, 181, 442) * vv * ab + _q(T, 31, 442) * vv * cv + _q(T, -2325, 8398) * va^3 + _q(T, 15, 17) * va * aa + _q(T, 62, 221) * va * bv + _q(T, 11, 52) * ab + _q(T, 3, 26) * cv,
+                   _q(T, 1359, 33592) * vv^2 * va * aa + _q(T, -1, 646) * vv^2 * ab + _q(T, 1551, 8398) * vv * va^3 + _q(T, -129, 16796) * vv * va * aa + _q(T, -919, 4199) * vv * va * bv + _q(T, 131, 442) * vv * ab + _q(T, 23, 442) * vv * cv + _q(T, -753, 4199) * va^3 + _q(T, 1113, 1768) * va * aa + _q(T, 46, 221) * va * bv + _q(T, 2, 13) * ab + _q(T, 1, 13) * cv,
+                   _q(T, 7959, 134368) * vv^2 * va * aa + _q(T, -2471, 134368) * vv^2 * ab + _q(T, 4977, 67184) * vv * va^3 + _q(T, -2163, 67184) * vv * va * aa + _q(T, -1701, 16796) * vv * va * bv + _q(T, 703, 3536) * vv * ab + _q(T, 105, 3536) * vv * cv + _q(T, -5565, 67184) * va^3 + _q(T, 3045, 7072) * va * aa + _q(T, 105, 884) * va * bv + _q(T, 47, 416) * ab + _q(T, 11, 208) * cv,
+                   _q(T, 66717, 1074944) * vv^2 * va * aa + _q(T, -3885, 134368) * vv^2 * ab + _q(T, 63, 20672) * vv * va^3 + _q(T, -30051, 537472) * vv * va * aa + _q(T, -2373, 134368) * vv * va * bv + _q(T, 1603, 14144) * vv * ab + _q(T, 147, 14144) * vv * cv + _q(T, -63, 4199) * va^3 + _q(T, 14595, 56576) * va * aa + _q(T, 147, 3536) * va * bv + _q(T, 63, 832) * ab + _q(T, 7, 208) * cv,
+                   _q(T, 234927, 5374720) * vv^2 * va * aa + _q(T, -274197, 10749440) * vv^2 * ab + _q(T, -21483, 1074944) * vv * va^3 + _q(T, -74151, 1343680) * vv * va * aa + _q(T, 1155, 67184) * vv * va * bv + _q(T, 12747, 282880) * vv * ab + _q(T, -231, 282880) * vv * cv + _q(T, 69993, 5374720) * va^3 + _q(T, 6363, 56576) * va * aa + _q(T, -231, 70720) * va * bv + _q(T, 1281, 33280) * ab + _q(T, 21, 1280) * cv,
+                   _q(T, -45, 16796) * vv^3 + _q(T, -177, 16796) * vv^2 + _q(T, -345, 884) * vv,
+                   _q(T, -105, 16796) * vv^3 + _q(T, 81, 16796) * vv^2 + _q(T, -405, 884) * vv,
+                   _q(T, -567, 67184) * vv^3 + _q(T, 63, 1292) * vv^2 + _q(T, -1395, 3536) * vv,
+                   _q(T, -2079, 268736) * vv^3 + _q(T, 1575, 15808) * vv^2 + _q(T, -3675, 14144) * vv,
+                   _q(T, -693, 165376) * vv^3 + _q(T, 234927, 2149888) * vv^2 + _q(T, -945, 8704) * vv,
+                   _q(T, 189, 83980) * vv^3 * aa + _q(T, -2997, 41990) * vv^2 * va^2 + _q(T, 2727, 83980) * vv^2 * aa + _q(T, 33, 1615) * vv^2 * bv + _q(T, -84, 1615) * vv * va^2 + _q(T, 3129, 4420) * vv * aa + _q(T, 88, 1105) * vv * bv + _q(T, 171, 2210) * va^2 + _q(T, 41, 65) * bv,
+                   _q(T, 135, 33592) * vv^3 * aa + _q(T, -345, 2584) * vv^2 * va^2 + _q(T, 1101, 33592) * vv^2 * aa + _q(T, 160, 4199) * vv^2 * bv + _q(T, 1005, 16796) * vv * va^2 + _q(T, 627, 1768) * vv * aa + _q(T, 14, 221) * vv * bv + _q(T, 81, 1768) * va^2 + _q(T, 4, 13) * bv,
+                   _q(T, 315, 67184) * vv^3 * aa + _q(T, -5565, 33592) * vv^2 * va^2 + _q(T, 1353, 67184) * vv^2 * aa + _q(T, 791, 16796) * vv^2 * bv + _q(T, 1389, 8398) * vv * va^2 + _q(T, 807, 3536) * vv * aa + _q(T, 6, 221) * vv * bv + _q(T, -9, 1768) * va^2 + _q(T, 11, 52) * bv,
+                   _q(T, 567, 134368) * vv^3 * aa + _q(T, -43659, 268736) * vv^2 * va^2 + _q(T, 315, 134368) * vv^2 * aa + _q(T, 3087, 67184) * vv^2 * bv + _q(T, 29589, 134368) * vv * va^2 + _q(T, 987, 7072) * vv * aa + _q(T, -7, 884) * vv * bv + _q(T, -693, 14144) * va^2 + _q(T, 31, 208) * bv,
+                   _q(T, 6237, 2149888) * vv^3 * aa + _q(T, -136521, 1074944) * vv^2 * va^2 + _q(T, -27657, 2149888) * vv^2 * aa + _q(T, 19173, 537472) * vv^2 * bv + _q(T, 14049, 67184) * vv * va^2 + _q(T, 8169, 113152) * vv * aa + _q(T, -105, 3536) * vv * bv + _q(T, -3969, 56576) * va^2 + _q(T, 161, 1664) * bv,
+                   _q(T, 2079, 1653760) * vv^3 * aa + _q(T, -112959, 1653760) * vv^2 * va^2 + _q(T, -362439, 21498880) * vv^2 * aa + _q(T, 231, 12160) * vv^2 * bv + _q(T, 1421343, 10749440) * vv * va^2 + _q(T, 28287, 1131520) * vv * aa + _q(T, -2079, 70720) * vv * bv + _q(T, -64449, 1131520) * va^2 + _q(T, 399, 8320) * bv,
+                   _q(T, 25, 4199) * vv^2 * va + _q(T, 4, 221) * vv * va + _q(T, 41, 65) * va,
+                   _q(T, 141, 4199) * vv^2 * va + _q(T, -3, 221) * vv * va + _q(T, 4, 13) * va,
+                   _q(T, 943, 16796) * vv^2 * va + _q(T, -11, 221) * vv * va + _q(T, 11, 52) * va,
+                   _q(T, 4417, 67184) * vv^2 * va + _q(T, -133, 1768) * vv * va + _q(T, 31, 208) * va,
+                   _q(T, 2457, 41344) * vv^2 * va + _q(T, -567, 7072) * vv * va + _q(T, 161, 1664) * va,
+                   _q(T, 9933, 268736) * vv^2 * va + _q(T, -1617, 28288) * vv * va + _q(T, 399, 8320) * va,
+                   _q(T, 1, 442) * vv^2 + _q(T, 8, 65) * vv,
+                   _q(T, -3, 1768) * vv^2 + _q(T, 3, 52) * vv,
+                   _q(T, -11, 1768) * vv^2 + _q(T, 1, 26) * vv,
+                   _q(T, -133, 14144) * vv^2 + _q(T, 11, 416) * vv,
+                   _q(T, -567, 56576) * vv^2 + _q(T, 7, 416) * vv,
+                   _q(T, -1617, 226304) * vv^2 + _q(T, 21, 2560) * vv,
+                   _q(T, 105, 16),
+                   zero(T),
+                   _q(T, -693, 104),
+                   zero(T),
+                   _q(T, 10395, 5168),
+                   _q(T, -45, 16) * aa,
+                   zero(T),
+                   _q(T, 189, 104) * aa,
+                   zero(T),
+                   _q(T, -2079, 5168) * aa,
+                   _q(T, -45, 16) * va,
+                   _q(T, -105, 52) * va,
+                   _q(T, 189, 104) * va,
+                   _q(T, 2079, 884) * va,
+                   _q(T, -7623, 5168) * va,
+                   _q(T, -25, 8),
+                   zero(T),
+                   _q(T, 63, 26),
+                   _q(T, -231, 442),
+                   _q(T, -693, 2584),
+                   _q(T, 9, 16) * va * aa + _q(T, 5, 8) * ab,
+                   _q(T, 15, 52) * va * aa,
+                   _q(T, -21, 104) * va * aa + _q(T, -7, 26) * ab,
+                   _q(T, -189, 884) * va * aa + _q(T, 21, 442) * ab,
+                   _q(T, 7623, 67184) * va * aa + _q(T, 693, 33592) * ab,
+                   _q(T, -75, 32) * vv + _q(T, -375, 32),
+                   _q(T, -105, 104) * vv + _q(T, 105, 104),
+                   _q(T, 567, 208) * vv + _q(T, 1323, 208),
+                   _q(T, 2079, 1768) * vv + _q(T, -2079, 1768),
+                   _q(T, -14553, 10336) * vv + _q(T, -6237, 10336),
+                   _q(T, 45, 32) * vv * aa + _q(T, 177, 32) * aa + _q(T, 5, 8) * bv,
+                   _q(T, 45, 104) * vv * aa + _q(T, -15, 26) * va^2 + _q(T, 45, 104) * aa + _q(T, 45, 52) * bv,
+                   _q(T, -189, 208) * vv * aa + _q(T, 63, 52) * va^2 + _q(T, -441, 208) * aa + _q(T, -21, 26) * bv,
+                   _q(T, -567, 1768) * vv * aa + _q(T, -189, 221) * va^2 + _q(T, 441, 1768) * aa + _q(T, -21, 884) * bv,
+                   _q(T, 43659, 134368) * vv * aa + _q(T, 3465, 16796) * va^2 + _q(T, 18711, 134368) * aa + _q(T, 3465, 33592) * bv,
+                   _q(T, 5, 8) * va,
+                   _q(T, 15, 52) * va,
+                   _q(T, -7, 26) * va,
+                   _q(T, -147, 884) * va,
+                   _q(T, 3465, 33592) * va,
+                   _q(T, 1, 4),
+                   zero(T),
+                   _q(T, -7, 52),
+                   _q(T, 21, 442),
+                   _q(T, 45, 8) * va,
+                   _q(T, 15, 52) * vv * va + _q(T, 135, 52) * va,
+                   _q(T, 21, 13) * vv * va + _q(T, -189, 52) * va,
+                   _q(T, -1701, 884) * vv * va + _q(T, -189, 884) * va,
+                   _q(T, 4851, 8398) * vv * va + _q(T, 18711, 33592) * va,
+                   _q(T, 5, 4) * vv + T(5),
+                   _q(T, 15, 26) * vv + _q(T, -15, 26),
+                   _q(T, -35, 26) * vv + _q(T, -35, 26),
+                   _q(T, 21, 221) * vv + _q(T, 84, 221),
+                   _q(T, 3465, 16796) * vv,
+                   _q(T, -5, 12) * vv * ab + _q(T, -11, 8) * va * aa + _q(T, -11, 12) * ab + _q(T, -1, 12) * cv,
+                   _q(T, -3, 52) * vv * va * aa + _q(T, -3, 26) * vv * ab + _q(T, -3, 26) * va^3 + _q(T, -27, 52) * va * aa + _q(T, 3, 13) * va * bv + _q(T, -3, 13) * ab + _q(T, -3, 26) * cv,
+                   _q(T, -3, 13) * vv * va * aa + _q(T, 5, 26) * vv * ab + _q(T, 9, 52) * va^3 + _q(T, 21, 52) * va * aa + _q(T, -9, 26) * va * bv + _q(T, 1, 4) * ab + _q(T, 5, 52) * cv,
+                   _q(T, 189, 884) * vv * va * aa + _q(T, -7, 663) * vv * ab + _q(T, -21, 221) * va^3 + _q(T, 49, 884) * va * aa + _q(T, 42, 221) * va * bv + _q(T, -28, 663) * ab + _q(T, -14, 663) * cv,
+                   _q(T, -441, 8398) * vv * va * aa + _q(T, -315, 16796) * vv * ab + _q(T, 315, 16796) * va^3 + _q(T, -1701, 33592) * va * aa + _q(T, -315, 8398) * va * bv,
+                   _q(T, 45, 16) * vv + _q(T, 45, 8),
+                   _q(T, 45, 208) * vv^2 + _q(T, 45, 104) * vv + _q(T, -135, 208),
+                   _q(T, -189, 104) * vv + _q(T, -63, 52),
+                   _q(T, -1323, 3536) * vv^2 + _q(T, 189, 1768) * vv + _q(T, 945, 3536),
+                   _q(T, 6237, 33592) * vv^2 + _q(T, 18711, 67184) * vv,
+                   _q(T, -33, 16) * vv * aa + _q(T, -27, 8) * aa + _q(T, -5, 4) * bv,
+                   _q(T, -27, 208) * vv^2 * aa + _q(T, 45, 52) * vv * va^2 + _q(T, -63, 104) * vv * aa + _q(T, -6, 13) * vv * bv + _q(T, -9, 52) * va^2 + _q(T, -63, 208) * aa + _q(T, -15, 26) * bv,
+                   _q(T, -51, 104) * vv * va^2 + _q(T, 75, 104) * vv * aa + _q(T, 5, 52) * vv * bv + _q(T, -57, 104) * va^2 + _q(T, 15, 26) * aa + _q(T, 31, 52) * bv,
+                   _q(T, 441, 3536) * vv^2 * aa + _q(T, 21, 1768) * vv * aa + _q(T, 63, 442) * vv * bv + _q(T, 126, 221) * va^2 + _q(T, -315, 3536) * aa + _q(T, -28, 221) * bv,
+                   _q(T, -1701, 33592) * vv^2 * aa + _q(T, 1323, 33592) * vv * va^2 + _q(T, -5103, 67184) * vv * aa + _q(T, -945, 16796) * vv * bv + _q(T, -5103, 33592) * va^2,
+                   _q(T, -5, 4) * va,
+                   _q(T, -9, 26) * va,
+                   _q(T, -15, 52) * vv * va + _q(T, 27, 52) * va,
+                   _q(T, 105, 442) * vv * va + _q(T, -28, 221) * va,
+                   _q(T, -945, 16796) * vv * va,
+                   _q(T, -1, 8) * vv + _q(T, -3, 8),
+                   _q(T, -3, 52) * vv + _q(T, 3, 52),
+                   _q(T, 11, 104) * vv + _q(T, 1, 104),
+                   _q(T, -7, 221) * vv,
+                   _q(T, -45, 16) * va,
+                   _q(T, 9, 52) * vv^2 * va + _q(T, -27, 52) * vv * va + _q(T, -27, 52) * va,
+                   _q(T, -63, 208) * vv^2 * va + _q(T, -9, 104) * vv * va + _q(T, 171, 208) * va,
+                   _q(T, 189, 1768) * vv^2 * va + _q(T, 189, 442) * vv * va + _q(T, -315, 1768) * va,
+                   _q(T, -189, 67184) * vv^2 * va + _q(T, -5103, 33592) * vv * va,
+                   _q(T, -5, 4) * vv + _q(T, -15, 8),
+                   _q(T, -3, 26) * vv^2 + _q(T, -3, 26) * vv + _q(T, 3, 13),
+                   _q(T, 7, 104) * vv^2 + _q(T, 23, 52) * vv + _q(T, 7, 104),
+                   _q(T, 21, 442) * vv^2 + _q(T, -28, 221) * vv,
+                   _q(T, -945, 33592) * vv^2,
+                   _q(T, 1, 2) * vv * ab + _q(T, 21, 16) * va * aa + _q(T, 3, 8) * ab + _q(T, 1, 4) * cv,
+                   _q(T, -3, 52) * vv^2 * va * aa + _q(T, 1, 26) * vv^2 * ab + _q(T, 9, 13) * vv * va^3 + _q(T, -3, 52) * vv * va * aa + _q(T, -9, 13) * vv * va * bv + _q(T, 7, 26) * vv * ab + _q(T, 3, 26) * vv * cv + _q(T, -15, 26) * va^3 + _q(T, 21, 52) * va * aa + _q(T, 6, 13) * va * bv + _q(T, 1, 26) * ab,
+                   _q(T, 63, 1040) * vv^2 * va * aa + _q(T, -7, 520) * vv^2 * ab + _q(T, -6, 13) * vv * va^3 + _q(T, 57, 520) * vv * va * aa + _q(T, 11, 26) * vv * va * bv + _q(T, -8, 65) * vv * ab + _q(T, -7, 130) * vv * cv + _q(T, 93, 260) * va^3 + _q(T, -3, 16) * va * aa + _q(T, -14, 65) * va * bv + _q(T, -7, 520) * ab + _q(T, -1, 260) * cv,
+                   _q(T, -27, 1768) * vv^2 * va * aa + _q(T, -3, 442) * vv^2 * ab + _q(T, 63, 442) * vv * va^3 + _q(T, -33, 442) * vv * va * aa + _q(T, -2, 17) * vv * va * bv + _q(T, 4, 221) * vv * ab + _q(T, 2, 221) * vv * cv + _q(T, -45, 442) * va^3 + _q(T, 45, 1768) * va * aa + _q(T, 8, 221) * va * bv,
+                   _q(T, 21, 67184) * vv^2 * va * aa + _q(T, 105, 33592) * vv^2 * ab + _q(T, -147, 8398) * vv * va^3 + _q(T, 567, 33592) * vv * va * aa + _q(T, 105, 8398) * vv * va * bv + _q(T, 189, 16796) * va^3,
+                   _q(T, -15, 32) * vv,
+                   _q(T, -9, 208) * vv^2,
+                   _q(T, -3, 416) * vv^3 + _q(T, 9, 416) * vv^2 + _q(T, 45, 416) * vv,
+                   _q(T, 21, 3536) * vv^3 + _q(T, 21, 884) * vv^2 + _q(T, -105, 3536) * vv,
+                   _q(T, -189, 134368) * vv^3 + _q(T, -1701, 134368) * vv^2,
+                   _q(T, 21, 32) * vv * aa + _q(T, 5, 8) * bv,
+                   _q(T, 9, 208) * vv^2 * aa + _q(T, -15, 52) * vv * va^2 + _q(T, 3, 26) * vv * aa + _q(T, 2, 13) * vv * bv + _q(T, 9, 52) * va^2 + _q(T, 1, 52) * bv,
+                   _q(T, 9, 2080) * vv^3 * aa + _q(T, -33, 260) * vv^2 * va^2 + _q(T, -3, 2080) * vv^2 * aa + _q(T, 19, 520) * vv^2 * bv + _q(T, 183, 520) * vv * va^2 + _q(T, -159, 2080) * vv * aa + _q(T, -6, 65) * vv * bv + _q(T, -63, 520) * va^2 + _q(T, -7, 520) * bv,
+                   _q(T, -9, 3536) * vv^3 * aa + _q(T, 9, 136) * vv^2 * va^2 + _q(T, -3, 221) * vv^2 * aa + _q(T, -1, 52) * vv^2 * bv + _q(T, -9, 68) * vv * va^2 + _q(T, 45, 3536) * vv * aa + _q(T, 4, 221) * vv * bv + _q(T, 45, 1768) * va^2,
+                   _q(T, 63, 134368) * vv^3 * aa + _q(T, -21, 1976) * vv^2 * va^2 + _q(T, 567, 134368) * vv^2 * aa + _q(T, 105, 33592) * vv^2 * bv + _q(T, 567, 33592) * vv * va^2,
+                   _q(T, 5, 8) * va,
+                   _q(T, -1, 26) * vv^2 * va + _q(T, 1, 13) * vv * va + _q(T, 1, 52) * va,
+                   _q(T, 7, 104) * vv^2 * va + _q(T, -1, 13) * vv * va + _q(T, -7, 520) * va,
+                   _q(T, -23, 884) * vv^2 * va + _q(T, 4, 221) * vv * va,
+                   _q(T, 105, 33592) * vv^2 * va,
+                   _q(T, 1, 8) * vv,
+                   _q(T, 1, 104) * vv^2,
+                   _q(T, -1, 104) * vv^2 + _q(T, -1, 520) * vv,
+                   _q(T, 1, 442) * vv^2)
+end
+
+function _lab_evaluate(::Val{3}, ::Val{:laplacian}, Q, ℓ, q, vy, ay, by, cy, c, d=())
+    T = typeof(ℓ)
+    s₀ = s₁ = zero(q * _coefficient(c, 1, d))
+    if q < ℓ^2
+        σ² = q / ℓ^2
+        w = 1 - σ²
+        vy² = vy * vy
+        vy³ = vy² * vy
+        vy⁴ = vy² * vy²
+        vy⁵ = vy⁴ * vy
+        vy⁶ = vy³ * vy³
+        ay² = ay * ay
+        ay³ = ay² * ay
+        ℓ⁻¹ = 1 / ℓ
+        ℓ⁻² = ℓ⁻¹ * ℓ⁻¹
+        ℓ⁻³ = ℓ⁻² * ℓ⁻¹
+        ℓ⁻⁴ = ℓ⁻² * ℓ⁻²
+        ℓ⁻⁵ = ℓ⁻⁴ * ℓ⁻¹
+        ℓ⁻⁶ = ℓ⁻³ * ℓ⁻³
+        ℓ⁻⁷ = ℓ⁻⁶ * ℓ⁻¹
+        ℓ⁻⁸ = ℓ⁻⁴ * ℓ⁻⁴
+        ℓ⁻⁹ = ℓ⁻⁸ * ℓ⁻¹
+        s₁ += vy⁶ * ay³ * ℓ⁻⁹ * evalpoly(w, (_coefficient(c, 1, d), _coefficient(c, 2, d)))
+        s₁ += vy⁶ * ay * ℓ⁻⁷ * evalpoly(w, (_coefficient(c, 3, d), _coefficient(c, 4, d), _coefficient(c, 5, d)))
+        s₁ += vy⁵ * ay² * ℓ⁻⁷ * evalpoly(w, (_coefficient(c, 6, d), _coefficient(c, 7, d), _coefficient(c, 8, d)))
+        s₁ += vy⁵ * ay * by * ℓ⁻⁷ * evalpoly(w, (_coefficient(c, 9, d), _coefficient(c, 10, d), _coefficient(c, 11, d)))
+        s₁ += vy⁵ * ℓ⁻⁵ * evalpoly(w, (_coefficient(c, 12, d), _coefficient(c, 13, d), _coefficient(c, 14, d), _coefficient(c, 15, d)))
+        s₁ += vy⁴ * ay³ * ℓ⁻⁷ * evalpoly(σ², (_coefficient(c, 16, d), _coefficient(c, 17, d), _coefficient(c, 18, d)))
+        s₁ += vy⁴ * ay * ℓ⁻⁵ * evalpoly(w, (_coefficient(c, 19, d), _coefficient(c, 20, d), _coefficient(c, 21, d), _coefficient(c, 22, d)))
+        s₁ += vy⁴ * by * ℓ⁻⁵ * evalpoly(w, (_coefficient(c, 23, d), _coefficient(c, 24, d), _coefficient(c, 25, d), _coefficient(c, 26, d)))
+        s₁ += vy⁴ * cy * ℓ⁻⁵ * evalpoly(w, (_coefficient(c, 27, d), _coefficient(c, 28, d), _coefficient(c, 29, d), _coefficient(c, 30, d)))
+        s₁ += vy³ * ay² * ℓ⁻⁵ * evalpoly(w, (_coefficient(c, 31, d), _coefficient(c, 32, d), _coefficient(c, 33, d), _coefficient(c, 34, d)))
+        s₁ += vy³ * ay * by * ℓ⁻⁵ * evalpoly(w, (_coefficient(c, 35, d), _coefficient(c, 36, d), _coefficient(c, 37, d), _coefficient(c, 38, d)))
+        s₁ += vy³ * ℓ⁻³ * evalpoly(w, (_coefficient(c, 39, d), _coefficient(c, 40, d), _coefficient(c, 41, d), _coefficient(c, 42, d), _coefficient(c, 43, d)))
+        s₁ += vy² * ay³ * ℓ⁻⁵ * evalpoly(w, (_coefficient(c, 44, d), _coefficient(c, 45, d), _coefficient(c, 46, d), _coefficient(c, 47, d)))
+        s₁ += vy² * ay * ℓ⁻³ * evalpoly(w, (_coefficient(c, 48, d), _coefficient(c, 49, d), _coefficient(c, 50, d), _coefficient(c, 51, d), _coefficient(c, 52, d)))
+        s₁ += vy² * by * ℓ⁻³ * evalpoly(w, (_coefficient(c, 53, d), _coefficient(c, 54, d), _coefficient(c, 55, d), _coefficient(c, 56, d), _coefficient(c, 57, d)))
+        s₁ += vy² * cy * ℓ⁻³ * evalpoly(w, (_coefficient(c, 58, d), _coefficient(c, 59, d), _coefficient(c, 60, d), _coefficient(c, 61, d), _coefficient(c, 62, d)))
+        s₁ += vy * ay² * ℓ⁻³ * evalpoly(w, (_coefficient(c, 63, d), _coefficient(c, 64, d), _coefficient(c, 65, d), _coefficient(c, 66, d), _coefficient(c, 67, d)))
+        s₁ += vy * ay * by * ℓ⁻³ * evalpoly(w, (_coefficient(c, 68, d), _coefficient(c, 69, d), _coefficient(c, 70, d), _coefficient(c, 71, d), _coefficient(c, 72, d)))
+        s₁ += vy * ℓ⁻¹ * evalpoly(w, (_coefficient(c, 73, d), _coefficient(c, 74, d), _coefficient(c, 75, d), _coefficient(c, 76, d), _coefficient(c, 77, d), _coefficient(c, 78, d)))
+        s₁ += ay³ * ℓ⁻³ * evalpoly(w, (_coefficient(c, 79, d), _coefficient(c, 80, d), _coefficient(c, 81, d), _coefficient(c, 82, d), _coefficient(c, 83, d)))
+        s₁ += ay * ℓ⁻¹ * evalpoly(w, (_coefficient(c, 84, d), _coefficient(c, 85, d), _coefficient(c, 86, d), _coefficient(c, 87, d), _coefficient(c, 88, d), _coefficient(c, 89, d)))
+        s₁ += by * ℓ⁻¹ * evalpoly(w, (_coefficient(c, 90, d), _coefficient(c, 91, d), _coefficient(c, 92, d), _coefficient(c, 93, d), _coefficient(c, 94, d), _coefficient(c, 95, d)))
+        s₁ += cy * ℓ⁻¹ * evalpoly(w, (_coefficient(c, 96, d), _coefficient(c, 97, d), _coefficient(c, 98, d), _coefficient(c, 99, d), _coefficient(c, 100, d), _coefficient(c, 101, d)))
+    else
+        r = sqrt(q)
+        u = ℓ^2 / q
+        vy² = vy * vy
+        vy³ = vy² * vy
+        vy⁴ = vy² * vy²
+        vy⁵ = vy⁴ * vy
+        vy⁶ = vy³ * vy³
+        ay² = ay * ay
+        ay³ = ay² * ay
+        r⁻¹ = 1 / r
+        r⁻² = r⁻¹ * r⁻¹
+        r⁻³ = r⁻² * r⁻¹
+        r⁻⁴ = r⁻² * r⁻²
+        r⁻⁵ = r⁻⁴ * r⁻¹
+        r⁻⁶ = r⁻³ * r⁻³
+        r⁻⁷ = r⁻⁶ * r⁻¹
+        r⁻⁸ = r⁻⁴ * r⁻⁴
+        r⁻⁹ = r⁻⁸ * r⁻¹
+        s₁ += vy⁶ * ay³ * r⁻⁹ * evalpoly(u, (_coefficient(c, 102, d), _coefficient(c, 103, d), _coefficient(c, 104, d), _coefficient(c, 105, d), _coefficient(c, 106, d)))
+        s₁ += vy⁶ * ay * r⁻⁷ * evalpoly(u, (_coefficient(c, 107, d), _coefficient(c, 108, d), _coefficient(c, 109, d), _coefficient(c, 110, d), _coefficient(c, 111, d)))
+        s₁ += vy⁵ * ay² * r⁻⁷ * evalpoly(u, (_coefficient(c, 112, d), _coefficient(c, 113, d), _coefficient(c, 114, d), _coefficient(c, 115, d), _coefficient(c, 116, d)))
+        s₁ += vy⁵ * ay * by * r⁻⁷ * evalpoly(u, (_coefficient(c, 117, d), _coefficient(c, 118, d), _coefficient(c, 119, d), _coefficient(c, 120, d), _coefficient(c, 121, d)))
+        s₁ += vy⁵ * r⁻⁵ * evalpoly(u, (_coefficient(c, 122, d), _coefficient(c, 123, d), _coefficient(c, 124, d), _coefficient(c, 125, d), _coefficient(c, 126, d)))
+        s₁ += vy⁴ * ay³ * r⁻⁷ * evalpoly(u, (_coefficient(c, 127, d), _coefficient(c, 128, d), _coefficient(c, 129, d), _coefficient(c, 130, d), _coefficient(c, 131, d)))
+        s₁ += vy⁴ * ay * r⁻⁵ * evalpoly(u, (_coefficient(c, 132, d), _coefficient(c, 133, d), _coefficient(c, 134, d), _coefficient(c, 135, d), _coefficient(c, 136, d)))
+        s₁ += vy⁴ * by * r⁻⁵ * evalpoly(u, (_coefficient(c, 137, d), _coefficient(c, 138, d), _coefficient(c, 139, d), _coefficient(c, 140, d), _coefficient(c, 141, d)))
+        s₁ += vy⁴ * cy * r⁻⁵ * evalpoly(u, (_coefficient(c, 142, d), _coefficient(c, 143, d), _coefficient(c, 144, d), _coefficient(c, 145, d)))
+        s₁ += vy³ * ay² * r⁻⁵ * evalpoly(u, (_coefficient(c, 146, d), _coefficient(c, 147, d), _coefficient(c, 148, d), _coefficient(c, 149, d), _coefficient(c, 150, d)))
+        s₁ += vy³ * ay * by * r⁻⁵ * evalpoly(u, (_coefficient(c, 151, d), _coefficient(c, 152, d), _coefficient(c, 153, d), _coefficient(c, 154, d), _coefficient(c, 155, d)))
+        s₁ += vy³ * r⁻³ * evalpoly(u, (_coefficient(c, 156, d), _coefficient(c, 157, d), _coefficient(c, 158, d), _coefficient(c, 159, d), _coefficient(c, 160, d)))
+        s₁ += vy² * ay³ * r⁻⁵ * evalpoly(u, (_coefficient(c, 161, d), _coefficient(c, 162, d), _coefficient(c, 163, d), _coefficient(c, 164, d), _coefficient(c, 165, d)))
+        s₁ += vy² * ay * r⁻³ * evalpoly(u, (_coefficient(c, 166, d), _coefficient(c, 167, d), _coefficient(c, 168, d), _coefficient(c, 169, d), _coefficient(c, 170, d)))
+        s₁ += vy² * by * r⁻³ * evalpoly(u, (_coefficient(c, 171, d), _coefficient(c, 172, d), _coefficient(c, 173, d), _coefficient(c, 174, d), _coefficient(c, 175, d)))
+        s₁ += vy² * cy * r⁻³ * evalpoly(u, (_coefficient(c, 176, d), _coefficient(c, 177, d), _coefficient(c, 178, d), _coefficient(c, 179, d)))
+        s₁ += vy * ay² * r⁻³ * evalpoly(u, (_coefficient(c, 180, d), _coefficient(c, 181, d), _coefficient(c, 182, d), _coefficient(c, 183, d), _coefficient(c, 184, d)))
+        s₁ += vy * ay * by * r⁻³ * evalpoly(u, (_coefficient(c, 185, d), _coefficient(c, 186, d), _coefficient(c, 187, d), _coefficient(c, 188, d), _coefficient(c, 189, d)))
+        s₁ += vy * r⁻¹ * evalpoly(u, (_coefficient(c, 190, d), _coefficient(c, 191, d), _coefficient(c, 192, d), _coefficient(c, 193, d), _coefficient(c, 194, d)))
+        s₁ += ay³ * r⁻³ * evalpoly(u, (_coefficient(c, 195, d), _coefficient(c, 196, d), _coefficient(c, 197, d), _coefficient(c, 198, d), _coefficient(c, 199, d)))
+        s₁ += ay * r⁻¹ * evalpoly(u, (_coefficient(c, 200, d), _coefficient(c, 201, d), _coefficient(c, 202, d), _coefficient(c, 203, d), _coefficient(c, 204, d)))
+        s₁ += by * r⁻¹ * evalpoly(u, (_coefficient(c, 205, d), _coefficient(c, 206, d), _coefficient(c, 207, d), _coefficient(c, 208, d), _coefficient(c, 209, d)))
+        s₁ += cy * r⁻¹ * evalpoly(u, (_coefficient(c, 210, d), _coefficient(c, 211, d), _coefficient(c, 212, d), _coefficient(c, 213, d)))
+    end
+    return Q * (s₀ + s₁ / T(π))
+end
+
+# The lab slice of order N and its Laplacian as functions of all the
+# invariants, in one step.
+@inline _lab_slice_term(::Val{N}, Q, ℓ, q, vy, ay, by, cy, vv, va, aa, bv, ab, cv) where {N} =
+    _lab_evaluate(Val(N), Val(:term), Q, ℓ, q, vy, ay, by, cy,
+                  _lab_coefficients(Val(N), Val(:term), ℓ, vv, va, aa, bv, ab, cv))
+@inline _lab_slice_laplacian(::Val{N}, Q, ℓ, q, vy, ay, by, cy, vv, va, aa, bv, ab, cv) where {N} =
+    _lab_evaluate(Val(N), Val(:laplacian), Q, ℓ, q, vy, ay, by, cy,
+                  _lab_coefficients(Val(N), Val(:laplacian), ℓ, vv, va, aa, bv, ab, cv))
+
+# The types of the coefficients per order: the term's with their first
+# two time derivatives, the Laplacian's alone.
+const LabTermJets{T} = Tuple{NTuple{3,SVector{26,T}}, NTuple{3,SVector{103,T}}, NTuple{3,SVector{273,T}}}
+const LabLaplacianCoefficients{T} = Tuple{SVector{17,T}, SVector{75,T}, SVector{213,T}}
 
 # δm: the self-inertia, the order-1 force -δm a.
 function self_inertia(Q, ℓ)
@@ -333,16 +1387,4 @@ end
 function self_potential_a2(Q, ℓ)
     T = typeof(ℓ)
     return _q(T, 2541, 193154) * Q^1 * ℓ^1 / T(π)
-end
-
-# The t′² term's force at rest: self_force_tprime2_v2 · v² α′ + self_force_tprime2_va · (v·α′) v.
-function self_force_tprime2_v2(Q, ℓ)
-    T = typeof(ℓ)
-    return _q(T, 2541, 83980) * Q^2 * ℓ^(-1) / T(π)
-end
-
-# See `self_force_tprime2_v2`.
-function self_force_tprime2_va(Q, ℓ)
-    T = typeof(ℓ)
-    return _q(T, 2541, 41990) * Q^2 * ℓ^(-1) / T(π)
 end
