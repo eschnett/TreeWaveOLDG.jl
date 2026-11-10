@@ -1699,3 +1699,7 @@ validation step 5.
   The suite and the annulus pass against it unchanged.
 - 2026-11-10: MultiFloats 3.3.2 added, for building the full geometry's
   truncation tables in `Float64x2` ("Multi-patch forests").
+- 2026-11-10: `test/runtests.jl` logs each test file's name as it
+  starts, at Erik Schnetter's request, after CI's one-thread run went
+  silent for over an hour: Test prints nothing until the outermost
+  testset ends, so a slow run and a stuck one looked the same.

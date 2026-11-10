@@ -2628,7 +2628,10 @@ at four, of which the particle, the transfer, the inspiral, the nested
 boxes and the prescribed paths take about four fifths; the inspiral's
 coarse 3D runs about 50 s of it on four threads, the nested boxes' about
 40 s more and the prescribed paths' about 50 s, and the refined forests'
-tests about 40 s on one.
+tests about 40 s on one. `test/runtests.jl` logs each file's name as it
+starts, with the time since the suite began: Test prints a testset's
+results only when the outermost one ends, so a run, most of an hour at
+one thread on CI, is otherwise silent until its summary.
 
 - `element_tests.jl`: the nodes integrate to degree `2P-1`, and no
   further; the wide derivative is the paper's matrix for `P = 2, 3, 4`
