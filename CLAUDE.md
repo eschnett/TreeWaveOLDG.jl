@@ -110,6 +110,17 @@ julia --project=. -t 4,0 bin/uniform_motion.jl --hdiv=4 --levels=2 --tend=0.0625
 julia --project=. -t 4,0 bin/nested_waves.jl --levels=2 --w0=2 --hdiv=4 --lambda=4 --tend=1
 ```
 
+The same pulse, and its dipole, through the uniform seven-patch ball's
+radiative sphere ("The radiative sphere"), in the package environment;
+on Symmetry `sbatch bin/symmetry/sphere_waves.sh` after its `setup`, with
+the runs in `TREEWAVEOLDG_RUNS`. The run below takes about two and a
+half minutes on four threads, half of it `WaveProblem`'s serial setup;
+the plan's ball at `R₁ = 50` takes 12 hours on 64:
+
+```bash
+julia --project=. -t 4,0 bin/sphere_waves.jl --R1=12 --Lc=4 --n=4 --m=2 --E=4 --lambda=8 --tend=4
+```
+
 A particle on a prescribed path, the slow circle or hyperbolic motion
 ("Prescribed paths"), in the package environment; on Symmetry
 `sbatch bin/symmetry/prescribed.sh` after its `setup`, with the runs in

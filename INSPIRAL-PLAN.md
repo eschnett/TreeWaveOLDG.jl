@@ -7,7 +7,8 @@ knows it is done. Section names of `INSPIRAL.md` and `CODE.md` are used
 below without links.
 
 **Status.** M0 to M5 are done; M6a, M6b and M7 are not started; M8 is
-proposed (2026-11-09) and not started. A
+proposed (2026-11-09), M8a's runs are measured (2026-11-10) and its gate
+is with the owner, and M8b and M8c are not started. A
 milestone's status line changes here when its work starts and when its
 pull request merges. A finished milestone keeps its number and one line
 saying where its results went; its earlier text, with the gates and
@@ -402,8 +403,15 @@ wavelength at `λ = 16`, `hₑ ≤ 2`, so `n_e ≥ R₁`. An example at `P = 3`:
 
 ### M8a: What the sphere sends back
 
-**Status:** proposed; not started. The field alone, on the uniform
-ball, with no code beyond a script.
+**Status:** measured (2026-11-10), on branch
+`eschnett-claude/elastic-colden-7ba544`; the results are in `CODE.md`
+("The radiative sphere" under "Measured results"), and the gate below is
+with the owner. The sphere sends back about eight times what the nested
+boxes' outer face does at `λ = 16`, and at `λ = 4` the shells keep a
+fifth of the energy. The dipole was centred, a pure `ℓ = 1` wave about
+the sphere, not off-centre, and `n_e` was varied only with `R₁`, at
+fixed spacings. The field alone, on the uniform ball, with no code
+beyond a script.
 
 - `bin/sevenpatch.jl`'s radiative run with `bin/nested_waves.jl`'s pulse,
   `[g(r − t) − g(r + t)]/r` with `g(s) = exp(−(s/σ)²) cos(2πs/λ)`, at

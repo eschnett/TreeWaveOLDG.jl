@@ -1027,6 +1027,24 @@ patches.
   with the first marked inconsistent with `CODE.md`, which has both
   since TreeAMR's M17 and the seven-patch ball. Its decisions row on the
   outer boundary had said "no sponge or outflow boundary in this plan".
+- 2026-11-09 to 11-10: M8a's runs, at Erik Schnetter's request, on
+  Symmetry (`bin/sphere_waves.jl`, `CODE.md`, "The radiative sphere").
+  Two balls of one spacing, `R₁ = 25` and 50, at `λ = 16` for the
+  monopole and a centred dipole and at `λ = 4` for the monopole; the
+  plan had asked for an off-centre dipole, and the centred one was taken
+  as the binary's `ℓ = 1` without the mixture of orders an offset brings.
+  The nested boxes' side is M3b's existing runs, not rerun. The first
+  reading, at `R₁ = 25`, took the error of about `10⁻⁴` before anything
+  could return from the sphere for the cube's own error at `hₑ = 1/2`,
+  too large to see a reflection under; the `R₁ = 50` runs showed it was
+  the cube–shell faces' at 8, six times smaller where they are at 16. In
+  between, a difference against a second problem with the exact pulse as
+  Dirichlet data on the sphere was added to the script and four jobs
+  started (594081, 594082, 594086, 594088); a laptop run showed that
+  the Dirichlet sphere reflects the outgoing discretization error whole,
+  more than the radiative one sends back, so the jobs were cancelled
+  within half an hour and the option taken out again. The `R₁ = 50` jobs
+  also showed the serial `element_truncation`, 1¾ hours of each job.
 
 ### What the plan said of its finished milestones
 
