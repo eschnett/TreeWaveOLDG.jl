@@ -582,6 +582,38 @@ patches.
   `bin/ball_benchmark.jl` and `bin/symmetry/ball_benchmark.sh` measure
   it; job 595219 on `cn084` gave 0.31 s a step at 64 threads, 3.8 times
   the flat box per node (`CODE.md`, "Threads on Symmetry").
+- 2026-11-10: Erik Schnetter asked for the package to run on GPUs, and
+  what that means for the particles. A survey found the flat path nearly
+  ready (TreeAMR runs element sets, glues and folds on a device), a
+  geometry refused on one because its truncation tables were arrays in
+  structs no kernel could take, and the particles' projection mostly
+  host code: of its three rules only the far one is a kernel. At `d/8`
+  the projection is about 85 % of an inspiral step on 64 cores, and an
+  H200 job gets 12 to 16 host cores, so leaving it on the host would make
+  it about four times slower than on a CPU node. He chose the particles
+  fully on the device, and, for now, the field ported with the far rule
+  measured as a gate, the particles' port written into `PLAN.md`
+  ("Particles on a device") rather than done.
+- 2026-11-10: the field runs on a device. The tables and the coefficients
+  are built on the host and copied, the coefficients' fill so that
+  ForwardDiff's frame is never compiled for a device; the truncation
+  structs have `Adapt` rules; a full geometry's folds read `√g` from the
+  coefficient set, after the fold that evaluated the frame per point
+  crashed Metal's compiler; the shells' faces are arithmetic rather than
+  an index into a global tuple; a `Float32` geometry's tables are
+  rounded once from `Float64x2` through `BigFloat`, which before failed
+  on the CPU too, `Float64x2` converting to `Float64` only. The ball
+  drivers take a `backend`; `InspiralProblem` refuses a device.
+  `test/device_tests.jl` (after TreeHydro's) holds a device to the host,
+  passing on the laptop's GPU in `Float32` and on an H200 in `Float64`
+  and `Float32`; `bin/backend.jl` gives both benchmarks `--backend` and
+  `--type`, and `bin/symmetry/gpu.sh` runs the lot on one H200.
+- 2026-11-10: measured on one H200 (job 595237, `cn113`): the benchmark
+  ball steps in 54 ms, 5.7 times faster than 64 cores; the flat box only
+  2.6 times, its Laplacian pass no faster than on the CPU. The far rule
+  runs 2.4 times faster than on 64 cores, short of the ten times the
+  gate asked for, so the per-point evaluation comes before the rest of
+  the particles' port. Tables in `CODE.md`, "Threads on Symmetry".
 
 ## Particles
 

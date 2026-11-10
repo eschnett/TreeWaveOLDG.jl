@@ -62,10 +62,11 @@ no mirror images, unlike the periodic box's `sin`, so the shape passes to
 the wall as-is.
 """
 function reflect_exact(D, L, m, t)
-    T = typeof(float(L))
     ω = reflect_omega(D, L, m)
+    # `one(ω)`, not `one(T)`: a captured type is not a value a device
+    # kernel can take.
     return function (x, var)
-        shape = one(T)
+        shape = one(ω)
         for d in 1:D
             shape *= cospi(m * x[d] / L)
         end

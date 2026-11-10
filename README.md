@@ -149,8 +149,14 @@ forest; in two and more dimensions the largest pointwise error loses
 part of an order at the coarse-fine faces, an open question recorded in
 [CODE.md](CODE.md). On the adaptive blast wave the error is the uniform
 run's at the finest spacing, to 0.3%, at 61–90% of its work, with
-thresholds three orders apart. Partly reflecting or outflow boundaries,
-and a device run, are not there yet.
+thresholds three orders apart. Partly reflecting or outflow boundaries
+are not there yet.
+
+The field runs on a GPU too, through KernelAbstractions: the boxes,
+refined or not, and both balls, on CUDA in `Float64` and `Float32` and on
+Metal in `Float32`, holding to the host's results; ask
+`WaveProblem(…; backend)` for one. The particles still run on the CPU
+only.
 
 **Inconsistent:** [CODE.md](CODE.md) ("The seven-patch ball") has a
 radiative outer boundary on the seven-patch ball, an outflow condition,

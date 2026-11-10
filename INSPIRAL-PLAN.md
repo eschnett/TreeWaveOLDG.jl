@@ -349,7 +349,8 @@ source, M2 and M3, against about 0.06 s for the wave equation on
 elements, the estimates are about 1.5 and 4 days, run in 24-hour chunks
 from checkpoints. The projection's speedups (`CODE.md`, "Possible
 extensions" and "Open questions") matter more here than local time
-stepping would.
+stepping would. Moving the projection to a GPU with the field is
+`PLAN.md`'s "Particles on a device".
 
 ## M8: The particles in the seven-patch ball
 

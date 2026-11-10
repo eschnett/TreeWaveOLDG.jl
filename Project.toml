@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Erik Schnetter <schnetter@gmail.com>"]
 
 [deps]
+Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 IMEXRungeKutta = "6f46d5f7-e15e-41aa-a098-eed9d1a63ad8"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
@@ -17,6 +18,7 @@ TreeAMR = "91bc416d-811c-44c1-9bc4-b9c8bbdbbd08"
 IMEXRungeKutta = {rev = "main", url = "https://github.com/eschnett/IMEXRungeKutta.jl"}
 
 [compat]
+Adapt = "4"
 ForwardDiff = "1"
 IMEXRungeKutta = "1.4"
 KernelAbstractions = "0.9.42"

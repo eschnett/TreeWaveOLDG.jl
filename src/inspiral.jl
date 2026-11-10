@@ -95,6 +95,11 @@ function InspiralProblem(wave::WaveProblem{T,3}, models::Tuple, window::Window,
         "$(wave.metric === nothing ? "a forest of patches" : "a geometry"): the " *
         "transfer measures distances in the logical coordinates and locates points " *
         "in one brick (\"Multi-patch forests\" in CODE.md)"))
+    get_backend(wave.fs.work) isa CPU || throw(ArgumentError(
+        "the particles run on the CPU only, and the wave problem is on " *
+        "$(get_backend(wave.fs.work)): the transfer's graded and nested rules, the " *
+        "averaging over shared nodes and the pairing are host code (\"Particles on a " *
+        "device\" in PLAN.md)"))
     tables === nothing && (tables = TransferTables(T, TreeWaveOLDG.order(wave.element)))
     check_tables(wave, tables)
     K = length(models)

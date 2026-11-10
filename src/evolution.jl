@@ -487,8 +487,10 @@ physical space, and the problem is then the wave equation in that metric:
 gradient sets hold in place of `∂_d u`. The problem keeps the metric's
 coefficients at the nodes, the truncation's per-line projections, which
 are orthogonal in the `√g`-weighted inner product, and the largest
-logical wave speed, which divides the time step. The forest must be
-uniform and on the CPU; see "Multi-patch forests" in `CODE.md`. Without
+logical wave speed, which divides the time step. It may be refined only
+inside a patch whose map is affine, and runs on any backend: the
+coefficients and the tables are built on the host and copied to the
+problem's backend once; see "Multi-patch forests" in `CODE.md`. Without
 a geometry the problem is the flat one, on a brick or on any forest of
 patches, in logical coordinates.
 
@@ -555,6 +557,10 @@ struct MetricTruncation{M}
     modes::M                     # NTuple{D} of (P+1, E, nblocks) arrays
     duals::M
 end
+
+# The truncation tables are arrays inside a struct that a kernel takes
+# whole, so on a device they are adapted to device arrays field by field.
+Adapt.@adapt_structure MetricTruncation
 
 @inline topmode(t::MetricTruncation, i, J, d, b) = @inbounds t.modes[d][i, J[d], b]
 @inline topdual(t::MetricTruncation, j, J, d, b) = @inbounds t.duals[d][j, J[d], b]
@@ -667,23 +673,36 @@ function check_metric_forest(geo, forest, backend)
             "√g-weighted ones only where √g is constant (\"The seven-patch ball\" in " *
             "CODE.md)"))
     end
-    backend isa CPU || throw(ArgumentError(
-        "a geometry runs on the CPU only, and the problem was asked for $backend: " *
-        "its truncation tables are not adapted to a device"))
     return nothing
+end
+
+# The coefficient set of `nv` variables at the nodes, filled by `f`, on
+# `backend`, and its work array on the host. The fill runs on the host, so
+# that the geometry's frame (ForwardDiff's Jacobian of the map) is never
+# compiled for a device, and the host copy is what the step's speeds and
+# the flat blocks are read from, node by node; on a device the filled
+# array is then copied across once. Nothing reads the set's ghosts (`G =
+# 0`).
+function coefficient_set(::Type{T}, forest::Forest{D}, nv, P, backend, f) where {T,D}
+    host = wave_fieldset(T, forest, nv, ntuple(_ -> 0, D), fill(EvenParity, nv), P,
+                         CPU())
+    fill_by_coordinates!(f, host)
+    backend isa CPU && return host, host.work
+    cfs = wave_fieldset(T, forest, nv, ntuple(_ -> 0, D), fill(EvenParity, nv), P,
+                        backend)
+    copyto!(cfs.work, host.work)
+    return cfs, host.work
 end
 
 function build_metric(geo::Geometry, forest::Forest{D}, el::Element{T},
                       backend) where {D,T}
     check_metric_forest(geo, forest, backend)
-    cfs = wave_fieldset(T, forest, 1 + D, ntuple(_ -> 0, D),
-                        fill(EvenParity, 1 + D), order(el), backend)
-    fill_by_coordinates!(WithPatch(AllVariables(MetricTerms(geo))), cfs)
-    c = cfs.work
+    cfs, c = coefficient_set(T, forest, 1 + D, order(el), backend,
+                             WithPatch(AllVariables(MetricTerms(geo))))
     speed, hspeed = block_speeds(forest, c, T) do I, b
         maximum(d -> sqrt(c[Tuple(I)..., 1 + d, b] / c[Tuple(I)..., 1, b]), 1:D)
     end
-    return Metric(geo, cfs, c, metric_truncation(geo, forest, el, backend), speed,
+    return Metric(geo, cfs, cfs.work, metric_truncation(geo, forest, el, backend), speed,
                   hspeed)
 end
 
@@ -736,6 +755,8 @@ struct ElementTruncation{A,B,C,S,I,EL,F}
     factored::F                  # the tables where `√g` factorizes
 end
 
+Adapt.@adapt_structure ElementTruncation
+
 """
     FactoredTruncation
 
@@ -775,6 +796,8 @@ struct FactoredTruncation{I,K,R,A,M,W,C,S}
     scratch::S                   # (m⊥, E^D, nf)
 end
 
+Adapt.@adapt_structure FactoredTruncation
+
 # The volume element alone, for the truncation's weights; a geometry may
 # give a cheaper form than its frame.
 @inline geometry_volume(geo::FullGeometry, x, p) = first(geometry_frame(geo, x, p))
@@ -811,6 +834,12 @@ end
 table_type(::Type{<:Union{Float16,Float32,Float64}}) = Float64x2
 table_type(::Type) = BigFloat
 
+# A table entry rounded once to `T`. `Float64x2` has a conversion to
+# `Float64` but none to a narrower type, so for those it goes through
+# `BigFloat`, which holds it exactly.
+@inline rounded(::Type{T}, x) where {T} = T(x)
+rounded(::Type{T}, x::Float64x2) where {T<:Union{Float16,Float32}} = T(BigFloat(x))
+
 function element_truncation(geo, forest::Forest{D}, el::Element{T,P1}, backend,
                             ::Type{B}=table_type(T)) where {D,T,P1,B}
     P = P1 - 1
@@ -841,7 +870,7 @@ function element_truncation(geo, forest::Forest{D}, el::Element{T,P1}, backend,
         pair = [Lall[k][(p - 1) % P + 1] * Lall[k][(p - 1) ÷ P + 1]
                 for k in 1:P1, p in 1:(P^2)]
         ŵn = [prod(ŵ[K[d]] for d in 1:D) for K in vec(nodes)]
-        modes .= T.(Ψ)
+        modes .= rounded.(T, Ψ)
         # One block per task: each writes its own tables, so the result does
         # not depend on the thread count, and a `BigFloat` build's precision
         # is inherited by the tasks.
@@ -856,8 +885,8 @@ function element_truncation(geo, forest::Forest{D}, el::Element{T,P1}, backend,
                                      Int(patches[b]))
                      for (i, K) in enumerate(vec(nodes))]
                 G = gram_sumfact(w, pair, P1, P, D)
-                weights[:, e, s] .= T.(w)
-                chol[:, :, e, s] .= T.(cholesky(Symmetric(G)).U)
+                weights[:, e, s] .= rounded.(T, w)
+                chol[:, :, e, s] .= rounded.(T, cholesky(Symmetric(G)).U)
             end
         end
     end
@@ -910,8 +939,8 @@ function factored_truncation(geo, forest::Forest{D}, el::Element{T,P1}, backend,
         Lall = [legendre_all(P, x) for x in ξ]
         offsets = [(P + 1) * (1 + x) / 2 for x in ξ]
         offsets[1], offsets[P1] = 0, P1
-        amodes .= T.([prod(Lall[K[d]][Q[d]] for d in 1:(D - 1))
-                      for K in vec(nodes), Q in vec(basis)])
+        amodes .= rounded.(T, [prod(Lall[K[d]][Q[d]] for d in 1:(D - 1))
+                               for K in vec(nodes), Q in vec(basis)])
         pair = [Lall[k][(p - 1) % P + 1] * Lall[k][(p - 1) ÷ P + 1]
                 for k in 1:P1, p in 1:(P^2)]
         ŵn = [prod(ŵ[K[d]] for d in 1:(D - 1)) for K in vec(nodes)]
@@ -923,8 +952,8 @@ function factored_truncation(geo, forest::Forest{D}, el::Element{T,P1}, backend,
                                    Int(patches[b])) for i in 1:P1]
                 φ = projector_mode(Lall, ŵ, R, P)
                 γ = sum(ŵ .* R .* φ .^ 2)
-                rmodes[:, e, f] .= T.(φ)
-                rduals[:, e, f] .= T.(ŵ .* R .* φ ./ γ)
+                rmodes[:, e, f] .= rounded.(T, φ)
+                rduals[:, e, f] .= rounded.(T, ŵ .* R .* φ ./ γ)
             end
         end
         Threads.@threads :dynamic for A in 1:nA
@@ -941,8 +970,8 @@ function factored_truncation(geo, forest::Forest{D}, el::Element{T,P1}, backend,
                                     p)
                      for (i, K) in enumerate(vec(nodes))]
                 G = gram_sumfact(w, pair, P1, P, D - 1)
-                aweights[:, e, A] .= T.(w)
-                achol[:, :, e, A] .= T.(cholesky(Symmetric(G)).U)
+                aweights[:, e, A] .= rounded.(T, w)
+                achol[:, :, e, A] .= rounded.(T, cholesky(Symmetric(G)).U)
             end
         end
     end
@@ -974,10 +1003,8 @@ function build_metric(geo::FullGeometry, forest::Forest{D}, el::Element{T},
         "a full geometry carries the gradient in Cartesian components, and the " *
         "forest has reflecting faces, whose mirror flips a logical component, not a " *
         "Cartesian one: give the outer faces Dirichlet data instead (`boundary`)"))
-    cfs = wave_fieldset(T, forest, 1 + D * D, ntuple(_ -> 0, D),
-                        fill(EvenParity, 1 + D * D), order(el), backend)
-    fill_by_coordinates!(WithPatch(AllVariables(FrameTerms(geo))), cfs)
-    c = cfs.work
+    cfs, c = coefficient_set(T, forest, 1 + D * D, order(el), backend,
+                             WithPatch(AllVariables(FrameTerms(geo))))
     speed, hspeed = block_speeds(forest, c, T) do I, b
         J = c[Tuple(I)..., 1, b]
         S = ntuple(d -> ntuple(i -> c[Tuple(I)..., 1 + (d - 1) * D + i, b], D), D)
@@ -985,8 +1012,8 @@ function build_metric(geo::FullGeometry, forest::Forest{D}, el::Element{T},
                                   D * D))
         sqrt(maximum(eigvals(Symmetric(g))))
     end
-    return FullMetric(geo, cfs, c, element_truncation(geo, forest, el, backend), speed,
-                      hspeed, to_backend(backend, flat_blocks(c, forest.N, Val(D))))
+    return FullMetric(geo, cfs, cfs.work, element_truncation(geo, forest, el, backend),
+                      speed, hspeed, to_backend(backend, flat_blocks(c, forest.N, Val(D))))
 end
 
 # The reflection symmetry a solid wall puts on each variable: both state
@@ -1200,7 +1227,7 @@ end
     @inbounds b, d, σ = faces[J[D]]
     o = face_index(J, d, σ, N, Val(D))
     s = ntuple(q -> o[q] + 1, Val(D))
-    g = Base.setindex(s, σ > 0 ? N + 2 : 1, d)
+    g = ntuple(q -> q == d ? (σ > 0 ? N + 2 : 1) : s[q], Val(D))
     @inbounds work[g..., 1, b] = work[s..., 1, b]
 end
 
@@ -1229,7 +1256,7 @@ end
     @inbounds b, d, σ = faces[J[D]]
     o = face_index(J, d, σ, N, Val(D))
     s = ntuple(q -> o[q] + 1, Val(D))
-    g = Base.setindex(s, σ > 0 ? N + 2 : 1, d)
+    g = ntuple(q -> q == d ? (σ > 0 ? N + 2 : 1) : s[q], Val(D))
     S = ntuple(i -> frame_coef(coef, o, b, d, i, Val(D)), Val(D))
     V = ntuple(i -> (@inbounds gc[s..., i, b]), Val(D))
     S2 = sum(S .* S)
@@ -1448,9 +1475,9 @@ function wave_energy(p::WaveProblem{T,D}, u; t=nothing) where {T,D}
         potential = sum(g -> first(quadrature_parts(g, p.element, nothing, 2, 1)),
                         p.grads)
     elseif p.metric isa FullMetric
-        geo = p.metric.geometry
-        kinetic, _ = metric_parts(p.fs, p.element, geo, u, 2, 2, 0)
-        potential, _ = metric_parts(p.cartgrad, p.element, geo, nothing, 2, 1:D, 0)
+        coef = p.metric.coef
+        kinetic, _ = coef_parts(p.fs, p.element, coef, u, 2, 2)
+        potential, _ = coef_parts(p.cartgrad, p.element, coef, nothing, 2, 1:D)
     else
         geo = p.metric.geometry
         kinetic, _ = metric_parts(p.fs, p.element, geo, u, 2, 2, 0)
@@ -1475,7 +1502,9 @@ function wave_norm(prob::WaveProblem{T,D}, u::AbstractVector; p::Real=2,
     isinf(p) && return mesh_mapreduce(abs, max, zero(R), prob.fs, u; vars=vars)
     isinteger(p) && p >= 1 || throw(ArgumentError(
         "wave_norm takes an integer p ≥ 1 or Inf, got p = $p"))
-    total, volume = metric_parts(prob.fs, prob.element, prob.metric.geometry, u, Int(p),
+    total, volume = prob.metric isa FullMetric ?
+                    coef_parts(prob.fs, prob.element, prob.metric.coef, u, Int(p), vars) :
+                    metric_parts(prob.fs, prob.element, prob.metric.geometry, u, Int(p),
                                  vars, 0)
     volume == 0 && return zero(R)
     return (total / volume)^inv(R(p))

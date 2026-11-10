@@ -97,6 +97,7 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
 - [The viewer](#the-viewer)
 - [Precision](#precision)
 - [Threads and devices](#threads-and-devices)
+  - [On a device](#on-a-device)
   - [The integrator](#the-integrator)
 - [Particles](#particles)
   - [The particle](#the-particle)
@@ -487,8 +488,6 @@ one's.
   patch, and the check is that every patch with leaves on two levels is
   affine. The annulus has none; the seven-patch ball's cube is one ([A
   refined cube](#the-seven-patch-ball)).
-- **A device.** The truncation's tables are arrays inside a struct that
-  is not adapted to one.
 - **A forest the geometry does not map** (`check_geometry`).
 
 `InspiralProblem` refuses both a geometry and a forest of patches. Its
@@ -1516,7 +1515,10 @@ builds in `BigFloat`, as before. The thirteen-patch ball's factored
 tables, its outer shells' radial pairs and shared angular tables ([The
 thirteen-patch ball](#the-thirteen-patch-ball)), are built the same way
 and held to `BigFloat`'s bit for bit by their own test. A diagonal
-geometry's per-line tables are cheap and stay `BigFloat`'s.
+geometry's per-line tables are cheap and stay `BigFloat`'s. A `Float32`
+or `Float16` table goes from `Float64x2` through `BigFloat`, which holds
+it exactly, since `Float64x2` converts to `Float64` only (`rounded`): it
+is still rounded once.
 
 `Float32` runs, with the same step count as `Float64` and an error that
 agrees to `1e-3` at a coarse mesh. A MultiFloats type is not tested: the
@@ -1544,9 +1546,56 @@ them. No pass is serial.
 
 The element is a tuple of tuples and so travels as a kernel argument,
 and the gradient sets' arrays as a tuple. The spacings and origins
-follow the field sets' backend (`to_backend`). Nothing has been run on a
-device yet **(open)**. The truncation kernel reads its element through
-runtime tuple indices, which a GPU may spill to local memory.
+follow the field sets' backend (`to_backend`).
+
+### On a device
+
+The field runs on a GPU: the flat box, a refined forest, and the
+seven- and thirteen-patch balls with Dirichlet data or the radiative
+sphere. As in TreeAMR, the storage decides: `WaveProblem(…; backend)`
+builds every field set on `backend`, everything else the kernels read
+follows it there once, and the integrator follows the state, a device
+state taking IMEXRungeKutta's broadcast path (`state_partition` hands it
+no partition).
+
+- **The tables and coefficients are built on the host and copied.** The
+  truncation tables (`MetricTruncation`, `ElementTruncation`,
+  `FactoredTruncation`) are built in `BigFloat` or `Float64x2` as before
+  and copied with `to_backend`; they are arrays inside structs that a
+  kernel takes whole, so each has an `Adapt` rule. The coefficient set
+  is filled on a host set and copied (`coefficient_set`): the step's
+  speeds and the flat blocks are read from it node by node, and the
+  geometry's frame, ForwardDiff's Jacobian of the map, is never compiled
+  for a device.
+- **A full geometry's folds read `√g` from the coefficient set**
+  (`CoefFold`), where they evaluated the frame at each fold point; on
+  Metal that fold crashed the compiler. The value is the one the
+  right-hand side uses.
+- **Nothing a kernel or a device callback reads is a run-time index into
+  a global**: the shells' faces come from `shell_of(i)`, arithmetic, not
+  `SEVENPATCH_SHELLS[i]`; no callback captures a `Type`; no kernel
+  writes a Float64 literal, so Metal runs `Float32`.
+- **A `Float32` problem's tables are rounded once from `Float64x2`
+  through `BigFloat`** (`rounded`), since `Float64x2` converts to
+  `Float64` only.
+- **Host-only:** the blast wave's exact solution (host tables) and the
+  annulus's (Bessel functions), whose drivers keep the CPU; and the
+  particles: `InspiralProblem` refuses a device, since the transfer's
+  graded and nested rules, the averaging over shared nodes and the
+  pairing are host code. Moving them is `PLAN.md`'s "Particles on a
+  device"; the far rule's two kernels already run on one
+  (`bin/far_rule.jl`).
+
+`test/device_tests.jl` holds the device to the host
+([Tests](#tests)). On the laptop's GPU (Apple M-series, Metal,
+`Float32`) a step costs about what four CPU threads do: with unified
+memory a memory-bound kernel gains nothing there, as TreeWave found.
+On one H200 the benchmark ball steps 5.7 times faster than on a 64-core
+node, the flat box 2.6 times (under [Threads on
+Symmetry](#threads-on-symmetry)). Not done: flat launches and the other device lessons of TreeAMR's
+"The copy kernels on a device"; the truncation kernels still read their
+element through run-time tuple indices, and the per-element Cholesky
+solves go through a scratch array in global memory.
 
 ### The integrator
 
@@ -2714,6 +2763,13 @@ written without the averaging and the force read both ways, are
   time; `--scan` over the roots separates the three layers' costs.
   `bin/symmetry/ball_benchmark.sh` runs it at several thread counts and
   the flat box beside it.
+- `bin/backend.jl`: `--backend=cpu|cuda|metal` and `--type=f64|f32` for
+  both benchmarks, loading the device package only when asked for, and
+  their timer, which waits for the device.
+- `bin/far_rule.jl`: the far rule of the source projection on a device
+  against the host, the gate for moving the particles there.
+  `bin/symmetry/gpu.sh` runs the device tests, both benchmarks and it on
+  one H200 of Symmetry, in an environment of its own that adds CUDA.
 - `bin/projection.jl`: the cost of the transfer on the first run's
   source, one tab-separated row per quantity, run in the package
   environment.
@@ -3022,6 +3078,18 @@ one thread on CI, is otherwise silent until its summary.
   the acceleration it exerts with the `t′²` term put back, and that of
   the circle less than `0.1 F_RR` radially, falling from `hₑ = 1/2` to
   `1/4`, where with the term put back it more than doubles.
+- `device_tests.jl`, last, on the device `TREEWAVEOLDG_TEST_BACKEND=cuda`
+  or `metal` names, loaded only then and not a test dependency, or with
+  the CPU standing in, as on CI, where it checks the plumbing: the state
+  and the spacings come back on the device; a periodic and a refined
+  box's runs, the seven-patch plane wave with Dirichlet data and a pulse
+  through the thirteen-patch ball's radiative sphere give the host's
+  errors and energies to `sqrt(eps)` in the step counts the host takes;
+  and on the thirteen-patch ball one right-hand side, one truncation
+  (per element and factored) and the energy are the host's to
+  `sqrt(eps)`, and the step is the host's exactly. In `Float64` and
+  `Float32` on CUDA, `Float32` on Metal; about a minute on the laptop's
+  GPU.
 
 ## Measured results
 
@@ -3910,6 +3978,48 @@ Each time is the least of five, in ns per node; the flat box is
   wants a rerun **(open)**.
 - On the laptop (four threads) the same ball takes 1.51 s a step, 79 ns
   per node against the flat box's 17.4: the ratio is 4.5 there.
+
+**On an H200.** `bin/symmetry/gpu.sh`, job 595237 on `cn113`, one NVIDIA
+H200 (sm_90, 141 GB), 2026-11-10, Julia 1.13.3, CUDA.jl 6.4.2 with the
+13.2 runtime, eight host threads. The device tests pass there, 34 in
+`Float64` and `Float32`. In ns per node, the least of five, against
+the 64-core node above (job 595219, EPYC 7532):
+
+| phase | flat box, H200 `Float64` | `Float32` | 64 cores | ball, H200 `Float64` | `Float32` | 64 cores |
+|---|---|---|---|---|---|---|
+| right-hand side | 0.357 | 0.288 | 0.71 | 0.603 | 0.394 | 2.55 |
+|   gradient pass | 0.088 | 0.083 | 0.16 | 0.241 | 0.169 | 0.53 |
+|   Laplacian pass | 0.228 | 0.170 | 0.22 | 0.257 | 0.129 | 1.16 |
+|   both exchanges | 0.029 | 0.023 | 0.16 | 0.091 | 0.083 | 0.72 |
+| truncation | 0.030 | 0.018 | 0.04 | 0.090 | 0.074 | 1.19 |
+| stage arithmetic | 0.059 | 0.039 | 1.02 | 0.059 | 0.039 | 1.03 |
+| RK4 step | 1.61 | 1.26 | 4.23 | 2.84 | 1.92 | 16.1 |
+
+The flat box is `bin/benchmark.jl`'s 4096 blocks of `16³` (512 of `32³`
+are within 2 %), the ball the benchmark ball.
+
+- **The benchmark ball steps 5.7 times faster on one H200 than on 64
+  cores:** 54 ms a step in `Float64`, 37 in `Float32`. To `t ≈ 224`
+  that is 40 minutes, against 3.8 hours. Its build takes 72 s on the
+  job's eight host threads.
+- **The flat box gains only 2.6 times,** because its Laplacian pass
+  costs on the H200 what it costs on 64 cores, 0.23 ns per node, about a
+  tenth of the device's bandwidth: it and the gradient pass are now nearly
+  90 % of its right-hand side. They read the element's stencil through a
+  run-time index into a tuple and form their position with
+  `@index(Global, NTuple)`, the two costs TreeAMR removed from its own
+  kernels on a device ("The copy kernels on a device" in its `CODE.md`)
+  **(open)**.
+- **The stage arithmetic is 17 times faster,** one fused broadcast per
+  combination near the device's bandwidth, the exchanges 5 to 8 times, and the
+  ball's truncation 13 times.
+- **`Float32`** saves a third on the ball and a fifth on the flat box.
+- **The far rule** of the binary's source at `d/8`, order 3
+  (`bin/far_rule.jl`), 6.7 M source evaluations: 0.363 s on the H200, 54
+  ns a point, against 0.856 s on 64 cores (job 592110 above; 5.3 s on the
+  job's eight host threads), and equal to the host's to `1.7·10⁻¹¹`
+  relative. That is 2.4 times, short of the ten times `PLAN.md`'s gate
+  asks for before the rest of the projection follows.
 
 ### The source bracket
 
@@ -4936,7 +5046,8 @@ the thresholds is a factor 1000, not 4 ([The verdict](#the-verdict)).
 
 Not carried over: the travelling pulse, the 1D viewer,
 TreeWave's benchmark (this package has its own), the vertex centering,
-and the device and threading test files.
+and the threading test file. The device test file came later, after
+TreeHydro's ([On a device](#on-a-device)).
 
 ## Possible extensions
 
@@ -4960,8 +5071,7 @@ and the device and threading test files.
   Symmetry](#threads-on-symmetry)), by about half.
 - The paper's averaging post-processing (its eq. 98–100) for plotting;
   the transfer has it already ([The averaging](#the-averaging)).
-- A 1D viewer, a device run, and a subprocess thread-count test, as in
-  TreeWave.
+- A 1D viewer and a subprocess thread-count test, as in TreeWave.
 - **(proposed)** Cheaper transfer, if the cost gate is to be met (see
   [The transfer's cost](#the-transfers-cost)): `INSPIRAL.md`'s exterior
   and core split. The plan's first step, `q = P + 1` far from the
@@ -4971,8 +5081,8 @@ and the device and threading test files.
   transition would let a smaller `q` do there. The nested rule's own cost,
   its breakpoints, allocations and per-point basis products, is most of
   its time.
-- The graded and nested passes on a device, and the pairing there too;
-  they run on the host now.
+- **(proposed)** The particles on a device: `PLAN.md`'s "Particles on a
+  device", after the far rule's gate.
 - A smooth reading kernel of width about `hₑ` for the forces
   (`INSPIRAL.md`, "The transfer operator", and M4's fallback in
   `HISTORY.md`, "Gates of the finished milestones"), should the gradient's

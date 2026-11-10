@@ -94,6 +94,20 @@ The same on the thirteen-patch ball, by default the benchmark ball of
 julia --project=. -t 4,0 bin/ball_benchmark.jl
 ```
 
+On a GPU ("On a device"): the device tests and both benchmarks take
+`TREEWAVEOLDG_TEST_BACKEND=metal` or `--backend=metal --type=f32` (the
+laptop's GPU has no `Float64`), in an environment of your own that
+`Pkg.develop`s the checkout and adds Metal, TreeAMR, StaticArrays,
+ForwardDiff and IMEXRungeKutta, since no device package is a dependency;
+about a minute. On Symmetry `sbatch bin/symmetry/gpu.sh` runs them on
+one H200 in `Float64` and `Float32`, and `bin/far_rule.jl`, the far rule
+of the source projection on the device:
+
+```bash
+TREEWAVEOLDG_TEST_BACKEND=metal julia --project=<env> -t 4,0 test/device_tests.jl
+julia --project=<env> -t 4,0 bin/ball_benchmark.jl --backend=metal --type=f32 --scan=2:1:4
+```
+
 The transfer's cost on the first run's source ("The transfer's cost"),
 a few minutes on four threads:
 
@@ -308,6 +322,13 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   the energy invariant breaks. Keep the refined regions a root inside the
   cube, since the glue keeps the shells at the level across it; there
   the truncation is the element's own ("The seven-patch ball").
+- **Everything a kernel reads is on the problem's backend, and isbits
+  there.** Build tables and coefficients on the host and copy them
+  (`to_backend`, `coefficient_set`); a struct of arrays a kernel takes
+  whole needs an `Adapt` rule; a callback captures no `Type` and no
+  global table, and no kernel writes a `Float64` literal, or Metal's
+  `Float32` breaks ("On a device"). Run `test/device_tests.jl` on Metal
+  after touching a kernel.
 - **The `u` and `v` of a state vector interleave block by block**; use
   `statearray` and `selectdim`, not halves of the vector.
 - **A reflecting box is a TreeAMR reflection symmetry, not a boundary

@@ -2,11 +2,12 @@
 # thread count Julia was started with:
 #
 #     julia -t N,0 --project=. bin/ball_benchmark.jl [--E=4] [--Lc=4] \
-#         [--Rm=12] [--R1=100] [--scan=n:m:m2,n:m:m2,…] [--reps=5]
+#         [--Rm=12] [--R1=100] [--scan=n:m:m2,n:m:m2,…] [--reps=5] \
+#         [--backend=cpu|cuda|metal] [--type=f64|f32]
 #
 # Like `bin/benchmark.jl`, which times a uniform box, this runs against the
 # package environment. The forest is `thirteenpatch_forest`'s ball at
-# `P = 3`, `Float64`, blocks of `E³` elements, with the radiative sphere
+# `P = 3`, `--type`'s number type, blocks of `E³` elements, with the radiative sphere
 # (`RadiativeBoundary()`) and truncation on: the cube `[−Lc, Lc]³` of `n³`
 # roots, six inner shells to `Rm` of `m` radial roots, six outer shells to
 # `R1` of `m2`. `--scan` runs the table once per `n:m:m2` in one process,
@@ -21,7 +22,7 @@
 #
 # Prints a header row, then one tab-separated row per quantity:
 #
-#     threads E n m m2 quantity value
+#     threads backend type E n m m2 quantity value
 #
 # Sizes: `nodes`, `nodes_cube`, `nodes_inner`, `nodes_outer`, `blocks`.
 # Set-up, seconds: `build_s` (the forest and `WaveProblem`, the truncation
@@ -36,8 +37,13 @@
 # - `truncate`: one `truncate_state!`;
 # - `step`: one RK4 step of `wave_integrator`;
 # - `stage`: an RK4 step with an empty right-hand side and no limiters.
+#
+# With `--backend=cuda` or `metal` the problem is built on that device
+# (`bin/backend.jl`), which needs an environment that adds the device
+# package, and every time waits for the device to finish. `problem_bytes`
+# is then the host's part only.
 
-using TreeWaveOLDG
+include("backend.jl")
 using TreeWaveOLDG: scatter_u_kernel!, cart_gradient_kernel!, cart_laplacian_kernel!,
                     map_blocks!, fill_ghosts!, statearray, nblocks, radiative_u!,
                     radiative_grad!, statevector, IMEXProblem, RK4, init, step!
@@ -49,34 +55,33 @@ function option(name, default)
     return default
 end
 
-best(f, reps) = (f(); minimum(@elapsed(f()) for _ in 1:reps))
-
-function phases(E, n, m, m2, Lc, Rm, R1, reps)
+function phases(backend, ::Type{T}, E, n, m, m2, Lc, Rm, R1, reps) where {T}
     P = 3
     build = @elapsed begin
-        forest, geo = thirteenpatch_forest(Float64, P, E; roots=(n, m, m2), Lc=Lc, Rm=Rm,
+        forest, geo = thirteenpatch_forest(T, P, E; roots=(n, m, m2), Lc=Lc, Rm=Rm,
                                            R1=R1)
-        p = WaveProblem(forest, Element(Float64, P); geometry=geo,
-                        boundary=RadiativeBoundary())
+        p = WaveProblem(forest, Element(T, P); geometry=geo,
+                        boundary=RadiativeBoundary(), backend=backend)
     end
     u = statevector(p.fs)
-    u .= sin.(1:length(u))
+    copyto!(u, T.(sin.(1:length(u))))
     truncate_state!(u, p)
     du = similar(u)
     ua, dua = statearray(u, p.fs), statearray(du, p.fs)
     metric = p.metric
-    dt = oldg_timestep(p; cfl=1 // 2)
+    dt = oldg_timestep(p; cfl=T(1 // 2))
     N = E * (P + 1)
     hcube = 2Lc / (n * E)
     dt_flat = (1 // 2) * hcube / (P + 1)^2
     t1 = 10^6 * dt
-    integ = wave_integrator(p, copy(u), 0.0, t1; dt=dt)
+    integ = wave_integrator(p, copy(u), zero(T), t1; dt=dt)
     empty!(du, u, p, t) = nothing
-    stage = init(IMEXProblem(empty!, nothing, copy(u), (0.0, t1), p), RK4(); dt=dt,
+    stage = init(IMEXProblem(empty!, nothing, copy(u), (zero(T), t1), p), RK4(); dt=dt,
                  partition=state_partition(p.fs, u))
+    best(f, reps) = Main.best(f, backend, reps)
     w = copy(u)
     rows = [
-        "rhs" => best(() -> wave_rhs!(du, u, p, 0.0), reps),
+        "rhs" => best(() -> wave_rhs!(du, u, p, zero(T)), reps),
         "scatter_u" => best(() -> map_blocks!(scatter_u_kernel!, p.ufs, p.ufs.work, ua,
                                               p.valD, Val(p.ufs.G)), reps),
         "ghosts_u" => best(() -> (fill_ghosts!(p.ufs, p.uschedule);
@@ -115,12 +120,17 @@ function main()
     R1 = parse(Float64, option("R1", "100"))
     reps = parse(Int, option("reps", "5"))
     scan = [parse.(Int, split(s, ":")) for s in split(option("scan", "4:4:44"), ",")]
-    println(join(("threads", "E", "n", "m", "m2", "quantity", "value"), '\t'))
-    for (n, m, m2) in scan
-        for (q, v) in phases(E, n, m, m2, Lc, Rm, R1, reps)
-            println(join((Threads.nthreads(), E, n, m, m2, q, v), '\t'))
+    bname, tname = option("backend", "cpu"), option("type", "f64")
+    println(join(("threads", "backend", "type", "E", "n", "m", "m2", "quantity",
+                  "value"), '\t'))
+    withbackend(bname, tname) do backend, T
+        for (n, m, m2) in scan
+            for (q, v) in phases(backend, T, E, n, m, m2, Lc, Rm, R1, reps)
+                println(join((Threads.nthreads(), bname, tname, E, n, m, m2, q, v),
+                             '\t'))
+            end
+            flush(stdout)
         end
-        flush(stdout)
     end
     return nothing
 end
