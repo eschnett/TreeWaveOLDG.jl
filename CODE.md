@@ -949,6 +949,8 @@ and their own step is 0.15 of the cube's at `Rm = 2Lc` and 0.32 at
 thirteen-patch ball" in [Measured results](#measured-results)). So a
 middle sphere of `Rm ≈ 3Lc` keeps the inner layer's shear and step where
 the seven-patch ball has them, and the outer layer costs no step.
+Radially wider elements in the inner shells lift the step further, to
+about 0.55 of the cube's at three to four times the cube's width.
 
 **The drivers.** `sevenpatch_errors` and `radiative_errors` take `Rm`,
 which makes the ball the thirteen-patch one with 3-tuple roots;
@@ -2706,6 +2708,12 @@ written without the averaging and the force read both ways, are
   `bin/symmetry/benchmark.sh` runs it at several thread counts on a
   Symmetry AMD node, with `bin/symmetry/simwatch.sh` reporting its
   stages to SimWatch.
+- `bin/ball_benchmark.jl`: the same on the thirteen-patch ball, by
+  default the benchmark ball (under "Threads on Symmetry" in [Measured
+  results](#measured-results)), with the sizes, step, memory and build
+  time; `--scan` over the roots separates the three layers' costs.
+  `bin/symmetry/ball_benchmark.sh` runs it at several thread counts and
+  the flat box beside it.
 - `bin/projection.jl`: the cost of the transfer on the first run's
   source, one tab-separated row per quantity, run in the package
   environment.
@@ -3462,6 +3470,20 @@ steps above. The outer shells, without shear, never set the step once
 `Rm ≥ 3Lc`; below it their tangential spacing beside the faces' corners
 on the middle sphere is the smaller one.
 
+Wider radial elements in the inner shells, thicker beside the cube's
+corners, lift the whole ball's step towards about 0.55 of the cube's
+(2026-11-10, `P = 3`, `E = 4`, `Lc = 10`, `R1 = 100`, `n = 4` and 8, which
+agree; the step depends on `Rm/Lc` and the width ratio alone):
+
+| `Rm/Lc` \ inner radial width over the cube's | 0.67 | 1 | 1.33–1.5 | 2 | 2.67–3 | 4 | 6–8 |
+|---|---|---|---|---|---|---|---|
+| 2 | 0.10 | 0.15 | 0.20 | 0.28 | | 0.44 | |
+| 2.5 | | 0.27 | 0.37 | 0.43 | 0.50 | | 0.56 |
+| 3 | | | 0.39 | 0.47 | 0.52 | 0.55 | 0.57 |
+
+Whether the inner shells' radial accuracy holds at those widths is not
+measured.
+
 **What the tables show:**
 
 - **The order is `P`** across both layers' glues and the factored
@@ -3843,6 +3865,51 @@ What it says:
 - Pinned runs below 64 threads fill the NUMA domains one after another,
   so only the 64-thread column compares like with like across sizes;
   before and after compare at every count.
+
+**The benchmark ball.** `bin/symmetry/ball_benchmark.sh`, job 595219 on
+`cn084`, 2026-11-10, the same EPYC 7532 node type as above, Julia 1.13.3,
+threads pinned. The ball is the thirteen-patch one, sized as the
+physical runs will be: a constant angular resolution of 16 elements
+across each patch (`n = 4`, `E = 4`), `hₑ = 1/2` in the cube and radially
+in both layers of shells, so a cube of `Lc = 4`, `Rm = 3Lc = 12` and
+`R1 = 100`, roots `(4, 4, 44)`: 4672 blocks of `16³`, `1.91·10⁷` nodes,
+1.4 % in the cube, 8 % in the inner shells and 90 % in the outer ones.
+`P = 3`, the radiative sphere, truncation on. Its step is 0.32 of the
+cube's flat one, `dt = 5.0·10⁻³` at `cfl = 1/2`, set by the inner shells.
+Each time is the least of five, in ns per node; the flat box is
+`bin/benchmark.jl`'s 4096 blocks of `16³` in the same job:
+
+| phase | 1 | 8 | 16 | 32 | 64 | 1 → 64 | flat box, 64 |
+|---|---|---|---|---|---|---|---|
+| right-hand side | 104.8 | 18.0 | 9.12 | 4.74 | 2.55 | 41× | 0.71 |
+|   gradient pass | 15.8 | 4.03 | 2.05 | 1.03 | 0.53 | 30× | 0.16 |
+|   Laplacian pass | 64.6 | 8.41 | 4.24 | 2.30 | 1.16 | 56× | 0.22 |
+|   both exchanges, radiative ghosts included | 22.9 | 4.73 | 2.33 | 1.16 | 0.72 | 32× | 0.16 |
+| truncation | 30.0 | 6.34 | 3.44 | 2.16 | 1.19 | 25× | 0.04 |
+| stage arithmetic | 9.87 | 7.60 | 3.82 | 1.95 | 1.03 | 10× | 1.02 |
+| RK4 step | 552 | 106 | 54.4 | 29.7 | 16.1 | 34× | 4.23 |
+
+- **A step takes 0.31 s at 64 threads,** 3.8 times the flat box per node.
+  To `t = 2R1 + 3σ ≈ 224`, out to the sphere and back at `λ = 16`, that
+  is 44 600 steps and about 3.8 hours; to `t = 90`, 1.5 hours.
+- **The right-hand sides are 63 % of a step at 64 threads, the
+  truncations 30 %,** the stage arithmetic 6 %, which costs what the flat
+  box's does. The Laplacian pass costs 5 times the flat one's, the
+  truncation 30 times, and it scales worst: about 190 core cycles per
+  node for about 25 multiply-adds, so it is bound by its memory accesses,
+  not its arithmetic.
+- **The ball scales better than the flat box,** 34× against about 30×
+  from one thread to 64; its kernels have more work per byte.
+- **The problem takes 151 bytes per node,** 2.9 GB. Its build takes 89 s
+  at one thread, 27 s at 16 and 33 s at 64, where the collector binds it.
+- **Inner shells four times as wide radially,** roots `(4, 1, 44)`,
+  `1.80·10⁷` nodes, take the step to 0.55 of the cube's
+  (`dt = 8.6·10⁻³`) and match the benchmark ball per node up to 32
+  threads; at 64 their gradient pass took 1.56 ns per node against 1.03
+  at 32, and the step 22.1 ns against 16.1. That is not explained, and
+  wants a rerun **(open)**.
+- On the laptop (four threads) the same ball takes 1.51 s a step, 79 ns
+  per node against the flat box's 17.4: the ratio is 4.5 there.
 
 ### The source bracket
 

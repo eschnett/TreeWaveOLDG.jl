@@ -564,6 +564,24 @@ patches.
   its `ArrayPartition`/OrdinaryDiffEq state in M3 is now at odds with
   the package's integrator; "Possible extensions" in `CODE.md` has the
   two ways out.
+- 2026-11-10: Erik Schnetter asked what would most improve performance on
+  Symmetry for a thirteen-patch ball, with multi-thread benchmarks and a
+  GPU in view. A first estimate sized the ball for a cube of `[−10, 10]³`
+  and `R1 = 100` with 8 elements per wavelength at `λ = 16` on the sphere,
+  which takes 96 elements across each patch, since every layer shares
+  the cube's angular grid: `2.4·10⁸` nodes and about 5 s a step on a
+  Symmetry node. It ranked the inner shells' radial width first (wider
+  elements lift the step from 0.15 to 0.44 of the cube's, five times on
+  the run), then a GPU, then the shells' kernels. He then said that the
+  physical runs keep a constant angular resolution everywhere but near
+  the centre, for example 16 elements per patch, and that the cube
+  follows from `hₑ = 1/2`, with `Rm/Rb = 3`. That ball, the benchmark
+  ball, has `1.91·10⁷` nodes and dropped the first estimate: there the
+  inner shells are 8 % of the nodes, and a GPU and the outer shells'
+  truncation and Laplacian lead (`PLAN.md`, "The benchmark ball").
+  `bin/ball_benchmark.jl` and `bin/symmetry/ball_benchmark.sh` measure
+  it; job 595219 on `cn084` gave 0.31 s a step at 64 threads, 3.8 times
+  the flat box per node (`CODE.md`, "Threads on Symmetry").
 
 ## Particles
 

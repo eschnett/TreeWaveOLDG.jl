@@ -8,25 +8,87 @@ things go").
 
 **Status.** Every item is **(proposed)**. The cube's flat path, the
 first of them, is written (2026-11-09; `CODE.md`, "The seven-patch
-ball"), and what it left is the first item below. The shells' tables are
+ball"), and what it left is under "The full geometry's cost". The shells' tables are
 built in `Float64x2` (2026-11-10; `CODE.md`, "Precision"), and what that
 left is in "The shells' truncation tables". The purely radial outer
 shells, the thirteen-patch ball with its factored truncation, are
 written (2026-11-10; `CODE.md`, "The thirteen-patch ball"), and what
-they left is under "Memory".
+they left is under "Memory". The benchmark ball
+(2026-11-10; `CODE.md`, "Threads on Symmetry") ranks what is left by
+what it would save on the runs to come; that ranking is the first
+section below.
 
 **Contents**
 
+- [The benchmark ball](#the-benchmark-ball)
 - [The full geometry's cost](#the-full-geometrys-cost)
 - [The shells' truncation tables](#the-shells-truncation-tables)
 - [Memory](#memory)
 - [Not worth it now](#not-worth-it-now)
 
-The measurements below are from 2026-11-09, after M8b, on the laptop
-(Apple silicon, four threads unless it says one), `P = 3`, blocks of
-`16³`. "The local ball" is `bin/nested_ball.jl --levels=2 --w0=2
+The measurements in the sections after the first are from 2026-11-09,
+after M8b, on the laptop (Apple silicon, four threads unless it says
+one), `P = 3`, blocks of `16³`. "The local ball" is `bin/nested_ball.jl --levels=2 --w0=2
 --hdiv=4 --lambda=4`: a cube of `Lc = 4` holding two nested levels and
 shells to `R1 = 12`, 2.06 M nodes, 76 % of them in the shells.
+
+## The benchmark ball
+
+The physical runs keep a constant angular resolution everywhere but near
+the centre. The benchmark ball is sized so: 16 elements across each
+patch angularly, `hₑ = 1/2` in the cube and radially in the shells, so
+`Lc = 4`, `Rm = 3Lc`, `R1 = 100`, `1.91·10⁷` nodes, nine tenths of them
+in the outer shells. On a Symmetry node at 64 threads a step takes
+0.31 s, 3.8 times the flat box per node, and a run to `t ≈ 224` about
+3.8 hours (`CODE.md`, "Threads on Symmetry"). Of a step, the
+right-hand sides are 63 %, the truncations 30 %, the stage arithmetic
+6 %. By what each would save, largest first:
+
+- **A GPU.** An estimated 5 to 10 times a 64-core node, from the H200's
+  bandwidth and what TreeAMR's exchange reaches on it; the problem, about
+  5 GB with the integrator, fits one H200 many times. The kernels are
+  KernelAbstractions', and TreeAMR exchanges across glues on a device,
+  but nothing of this package has run on one (`CODE.md`, "Threads and
+  devices"). What it needs: the tables built on the CPU and moved with
+  `to_backend`; the radiative kernels and both truncations checked on
+  CUDA, whose run-time tuple indices and per-element scratch may cost
+  most there; and, for M8c, the transfer on the device too, or the
+  source would dominate. Several GPUs need MPI here, which TreeAMR has.
+  Done when the benchmark ball runs on an H200 with the CPU's answer to
+  rounding and its step is measured.
+- **The outer shells' truncation kernel.** 1.19 ns per node at 64
+  threads, 30 times the flat box's, for about 25 multiply-adds: it is
+  bound by its memory accesses. Each element's numbers in registers
+  rather than the scratch array, and compile-time indices, should bring
+  it near the right-hand side's arithmetic intensity. It would save up to
+  a quarter of a step on the CPU, and matters more on a GPU. Done when the
+  benchmark ball's truncation per node falls by a measured factor, with
+  the factored truncation still equal to the per-element one to `1e-14`.
+- **The outer shells' Laplacian.** Their metric is block-diagonal and
+  their frame separable, `S[d] = R_d(r) A_d(ξ_⊥)`: inside a block the
+  radial flux is `|S[k]|²/√g D_k u` and needs no Cartesian gradient, and
+  the coefficients could come from the angular tables the truncation
+  already shares, instead of 80 bytes per node. This is "A cheaper
+  general Laplacian" below, specialized to the shells that are now nine
+  tenths of the nodes. With the truncation, up to about 2.4 times on a
+  step. Done when the outer shells' right-hand side per node falls by a
+  measured factor and the energy tests hold to `1e-13`.
+- **A graded radial map in the outer layer.** `hₑ = 1/2` radially out to
+  100 is four times what `λ = 16` needs. A spacing growing linearly from
+  1/2 at `Rm` to 2 at `R1` takes 81 radial elements instead of 176, 2.2
+  times fewer nodes, at no cost in the step; the factored truncation
+  already takes any radial factor. Whether the physics allows it is the
+  owner's call. Done when `r(ξ)` is not linear, a test holds the frame
+  and the factors, and the plane wave still converges at order `P`.
+- **The 64-thread anomaly** of the variant with wider inner shells
+  (`CODE.md`, "Threads on Symmetry"): rerun, and find the cause if it
+  persists.
+
+Not worth it on this ball: the set-up (half a minute), the stage
+arithmetic (6 %), load balance (the blocks are nearly all alike), and
+local time stepping, since nested levels down to `hₑ = 1/8` for the
+binary would leave the shells' own step only 1.3 to 2.2 times the finest
+level's.
 
 ## The full geometry's cost
 

@@ -85,6 +85,15 @@ The benchmark, in the package environment; on Symmetry,
 julia --project=. -t 4,0 bin/benchmark.jl --scan=4:8
 ```
 
+The same on the thirteen-patch ball, by default the benchmark ball of
+`1.9·10⁷` nodes, about a minute on four threads (5 GB);
+`sbatch bin/symmetry/ball_benchmark.sh` after its `setup` runs it at
+1–64 threads beside the flat box:
+
+```bash
+julia --project=. -t 4,0 bin/ball_benchmark.jl
+```
+
 The transfer's cost on the first run's source ("The transfer's cost"),
 a few minutes on four threads:
 
