@@ -117,6 +117,7 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   - [The transfer's cost](#the-transfers-cost)
   - [Uniform motion](#uniform-motion)
   - [Nested boxes](#nested-boxes-1)
+  - [The radiative sphere](#the-radiative-sphere)
   - [Prescribed paths](#prescribed-paths-1)
 - [What carried over from TreeWave, and what did not](#what-carried-over-from-treewave-and-what-did-not)
 - [Possible extensions](#possible-extensions)
@@ -720,7 +721,13 @@ reports the `√g`-weighted L2 error and the cube's physical spacing
   exact for the monopole only; a wave of angular order `ℓ` reflects at
   `O(ℓ(ℓ+1)/(kR)²)`. A higher-order absorbing condition
   (Bayliss–Turkel) would read the angular derivatives on the sphere.
-  **(open)**
+  **(open)** On the uniform ball the dipole's reflection is `10⁻³` of the
+  pulse at `R₁ = 50`, `λ = 16`, eight times the nested boxes' outer
+  face's ([The radiative sphere](#the-radiative-sphere)).
+- **The shells are coarse where short waves reach them.** At `λ = 4` the
+  cube–shell faces and the shells send back more than the condition
+  does, and keep a fifth of the energy; a second-order condition would
+  not change that.
 - **Only uniform forests on the CPU,** and no particles, as for every
   geometry.
 
@@ -2466,6 +2473,12 @@ written without the averaging and the force read both ways, are
   the field alone, its error and the exact solution in each level's
   ball, run in the package environment; `bin/symmetry/nested_waves.sh`
   runs it on a Symmetry AMD node.
+- `bin/sphere_waves.jl`: the same pulse, and its dipole, through the
+  uniform seven-patch ball's radiative sphere, the field alone, its
+  error and the exact solution in physical balls about the centre and
+  the energy, run in the package environment;
+  `bin/symmetry/sphere_waves.sh` runs it on a Symmetry AMD node ([The
+  radiative sphere](#the-radiative-sphere)).
 - `test/reference.jl`: dense global operators built from the element's
   tables, and the state rearranged into global arrays, which the kernels
   are checked against.
@@ -3610,6 +3623,90 @@ solution's largest value there while the pulse passes:
   the field alone, measurements included.
 
 
+### The radiative sphere
+
+`INSPIRAL-PLAN.md`'s M8a: `bin/sphere_waves.jl` through
+`bin/symmetry/sphere_waves.sh` on Symmetry, 2026-11-09, Julia 1.13.3, 64
+threads pinned, one EPYC 7543 node per job: 594027 (`cn107`, the three
+runs at `R₁ = 25`), 594028, 594029 and 594030 (`cn093`, `cn094`, `cn095`,
+one run at `R₁ = 50` each). The field alone: the outgoing pulse of
+[Nested boxes](#nested-boxes-1) above, `σ = λ/2`, on the uniform
+seven-patch ball at `P = 3`, `E = 4`, RK4 at `cfl = 1/2`, truncation on,
+Sommerfeld's condition (`RadiativeBoundary(; κ = 1, inverse_r = true)`)
+on the sphere, to `t = 2R₁ + 3σ`, sampled every 1. The dipole is the
+pulse's `∂_z`, centred, a pure `ℓ = 1` wave about the sphere. Two balls
+of the same spacings: the cube's `hₑ = 1/2`, along the sphere at a
+shell face's centre `2R₁/(nE) = 1.56`, radially about 1.4 and 1.7:
+
+| `R₁` | `Lc` | roots `(n, m)` | nodes | in the cube | in the shells | steps at `λ = 16` |
+|---|---|---|---|---|---|---|
+| 25 | 8 | (8, 3) | `6.8·10⁶` | `2.1·10⁶` | `4.7·10⁶` | 9024 |
+| 50 | 16 | (16, 5) | `4.8·10⁷` | `1.7·10⁷` | `3.1·10⁷` | 14693 |
+
+The ball of `R₁ = 50` is the plan's: its cube is the half-width-16 level
+of M3b's layout for M4 to M7, and its shells take the place of that
+layout's two outer levels, `3.1·10⁷` nodes against their `2.9·10⁷`.
+
+The L∞ error in the ball of radius 4 about the centre, against the
+exact solution's largest value there (the pulse); "before" is from
+`t = 8` until what the sphere sends back can arrive, `2R₁ − 3σ`, and
+"from the sphere" the largest value after, at about `2R₁`. The energy
+left is the discrete energy with the boundary's term at the end, over
+the initial:
+
+| `λ` | `ℓ` | `R₁` | pulse | before | from the sphere | of the pulse | energy left |
+|---|---|---|---|---|---|---|---|
+| 16 | 0 | 25 | 0.69 | `1.2·10⁻⁴` | `3.4·10⁻⁴` at `t ≈ 41` | `4.9·10⁻⁴` | `2.2·10⁻⁸` |
+| 16 | 0 | 50 | 0.69 | `2.0·10⁻⁵` | `1.1·10⁻⁴` at `t ≈ 100` | `1.6·10⁻⁴` | `2.6·10⁻⁸` |
+| 16 | 1 | 25 | 0.134 | `2.6·10⁻⁵` | `5.2·10⁻⁴` at `t ≈ 47` | `3.8·10⁻³` | `1.0·10⁻⁵` |
+| 16 | 1 | 50 | 0.134 | `4.2·10⁻⁶` | `1.4·10⁻⁴` at `t ≈ 97` | `1.0·10⁻³` | `1.1·10⁻⁶` |
+| 4 | 0 | 25 | 5.96 | 0.14 | 0.56 at `t ≈ 51` | `9.4·10⁻²` | `5.6·10⁻²` |
+| 4 | 0 | 50 | 5.96 | 0.32 | 0.80 at `t ≈ 100` | 0.13 | 0.18 |
+
+- **The dipole's reflection is Sommerfeld's,** and falls like `1/R₁²`:
+  3.8 times from `R₁ = 25` to 50, against `O(ℓ(ℓ+1)/(kR₁)²)`, which
+  is `2·10⁻²` and `5·10⁻³` there.
+- **The monopole comes back too,** at `1.6·10⁻⁴` of the pulse at
+  `R₁ = 50`, though the condition is exact for it: that is the shells'
+  and the sphere's discretization, at about 10 elements per wavelength
+  along the sphere.
+- **"Before" is the cube–shell faces',** not the cube's: it is six times
+  smaller at `R₁ = 50`, whose faces are at 16, than at `R₁ = 25`, whose
+  faces are at 8, at the same `hₑ`. The faces at 16 send back up to
+  `2·10⁻⁵` from `t ≈ 24`; the nested boxes' face at 16, at most
+  `2·10⁻⁶`.
+- **Against the nested boxes at `λ = 16`:** their face at 32 sends back
+  `1.5·10⁻⁵` at the centre at `t ≈ 68`, the ball of `R₁ = 50`
+  `1.1·10⁻⁴` (monopole) and `1.4·10⁻⁴` (dipole) at `t ≈ 100`: about
+  eight times as much, a third later.
+- **At `λ = 4` the shells trap the wave.** With about 1.5 elements
+  radially, three per wavelength, the cube–shell faces send back
+  2–6·10⁻² to the centre from `t ≈ 24` (the nested boxes' face at 16 at
+  most `9.5·10⁻³`), the error there grows to 0.8 by `t ≈ 100`,
+  and 18 % of the energy is still in the ball at the end, falling a
+  few per cent per ten units of time.
+- **The cost:** 0.37 s a step at `R₁ = 25` and 2.35–2.52 s at `R₁ = 50`,
+  measurements every 1 included, about 50 ns per node and step; on the
+  laptop a measurement costs about eleven steps, so the step alone is
+  about 45 ns. The nested boxes take 4.5 ns per node, measurements
+  included: the ball costs ten times as much per node. **Memory** is 28
+  GB at `R₁ = 50`, 590 bytes per node, against the nested boxes' 180.
+- **The setup is serial,** 15 minutes at `R₁ = 25` and 1¾ hours at
+  `R₁ = 50`, nearly all of it `element_truncation`: per element, `√g` at
+  its nodes in 512-bit `BigFloat`, its Gram matrix and its Cholesky
+  factor, one block after another.
+
+**A difference against exact Dirichlet data does not isolate the
+sphere's reflection.** A second problem on the same forest and tables,
+with the exact pulse as Dirichlet data on the sphere, stepped alongside
+the radiative one (`R₁ = 12`, `Lc = 4`, roots `(4, 2)`, `E = 4`,
+`λ = 8`, on the laptop): the two agree to `10⁻¹⁴`–`10⁻⁴` until the pulse
+reaches the sphere, and then the Dirichlet run's own error grows to
+`1.6·10⁻²` at the centre while the radiative run's stays at `10⁻³`. The
+Dirichlet sphere reflects the outgoing discretization error whole, and
+that is the larger reflection of the two.
+
+
 ### Prescribed paths
 
 `bin/symmetry/prescribed.sh` on Symmetry, 2026-11-02, Julia 1.13.3, 64
@@ -4209,6 +4306,10 @@ and the device and threading test files.
   its time.
 - The graded and nested passes on a device, and the pairing there too;
   they run on the host now.
+- **(proposed)** `element_truncation` by block on the threads, and one
+  factor for all elements of an affine patch such as the ball's cube,
+  whose `√g` is constant: the serial build takes 1¾ hours at
+  `R₁ = 50` ([The radiative sphere](#the-radiative-sphere)).
 - A smooth reading kernel of width about `hₑ` for the forces
   (`INSPIRAL.md`, "The transfer operator", and M4's fallback in
   `HISTORY.md`, "Gates of the finished milestones"), should the gradient's
