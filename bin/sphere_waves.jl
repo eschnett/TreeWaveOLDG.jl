@@ -5,7 +5,7 @@
 #     julia -t N,0 --project=. bin/sphere_waves.jl [--R1=50] [--Lc=16] \
 #         [--n=16] [--m=5] [--E=4] [--lambda=16] [--sigma=lambda/2] \
 #         [--ell=0] [--tend=2 R1 + 3 sigma] [--every=1] [--cfl=0.5] \
-#         [--radii=4,8,16]
+#         [--radii=4,8,16] [--Rm=32 --m2=4]
 #
 # Like `bin/nested_waves.jl`, this runs against the package environment;
 # `bin/symmetry/sphere_waves.sh` runs it on a Symmetry node.
@@ -17,7 +17,11 @@
 # `RadiativeBoundary` with `κ = 1` and the `u/R` term (Sommerfeld's
 # condition) on the sphere. The cube's element width is `2Lc/(nE)`, and a
 # shell's tangential one at the sphere, largest at its face's centre,
-# `2R1/(nE)`.
+# `2R1/(nE)`. With `--Rm` and `--m2` the forest is instead
+# `thirteenpatch_forest`'s ball: the same cube and shells of `m` radial
+# roots out to the middle sphere `|x| = Rm`, and six exactly radial shells
+# of `m2` radial roots from there to `R1`; the rows at `t = 0` then add
+# `Rm`, `m2` and `nodes_outer`, the outer shells' share of `nodes_shells`.
 #
 # The data are `nested_waves.jl`'s exact outgoing pulse about the origin,
 #
@@ -166,13 +170,19 @@ function main()
     every = parse(Float64, option("every", "1"))
     cfl = parse(Float64, option("cfl", "0.5"))
     radii = [parse(Float64, strip(r)) for r in split(option("radii", "4,8,16"), ",")]
+    Rm = option("Rm", nothing)
+    Rm = Rm === nothing ? nothing : parse(Float64, Rm)
+    m2 = parse(Int, option("m2", "0"))
+    Rm === nothing || m2 > 0 || error("--Rm needs --m2, the outer shells' radial roots")
     P = 3
     tag = (R1, Lc, n, m, E, λ, σ, ell)
     println(join(("threads", "R1", "Lc", "n", "m", "E", "lambda", "sigma", "ell", "t",
                   "quantity", "value"), '\t'))
     flush(stdout)
 
-    forest, geo = sevenpatch_forest(Float64, P, E; roots=(n, m), Lc=Lc, R1=R1)
+    forest, geo = Rm === nothing ?
+                  sevenpatch_forest(Float64, P, E; roots=(n, m), Lc=Lc, R1=R1) :
+                  thirteenpatch_forest(Float64, P, E; roots=(n, m, m2), Lc=Lc, Rm=Rm, R1=R1)
     prob = WaveProblem(forest, Element(Float64, P); geometry=geo,
                        boundary=RadiativeBoundary(; κ=1.0, inverse_r=true))
     u0 = initial_state(prob, WithPatch(Pulse(geo, σ, λ, ell, 0.0)))
@@ -182,6 +192,12 @@ function main()
     emit(tag..., 0.0, "nodes", statelength(prob.fs) ÷ 2)
     emit(tag..., 0.0, "nodes_cube", ncube)
     emit(tag..., 0.0, "nodes_shells", nleaves(forest) * perblock - ncube)
+    if Rm !== nothing
+        emit(tag..., 0.0, "Rm", Rm)
+        emit(tag..., 0.0, "m2", m2)
+        emit(tag..., 0.0, "nodes_outer",
+             count(key -> patch(forest, key) >= 8, forest.leaves) * perblock)
+    end
     emit(tag..., 0.0, "he_cube", 2Lc / (n * E))
     emit(tag..., 0.0, "he_sphere", 2R1 / (n * E))
     emit(tag..., 0.0, "steps", integ.nsteps)

@@ -49,7 +49,10 @@ order `P`, and an outgoing pulse leaves the ball. The ball's cube, whose
 map is affine, takes static refinement, M3b's nested cubes included,
 with the energy an exact invariant across its coarse-fine faces, and
 M3b's pulse leaves through the shells where the nested boxes' periodic
-faces send it back (`INSPIRAL-PLAN.md`'s M8b); see [Multi-patch
+faces send it back (`INSPIRAL-PLAN.md`'s M8b). The thirteen-patch ball
+adds six exactly radial shells outside a middle sphere, where `√g`
+factorizes and the truncation is a radial projection times an angular
+one; see [Multi-patch
 forests](#multi-patch-forests). The suite passes, also with
 `--check-bounds=yes` and with four threads.
 
@@ -78,6 +81,7 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   - [Truncation with a metric](#truncation-with-a-metric)
   - [The annulus](#the-annulus)
   - [The seven-patch ball](#the-seven-patch-ball)
+  - [The thirteen-patch ball](#the-thirteen-patch-ball)
 - [Refined forests](#refined-forests)
   - [The coupling](#the-coupling)
   - [The energy](#the-energy)
@@ -112,6 +116,7 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   - [Reflecting walls](#reflecting-walls-1)
   - [The annulus](#the-annulus-1)
   - [The seven-patch ball](#the-seven-patch-ball-1)
+  - [The thirteen-patch ball](#the-thirteen-patch-ball-1)
   - [Refined forests](#refined-forests-1)
   - [The RK4 limit](#the-rk4-limit)
   - [The blast wave's error](#the-blast-waves-error)
@@ -846,6 +851,116 @@ the shells read them across the glue.
 - **Refinement only in the cube,** where the map is affine, and on the
   CPU; no particles, as for every geometry (`INSPIRAL-PLAN.md`'s M8c).
 
+### The thirteen-patch ball
+
+The seven-patch ball's shells blend the flat cube face into the sphere,
+so their radial lines are not the shells' coordinate lines' only virtue:
+their `r = const` surfaces are not spheres, their radial spacing depends
+on the angle, and their `√g` does not factorize, which costs a dense
+table per element ([The seven-patch ball](#the-seven-patch-ball)). The
+thirteen-patch ball keeps the seven-patch ball out to a middle sphere
+`|x| = Rm` and adds six shells from there to `R1` whose radial
+coordinate is exactly radial.
+
+**The ball.** `thirteenpatch_forest(T, P, E; roots = (n, m, m′), Lc, Rm,
+R1)` builds the forest and its [`ThirteenPatchBall`](@ref):
+
+- **Patches 1–7** are the seven-patch ball's cube and shells, with `Rm`
+  for `R1` and `m` radial roots, the same map bit for bit (both call
+  `blended_shell`), ungraded: `sevenpatch_errors` and `radiative_errors`
+  refuse a `grading` with `Rm`.
+- **Patches 8–13** are the outer shells over the same faces `(k, s)` in
+  the same order, of `m′` roots along `k` and `n` along the other two:
+  `x = r(ξ_k) c/|c|`, `c_k = s`, `c_j = 2ξ_j/n − 1`, and
+  `r = Rm + (R1 − Rm)ρ` with `ρ` the logical radial coordinate scaled to
+  `[0, 1]`. So `ξ_k` is a function of `|x|` alone, and the other two of
+  `x/|x|` alone.
+- **The glue.** The cube to each inner shell and each inner shell to the
+  outer shell over the same face by the identity, since both layers'
+  angular coordinates are the same function of `x/|x|` on the middle
+  sphere; within each layer the seven-patch ball's quarter turns. The
+  ball has patch edges where four patches meet along the middle sphere,
+  which an element set never reaches either.
+
+`Rm > √3 Lc` and `R1 > Rm`. The angles are equidistant in the face's
+tangent, as on the seven-patch ball's sphere, not equiangular: an
+equiangular outer layer would need its inner layer to blend from the
+flat face to the equiangular sphere, and the inner shells would no
+longer be the seven-patch ball's. Everything else, the Cartesian
+gradient, the energy, the radiative sphere, the refined cube and the
+time step, is the seven-patch ball's; the frame of the outer shells
+comes from `ForwardDiff` as there. On the outer sphere `S[k]` is radial
+on both balls; here it is radial on every `r = const` sphere of the
+outer layer, and the other two area vectors are tangential.
+
+**A volume element that factorizes.** On an outer shell the Jacobian's
+columns are `r′ c/|c|` along `k` and `r ∂_j(c/|c|)` across it, so
+
+    √g = r² r′ ⋅ (2/n)² (1 + c_a² + c_b²)^{−3/2},
+
+`r′ = (R1 − Rm)/m′`: a radial factor times the gnomonic projection's
+area element, the same function of `(ξ_a, ξ_b)` on all six. A full
+geometry says so through an optional interface:
+`factored_volume(geo, p)` names the dimension `k` (0 where `√g` does not
+factorize, the default), `radial_volume(geo, x_k, p)` and
+`angular_volume(geo, x_⊥, p)` are the two factors, and
+`angular_class(geo, p)` names the patches whose angular factor is one
+function, which share their angular tables. The factors must multiply to
+`geometry_frame`'s `√g` to rounding (a test).
+
+**The factored truncation.** With `√g = R(x_k) Ω(x_⊥)` the weights
+`ŵ √g` at an element's nodes are `ŵ_k R` along `k` times `ŵ_⊥ Ω` across
+it, and `Q_{P−1}` is `Q_{P−1}` along `k` times `Q_{P−1}` across. The
+orthogonal projection onto a product of subspaces in a product inner
+product is the product of the two projections. So on the outer shells
+the truncation is
+
+- along `k`, the rank-one pair `I − φ ⊗ (ŵ R φ)/γ` of [Truncation with a
+  metric](#truncation-with-a-metric), per block and element along `k`;
+- across `k`, on each of the element's `P + 1` planes, the
+  `(D−1)`-dimensional `Ψ_⊥ G⁻¹ Ψ_⊥ᵀ W_⊥` of the seven-patch ball's
+  truncation, with the Cholesky factor of `G = Ψ_⊥ᵀ W_⊥ Ψ_⊥`.
+
+`FactoredTruncation`, `ElementTruncation`'s `factored`, holds both. The
+angular tables are held once per angular class, position across `k` and
+spacing: every block of a column along `k` and all six outer shells share
+them, `n²E²` elements' worth on a uniform ball whatever `m′`. The radial
+pairs are `2(P+1)` numbers per element along `k`. Both are built in
+`table_type(T)` and rounded once, `BigFloat`'s bit for bit (a test). The
+kernel, `factored_project!`, takes `k` as a `Val`, applies the pair along
+`k`, then on each plane forms `Ψ_⊥ᵀ W_⊥ a`, solves with `Uᵀ` and `U` in
+the element's own column of a scratch array, and multiplies by `Ψ_⊥`.
+That is about `2(P+1)^D + (P+1)(2(P+1)^{D−1}P^{D−1} + P^{2(D−1)})`
+multiply-adds per element, 1600 at `P = 3` against the per-element
+projection's 4200, and the tables per element of the outer shells shrink
+from 793 numbers to the radial pair's 8 and a share of the angular ones.
+It equals the per-element projection of the same map to rounding (a
+test, which builds the latter through a wrapper geometry that declares no
+factorization).
+
+The inner shells keep their per-element tables, and the cube its
+element projector: `slot[b]` is nonzero for a per-element block,
+`factored.slot[b]` for a factored one, and both are 0 on the cube.
+
+**The step.** The inner shells set it, as the seven-patch ball's shells
+do: they are thin beside the cube's corners, between `√3 Lc` and `Rm`,
+and their own step is 0.15 of the cube's at `Rm = 2Lc` and 0.32 at
+`3Lc`. The outer shells' is the cube's from `Rm = 3Lc` on (under "The
+thirteen-patch ball" in [Measured results](#measured-results)). So a
+middle sphere of `Rm ≈ 3Lc` keeps the inner layer's shear and step where
+the seven-patch ball has them, and the outer layer costs no step.
+
+**The drivers.** `sevenpatch_errors` and `radiative_errors` take `Rm`,
+which makes the ball the thirteen-patch one with 3-tuple roots;
+`bin/sevenpatch.jl --Rm=2` runs them with `(2s, s m1, s m2)` roots, and
+`bin/sphere_waves.jl --Rm --m2` sends M8a's pulse through it.
+
+**What it does not do:** refinement in the shells, as on the seven-patch
+ball (the outer shells' map is not affine, though their metric is
+block-diagonal); a radial map other than linear in `r`; equiangular
+angles; a higher-order absorbing condition on its spherical outer layer,
+for which it is the natural place (**(open)**).
+
 ## Refined forests
 
 `wave_forest(T, Val(D), P, E; refined)` makes the static two-level
@@ -1395,8 +1510,11 @@ shell elements, one Symmetry node, EPYC 7543) the build is bound by the
 garbage collector, not by arithmetic: 1051 s in `BigFloat`, 884 s of it
 collecting the 2.3 TB it allocates, against 93 s in `Float64x2`, 74 s of
 it collecting 204 GB, and the whole problem builds in 150 s. A wider `T`
-builds in `BigFloat`, as before. A diagonal geometry's per-line tables are cheap and stay
-`BigFloat`'s.
+builds in `BigFloat`, as before. The thirteen-patch ball's factored
+tables, its outer shells' radial pairs and shared angular tables ([The
+thirteen-patch ball](#the-thirteen-patch-ball)), are built the same way
+and held to `BigFloat`'s bit for bit by their own test. A diagonal
+geometry's per-line tables are cheap and stay `BigFloat`'s.
 
 `Float32` runs, with the same step count as `Float64` and an error that
 agrees to `1e-3` at a coarse mesh. A MultiFloats type is not tested: the
@@ -2519,13 +2637,17 @@ written without the averaging and the force read both ways, are
 - `src/layout.jl`: `check_layout`, node positions, `fill_at_nodes!`,
   `quadrature_norm`.
 - `src/geometry.jl`: `Geometry`, `affine_patch`, `PolarAnnulus` and
-  `annulus_forest`; `FullGeometry`, `SevenPatchBall`, its glue and
-  `sevenpatch_forest`, uniform or with its cube refined.
+  `annulus_forest`; `FullGeometry` and its optional factorization
+  (`factored_volume`, `radial_volume`, `angular_volume`,
+  `angular_class`); `SevenPatchBall`, its glue and `sevenpatch_forest`,
+  uniform or with its cube refined; `ThirteenPatchBall`, its glue and
+  `thirteenpatch_forest`, and the helpers both balls share.
 - `src/evolution.jl`: the kernels, the Cartesian ones of a full geometry
   beside them, `WaveProblem` (from a forest, or from a state set after
   `regrid!`, flat or on a geometry, with its `Metric` and
   `MetricTruncation`, or on a full geometry its `FullMetric`,
-  `ElementTruncation` and Dirichlet data or `RadiativeBoundary` with its
+  `ElementTruncation` with its `FactoredTruncation`, and Dirichlet data
+  or `RadiativeBoundary` with its
   ghost kernels and `outer_radius`), `wave_rhs!`,
   `truncate_state!`, `truncate_stage!`, `initial_state`, `wave_energy`,
   `wave_norm`, `oldg_timestep`, `convergence_rate`.
@@ -2542,7 +2664,8 @@ written without the averaging and the force read both ways, are
 - `src/sevenpatch.jl`: the plane wave, `PlaneWave` and `sevenpatch_exact`,
   and its driver on the seven-patch ball, `sevenpatch_errors`; the
   outgoing pulse `OutgoingPulse` and its driver under a radiative
-  boundary, `radiative_errors`.
+  boundary, `radiative_errors`; both drivers take `Rm` for the
+  thirteen-patch ball.
 - `src/precision.jl`, `src/device.jl`: `ceilint`, `floorint`, `wrap`,
   `tofloat64`, `chunk_count`, `chunk_bounds` and `to_backend`, taken from
   TreeWave.
@@ -2604,15 +2727,16 @@ written without the averaging and the force read both ways, are
   one tab-separated row per run, in the package environment;
   `bin/symmetry/annulus.sh` runs it on a Symmetry AMD node.
 - `bin/sevenpatch.jl`: the plane wave's convergence series on the
-  seven-patch ball, or with `--boundary=radiative` the outgoing pulse's
-  under a radiative boundary, one tab-separated row per run, in the
-  package environment.
+  seven-patch ball, or with `--Rm` the thirteen-patch ball, or with
+  `--boundary=radiative` the outgoing pulse's under a radiative boundary,
+  one tab-separated row per run, in the package environment.
 - `bin/nested_waves.jl`: the exact outgoing pulse through nested boxes,
   the field alone, its error and the exact solution in each level's
   ball, run in the package environment; `bin/symmetry/nested_waves.sh`
   runs it on a Symmetry AMD node.
 - `bin/sphere_waves.jl`: the same pulse, and its dipole, through the
-  uniform seven-patch ball's radiative sphere, the field alone, its
+  uniform seven-patch ball's radiative sphere, or with `--Rm --m2` the
+  thirteen-patch ball's, the field alone, its
   error and the exact solution in physical balls about the centre and
   the energy, run in the package environment;
   `bin/symmetry/sphere_waves.sh` runs it on a Symmetry AMD node ([The
@@ -2761,6 +2885,24 @@ one thread on CI, is otherwise silent until its summary.
   sphere; each radial element is `e^{α/M}` times the one inside it; the
   `Float64x2` tables are `BigFloat`'s bit for bit; `dE/dt` vanishes
   across every glue; and the plane wave keeps its rate at `P = 3`.
+- `thirteenpatch_tests.jl`: the thirteen-patch ball — the frame is the
+  cofactor of the map's Jacobian on all thirteen patches, the inner
+  shells meet the cube's faces and the middle sphere, the outer shells
+  start at the inner shells' points and end on the sphere, `|x|` is
+  linear in `ξ_k` there and `S[k]` radial, the others tangential; a
+  seven-patch forest, a forest of other roots, odd `E`, `Rm ≤ √3 Lc`,
+  `R1 ≤ Rm`, two roots, a zero root and refinement reaching a shell are
+  refused; the declared factors multiply to `√g` and the angular one is
+  the same on all six outer shells; the factored truncation equals the
+  per-element one built without the factorization to `1e-14`, the 48
+  outer blocks share four angular tables, and it is self-adjoint in
+  `√g`, idempotent and leaves `u` alone; its tables in `Float64x2` are
+  `BigFloat`'s bit for bit; TreeAMR turns the exchanges across both
+  layers' glues and the radiative faces are the outer shells'; `dE/dt`
+  vanishes to `1e-13` of its terms across every glue, with and without
+  truncation, also with a refined cube, and under a radiative boundary
+  equals its boundary term; the plane wave converges at order `P` for
+  `P = 2, 3`.
 - `reflect_tests.jl`: the reflecting box — the Neumann `cos` mode converges
   at order `P` in 1D and 2D, the wall is an exact discrete symmetry
   (energy conserved to the integrator's loss), the parities the wall imposes
@@ -3271,6 +3413,85 @@ send the pulse back into the ball from `t ≈ 11`.
   the shells' sheared corner elements set the step, and graded shells
   thin them further; with three or more levels, as in M8, the finest
   cube sets it down to about `hshell = hroot`.
+
+### The thirteen-patch ball
+
+Measured on the laptop (Apple silicon, four threads) on 2026-11-10,
+[The thirteen-patch ball](#the-thirteen-patch-ball)'s ball with
+truncation.
+
+**The plane wave** of the seven-patch ball's table, on the ball `Lc = 1`,
+`Rm = 2`, `R1 = 3`, to `t = 1`, with `(2s, s, s)` roots for `s = 1, 2, 3`
+and `E = 2` (`bin/sevenpatch.jl --Rm=2`). Every root's radial width is the
+cube's at the faces' centres, so it has the seven-patch ball's 56, 448
+and 1512 blocks and nodes, and the same sphere. The seven-patch ball was
+rerun beside it on the same code (`P = 3`; its table above is from
+before M8b's speedups):
+
+| ball | P | `u` errors | rate | `v` errors | rate | both | L∞ | steps | seconds |
+|---|---|---|---|---|---|---|---|---|---|
+| 13 | 2 | 6.28e-2 1.68e-2 7.58e-3 | 1.92 | 8.09e-2 2.34e-2 1.08e-2 | 1.83 | 1.86 | 1.54 | 239 477 716 | 0.4 4.4 20.1 |
+| 13 | 3 | 9.37e-3 1.21e-3 3.52e-4 | 2.98 | 1.24e-2 1.47e-3 4.06e-4 | 3.11 | 3.06 | 2.89 | 424 848 1272 | 1.6 21.6 109.1 |
+| 7 | 3 | 8.83e-3 1.15e-3 3.36e-4 | 2.97 | 1.14e-2 1.38e-3 3.84e-4 | 3.09 | 3.04 | 2.76 | 200 399 598 | 0.9 10.3 52.1 |
+
+The test asserts the rates of `s = 1, 2` to `t = 1/4`, at one thread:
+1.89 at `P = 2` and 2.91 at `P = 3`.
+
+**The radiative sphere.** The outgoing pulse of width 1/2 to `t = 5`, as
+for the seven-patch ball, at `P = 3`, Sommerfeld's condition, both balls
+on the same code: the energy left, `E₁/E₀`, is 5.0e-3 and 2.9e-6 at
+`s = 1, 2` on the thirteen-patch ball against 3.5e-3 and 1.8e-6 on the
+seven-patch one, with L2 errors 2.3e-2 and 5.6e-4 against 2.5e-2 and
+5.1e-4.
+
+**The step.** Each layer's own step, its blocks' spacing over their
+largest logical speed, relative to the cube's, at `P = 2`, `n = 4`, with
+radial roots as wide as the cube's at the faces' centres:
+
+| `Rm/Lc` | 2 | 2.5 | 3 | 4 |
+|---|---|---|---|---|
+| inner shells | 0.15 | 0.27 | 0.32 | 0.36 |
+| outer shells | 0.67 | 0.83 | 1.0 | 1.0 |
+
+The inner shells are the seven-patch ball's with `Rm` for `R1`, and so is
+their step (under "The time step" in [The seven-patch
+ball](#the-seven-patch-ball)): between `√3 Lc` and `Rm = 2Lc` they are
+thin beside the cube's corners. That, not the radial shells, is why the
+thirteen-patch ball at `Rm = 2` takes 2.1 times the seven-patch ball's
+steps above. The outer shells, without shear, never set the step once
+`Rm ≥ 3Lc`; below it their tangential spacing beside the faces' corners
+on the middle sphere is the smaller one.
+
+**What the tables show:**
+
+- **The order is `P`** across both layers' glues and the factored
+  truncation, with errors within 10 % of the seven-patch ball's on the
+  same nodes and sphere.
+- **Per step the two balls cost the same here,** 86 and 87 ms at
+  `s = 3`: at `E = 2` the truncation is a small part of a step.
+- **The sphere keeps 1.4 to 1.6 times more of the pulse** at these
+  resolutions, falling about 1700 and 1900 times from `s = 1` to
+  `s = 2`, so it is discretization error in either; the outer layer's radial lines do not
+  make Sommerfeld's condition better for the monopole, which it is
+  exact for on both. Not measured: the dipole, and a larger `R1`, where
+  the outer layer's uniform radial spacing at every angle should tell.
+
+**The truncation's cost** on a ball of `16³` blocks, `P = 3`, `E = 4`,
+`(4, 1, 4)` roots, `Lc = 4`, `Rm = 8`, `R1 = 24`: 2.23 M nodes, 1.57 M of
+them in the outer shells and 0.39 M in the inner ones. Against the same
+ball built through a wrapper geometry that declares no factorization
+(per-element tables on all twelve shells), with the seven-patch ball of
+the same cube and inner shells to separate the outer shells' share:
+
+| outer shells | truncation per node | tables per node | build of all tables |
+|---|---|---|---|
+| factored | 3.7 ns | 1.3 bytes | 1.8 s |
+| per-element | 9.7 ns | 102.5 bytes | 5.2 s |
+
+The factored truncation is 2.6 times faster, as the operation count
+(1600 multiply-adds against 4200) has it, and its tables are 80 times
+smaller: the 48 outer blocks' radial pairs and four angular tables. The
+build time is the inner shells'.
 
 ### Refined forests
 

@@ -273,18 +273,110 @@ end
 # no other work item touches, and the two triangular solves run in place
 # there. A block of an affine patch has no tables (`slot` 0): `√g` is
 # constant there, and the element's tensor projector is the
-# `√g`-orthogonal one.
+# `√g`-orthogonal one. A block of a patch whose `√g` factorizes has no
+# per-element tables either, and takes the radial pair times the angular
+# projection of `t.factored` (`factored_project!`).
 @kernel function element_truncate_kernel!(a, t, ::Val{P1}, var, ::Val{D},
                                           E) where {P1,D}
     J = @index(Global, NTuple)                 # (e1..eD, block)
     b = J[D + 1]
     base = ntuple(d -> (J[d] - 1) * P1, Val(D))
     s = @inbounds t.slot[b]
-    if s == 0
-        tensor_truncate!(a, t.element, J, b, base, var, Val(P1), Val(D))
-    else
+    if s != 0
         element_project!(a, t, J, b, s, base, var, Val(P1), Val(D), E)
+    else
+        f = @inbounds t.factored.slot[b]
+        if f == 0
+            tensor_truncate!(a, t.element, J, b, base, var, Val(P1), Val(D))
+        else
+            factored_project!(a, t.factored, J, b, f, base, var, Val(P1), Val(D), E)
+        end
     end
+end
+
+# The truncation of the element `J` of block `b` on a patch whose `√g`
+# factorizes along `k = t.radial[f]`: the radial rank-one pair along `k`,
+# then on each of the element's `P + 1` planes across `k` the
+# `(D-1)`-dimensional `√g`-orthogonal projection `Ψ G⁻¹ Ψᵀ W` of the
+# block's angular table, as `element_project!` does in `D` dimensions.
+# The two act on different indices, and their product is the
+# `√g`-orthogonal projection onto `Q_{P-1}` (see [`FactoredTruncation`](@ref
+# TreeWaveOLDG.FactoredTruncation)). `k` is passed on as a `Val`, as `d` is
+# to the right-hand side's kernels.
+@inline function factored_project!(a, t, J, b, f, base, var, ::Val{P1}, ::Val{D},
+                                   E) where {P1,D}
+    k = @inbounds t.radial[f]
+    k == 1 && return factored_project!(a, t, J, b, f, base, var, Val(P1), Val(D), E,
+                                       Val(1))
+    k == D && return factored_project!(a, t, J, b, f, base, var, Val(P1), Val(D), E,
+                                       Val(D))
+    return factored_project!(a, t, J, b, f, base, var, Val(P1), Val(D), E, Val(2))
+end
+
+@inline function factored_project!(a, t, J, b, f, base, var, ::Val{P1}, ::Val{D}, E,
+                                   ::Val{k}) where {P1,D,k}
+    e = 1                                      # the element, for the scratch
+    stride = 1
+    for d in 1:D
+        e += (J[d] - 1) * stride
+        stride *= E
+    end
+    ea = 1                                     # the element across `k`
+    stride = 1
+    for d in 1:D
+        d == k && continue
+        ea += (J[d] - 1) * stride
+        stride *= E
+    end
+    ek = J[k]
+    A = @inbounds t.aslot[f]
+    # Along `k`: `a ← a - mode (dual ⋅ a)` on every line.
+    for K in CartesianIndices(ntuple(q -> q == k ? 1 : P1, Val(D)))
+        c = zero(eltype(a))
+        for j in 1:P1
+            idx = ntuple(q -> base[q] + (q == k ? j : K[q]), Val(D))
+            @inbounds c += t.rduals[j, ek, f] * a[idx..., var, b]
+        end
+        for i in 1:P1
+            idx = ntuple(q -> base[q] + (q == k ? i : K[q]), Val(D))
+            @inbounds a[idx..., var, b] -= t.rmodes[i, ek, f] * c
+        end
+    end
+    # Across `k`: on each plane, `a ← Ψ G⁻¹ Ψᵀ W a`.
+    nodes = CartesianIndices(ntuple(_ -> P1, Val(D - 1)))
+    M = size(t.amodes, 2)
+    for i in 1:P1
+        at(K) = ntuple(q -> base[q] + (q == k ? i : K[q < k ? q : q - 1]), Val(D))
+        for q in 1:M                           # c = Ψᵀ W a
+            c = zero(eltype(a))
+            for (n, K) in enumerate(nodes)
+                @inbounds c += t.amodes[n, q] * t.aweights[n, ea, A] * a[at(K)..., var, b]
+            end
+            @inbounds t.scratch[q, e, f] = c
+        end
+        for q in 1:M                           # Uᵀ y = c
+            @inbounds c = t.scratch[q, e, f]
+            for r in 1:(q - 1)
+                @inbounds c -= t.achol[r, q, ea, A] * t.scratch[r, e, f]
+            end
+            @inbounds t.scratch[q, e, f] = c / t.achol[q, q, ea, A]
+        end
+        for q in M:-1:1                        # U z = y
+            @inbounds c = t.scratch[q, e, f]
+            for r in (q + 1):M
+                @inbounds c -= t.achol[q, r, ea, A] * t.scratch[r, e, f]
+            end
+            @inbounds t.scratch[q, e, f] = c / t.achol[q, q, ea, A]
+        end
+        for (n, K) in enumerate(nodes)         # a = Ψ z
+            z = zero(eltype(a))
+            for q in 1:M
+                @inbounds z += t.amodes[n, q] * t.scratch[q, e, f]
+            end
+            @inbounds a[at(K)..., var, b] = z
+        end
+    end
+    return nothing
 end
 
 # The per-element projection of the element `J` of block `b`, whose tables
@@ -628,15 +720,59 @@ affine ([`affine_patch`](@ref TreeWaveOLDG.affine_patch)): `slot[b]` is
 block `b`'s index `s` into them, or 0 on an affine patch, where `√g` is
 constant and the element's own tensor projector, `element`'s, is the
 `√g`-orthogonal one. On the seven-patch ball's refined cube that saves
-the tables, `P^{2D} + (P+1)^D` numbers per element, and their build.
+the tables, `P^{2D} + (P+1)^D` numbers per element, and their build. Nor
+are they held for the blocks of patches whose `√g` factorizes
+([`factored_volume`](@ref TreeWaveOLDG.factored_volume)), which take
+`factored`'s tables ([`FactoredTruncation`](@ref
+TreeWaveOLDG.FactoredTruncation)).
 """
-struct ElementTruncation{A,B,C,S,I,EL}
+struct ElementTruncation{A,B,C,S,I,EL,F}
     modes::A                     # (n, m)
     weights::B                   # (n, E^D, ntables)
     chol::C                      # (m, m, E^D, ntables)
     scratch::S                   # (m, E^D, ntables)
     slot::I                      # (nblocks,): 0, or the block's index in the tables
     element::EL                  # the tensor projector on an affine patch
+    factored::F                  # the tables where `√g` factorizes
+end
+
+"""
+    FactoredTruncation
+
+The truncation on the blocks of a full geometry's patches whose `√g`
+factorizes, `√g = R(x_k) Ω(x_⊥)` ([`factored_volume`](@ref
+TreeWaveOLDG.factored_volume)), as on the thirteen-patch ball's outer
+shells. The weights `ŵ √g` at an element's nodes are then a product of
+`ŵ_k R` along `k` and `ŵ_⊥ Ω` across it, and `Q_{P-1}` is `Q_{P-1}` along
+`k` times `Q_{P-1}` across, so the orthogonal projection is the product
+of the two orthogonal projections: along `k` the rank-one pair
+`I - mode ⊗ dual` of [`MetricTruncation`](@ref
+TreeWaveOLDG.MetricTruncation) in the weight `R`, and across `k` the
+`(D-1)`-dimensional `Ψ_⊥ G⁻¹ Ψ_⊥ᵀ W_⊥` of [`ElementTruncation`](@ref
+TreeWaveOLDG.ElementTruncation) in the weight `Ω`.
+
+Per factored block `f` (`slot[b]`, 0 on every other block): its `k`
+(`radial[f]`), the pair `rmodes[:, e_k, f]`, `rduals[:, e_k, f]` per
+element index along `k`, and the index `aslot[f]` of its angular tables.
+These, `aweights[:, e_⊥, A]` and the upper Cholesky factors
+`achol[:, :, e_⊥, A]` per element across `k`, are held once per
+[`angular_class`](@ref TreeWaveOLDG.angular_class), position across `k`
+and spacing, so every block of a column along `k`, and on the
+thirteen-patch ball all six outer shells, share them. `amodes = Ψ_⊥` is
+the `(D-1)`-dimensional tensor Legendre basis of `Q_{P-1}`, and
+`scratch[:, e, f]` each element's `P^{D-1}` coefficients. Built in
+[`table_type`](@ref TreeWaveOLDG.table_type)`(T)` and rounded once.
+"""
+struct FactoredTruncation{I,K,R,A,M,W,C,S}
+    slot::I                      # (nblocks,): 0, or the block's index f
+    radial::K                    # (nf,): the dimension k along which √g splits
+    rmodes::R                    # (P+1, E, nf)
+    rduals::R
+    aslot::A                     # (nf,): the block's angular tables
+    amodes::M                    # (n⊥, m⊥)
+    aweights::W                  # (n⊥, E^{D-1}, nA)
+    achol::C                     # (m⊥, m⊥, E^{D-1}, nA)
+    scratch::S                   # (m⊥, E^D, nf)
 end
 
 # The volume element alone, for the truncation's weights; a geometry may
@@ -684,7 +820,9 @@ function element_truncation(geo, forest::Forest{D}, el::Element{T,P1}, backend,
     patches = block_patches(forest)
     nb = length(spacings)
     slot = zeros(Int32, nb)
-    tabled = [b for b in 1:nb if !affine_patch(geo, Int(patches[b]))]
+    tabled = [b for b in 1:nb
+              if !affine_patch(geo, Int(patches[b])) &&
+                 factored_volume(geo, Int(patches[b])) == 0]
     slot[tabled] .= 1:length(tabled)
     ns = length(tabled)
     nodes = CartesianIndices(ntuple(_ -> P1, D))
@@ -726,7 +864,93 @@ function element_truncation(geo, forest::Forest{D}, el::Element{T,P1}, backend,
     return ElementTruncation(to_backend(backend, modes), to_backend(backend, weights),
                              to_backend(backend, chol),
                              to_backend(backend, zeros(T, m, E^D, ns)),
-                             to_backend(backend, slot), el)
+                             to_backend(backend, slot), el,
+                             factored_truncation(geo, forest, el, backend, B))
+end
+
+# The tables of [`FactoredTruncation`](@ref TreeWaveOLDG.FactoredTruncation)
+# for the blocks of `forest` whose patch is not affine and whose `√g`
+# factorizes, built in `B` and rounded to `T` once.
+function factored_truncation(geo, forest::Forest{D}, el::Element{T,P1}, backend,
+                             ::Type{B}) where {D,T,P1,B}
+    P = P1 - 1
+    E = forest.N ÷ P1
+    origins = block_origins(forest, T)
+    spacings = block_spacings(forest, T)
+    patches = block_patches(forest)
+    nb = length(spacings)
+    slot = zeros(Int32, nb)
+    blocks = [b for b in 1:nb
+              if !affine_patch(geo, Int(patches[b])) &&
+                 factored_volume(geo, Int(patches[b])) != 0]
+    slot[blocks] .= 1:length(blocks)
+    nf = length(blocks)
+    radial = Int8[factored_volume(geo, Int(patches[b])) for b in blocks]
+    across(b, k) = ntuple(q -> origins[b][q < k ? q : q + 1], Val(D - 1))
+    keys = Dict{Any,Int32}()
+    aslot = Int32[get!(keys, (angular_class(geo, Int(patches[b])), across(b, radial[f]),
+                              spacings[b]), length(keys) + 1)
+                  for (f, b) in enumerate(blocks)]
+    nA = length(keys)
+    first_block = zeros(Int, nA)               # a block of each angular table
+    for (f, b) in enumerate(blocks)
+        first_block[aslot[f]] == 0 && (first_block[aslot[f]] = b)
+    end
+    nodes = CartesianIndices(ntuple(_ -> P1, D - 1))
+    basis = CartesianIndices(ntuple(_ -> P, D - 1))
+    n, m = length(nodes), length(basis)
+    rmodes = Array{T}(undef, P1, E, nf)
+    rduals = Array{T}(undef, P1, E, nf)
+    amodes = Array{T}(undef, n, m)
+    aweights = Array{T}(undef, n, E^(D - 1), nA)
+    achol = zeros(T, m, m, E^(D - 1), nA)
+    ξbig, ŵbig = gll_nodes_weights(P)
+    setprecision(BigFloat, 512) do
+        ξ, ŵ = B.(ξbig), B.(ŵbig)
+        Lall = [legendre_all(P, x) for x in ξ]
+        offsets = [(P + 1) * (1 + x) / 2 for x in ξ]
+        offsets[1], offsets[P1] = 0, P1
+        amodes .= T.([prod(Lall[K[d]][Q[d]] for d in 1:(D - 1))
+                      for K in vec(nodes), Q in vec(basis)])
+        pair = [Lall[k][(p - 1) % P + 1] * Lall[k][(p - 1) ÷ P + 1]
+                for k in 1:P1, p in 1:(P^2)]
+        ŵn = [prod(ŵ[K[d]] for d in 1:(D - 1)) for K in vec(nodes)]
+        Threads.@threads :dynamic for f in 1:nf
+            b, k = blocks[f], Int(radial[f])
+            for e in 1:E
+                R = [radial_volume(geo, B(origins[b][k]) +
+                                        B(spacings[b]) * ((e - 1) * P1 + offsets[i]),
+                                   Int(patches[b])) for i in 1:P1]
+                φ = projector_mode(Lall, ŵ, R, P)
+                γ = sum(ŵ .* R .* φ .^ 2)
+                rmodes[:, e, f] .= T.(φ)
+                rduals[:, e, f] .= T.(ŵ .* R .* φ ./ γ)
+            end
+        end
+        Threads.@threads :dynamic for A in 1:nA
+            b = first_block[A]
+            p = Int(patches[b])
+            k = factored_volume(geo, p)
+            o = across(b, k)
+            for (e, Je) in enumerate(CartesianIndices(ntuple(_ -> E, D - 1)))
+                w = [ŵn[i] *
+                     angular_volume(geo,
+                                    ntuple(d -> B(o[d]) +
+                                                B(spacings[b]) *
+                                                ((Je[d] - 1) * P1 + offsets[K[d]]), D - 1),
+                                    p)
+                     for (i, K) in enumerate(vec(nodes))]
+                G = gram_sumfact(w, pair, P1, P, D - 1)
+                aweights[:, e, A] .= T.(w)
+                achol[:, :, e, A] .= T.(cholesky(Symmetric(G)).U)
+            end
+        end
+    end
+    return FactoredTruncation(to_backend(backend, slot), to_backend(backend, radial),
+                              to_backend(backend, rmodes), to_backend(backend, rduals),
+                              to_backend(backend, aslot), to_backend(backend, amodes),
+                              to_backend(backend, aweights), to_backend(backend, achol),
+                              to_backend(backend, zeros(T, m, E^D, nf)))
 end
 
 # The callback that fills a full geometry's coefficient set:

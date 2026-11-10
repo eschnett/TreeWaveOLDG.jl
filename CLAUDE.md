@@ -161,6 +161,15 @@ has left the ball, and what remains is the reflection:
 julia --project=. -t 4,0 bin/sevenpatch.jl --P=3 --scales=1,2 --boundary=radiative --tend=5
 ```
 
+With `--Rm=2` both run on the thirteen-patch ball instead ("The
+thirteen-patch ball"), the seven-patch ball out to `|x| = 2` and six
+exactly radial shells from there to `R1`, of `(2s, s·m1, s·m2)` roots;
+about as long as the seven-patch runs:
+
+```bash
+julia --project=. -t 4,0 bin/sevenpatch.jl --P=2,3 --scales=1,2 --Rm=2
+```
+
 `nested_waves.jl`'s pulse through nested cubes inside the ball's cube,
 with shells out to a radiative sphere ("A refined cube"), in the package
 environment, a few minutes at these options on four threads, most of it
@@ -240,7 +249,8 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   an `@inline` closure**; a runtime `d` costs 2.5× ("The right-hand
   side").
 - **The tables are built in `BigFloat` and rounded once,** except a full
-  geometry's per-element truncation tables, built in `Float64x2` when `T`
+  geometry's truncation tables, per-element and factored, built in
+  `Float64x2` when `T`
   is at most `Float64` (`table_type`), which a test holds to `BigFloat`'s
   bit for bit. Do not build them in `T` or convert from the `Float64`
   ones ("Precision").
@@ -265,6 +275,14 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   seven-patch ball"). A block whose frame is one constant diagonal (the
   cube's) takes the kernels' flat path, which must stay bit for bit the
   general path's result; a test sends the blocks through both.
+- **A factored truncation needs a volume element that factorizes.** A
+  full geometry that declares `factored_volume(geo, p) = k` gets the
+  radial pair times the angular projection on patch `p`, which is
+  `√g`-orthogonal only if `radial_volume · angular_volume` is
+  `geometry_frame`'s `√g`; patches of one `angular_class` share angular
+  tables, so their angular factors must be one function. Declaring
+  either where it does not hold breaks the energy invariant ("The
+  thirteen-patch ball").
 - **A radiative outer face is written after the exchange, not by a
   TreeAMR hook.** Its ghosts read the interior: `u`'s is the face node's
   own, and the gradient's makes the face's central flux the target,
