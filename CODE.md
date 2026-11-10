@@ -638,10 +638,12 @@ product of one-dimensional projections is `√g`-orthogonal. An
 - `W_e` is the element's quadrature weights times `√g` at its nodes.
 - `G_e = Ψᵀ W_e Ψ` is held as its upper Cholesky factor `U_e`.
 
-Both are built in `BigFloat` and rounded once. The Gram matrix is built
-by sum factorization, one dimension at a time. The build takes 1.5 s for
-the 56 blocks of `P = 3` with `(2, 2)` roots, about half of it the
-`BigFloat` Jacobians at the nodes. The kernel forms
+Both are built in `Float64x2` when `T` is at most `Float64`, in
+`BigFloat` otherwise (`table_type`), and rounded once; the rounded
+tables are `BigFloat`'s bit for bit ([Precision](#precision)). The Gram
+matrix is built by sum factorization, one dimension at a time. The build
+takes 0.21 s on one thread for the 56 blocks of `P = 3` with `(2, 2)`
+roots, against 1.35 s in `BigFloat`. The kernel forms
 `Ψᵀ W_e a`, solves with `U_eᵀ` and `U_e` in place in the element's own
 column of a scratch array, and multiplies by `Ψ`, one work item per
 element. That is about `2 (P+1)^D P^D + P^{2D}` multiply-adds per
@@ -737,7 +739,8 @@ the forest and its [`SevenPatchBall`](@ref):
 
 `R1 > √3 Lc`, so that the map is one to one. The frame comes from
 `ForwardDiff`'s Jacobian of the map, inverted at each node, in `T` for
-the coefficients and in `BigFloat` for the truncation's weights.
+the coefficients and in `Float64x2` or `BigFloat` for the truncation's
+weights.
 
 **The exact solution** is a plane wave, `u = sin(k ⋅ x − |k|t + φ)`
 ([`PlaneWave`](@ref)). It crosses every glue, and it is the Dirichlet
@@ -1344,6 +1347,26 @@ nodes, weights, derivative and projector in 512-bit `BigFloat` and
 rounds each to `T` once. Each type's table is the correctly rounded
 `BigFloat` one, not the `Float64` one converted. The nodes are
 symmetrized before rounding, so `ξᵢ == -ξ_{P-i}` holds bit for bit.
+
+The full geometry's per-element truncation tables (`element_truncation`,
+[The seven-patch ball](#the-seven-patch-ball)) are the exception, for
+their cost: built per element from the map's Jacobian at every node, in
+`BigFloat` they made the ball's start-up. For a `T` no wider than
+`Float64` they are built in MultiFloats' `Float64x2`, about 106 bits,
+from the `BigFloat` nodes and weights rounded to it, and rounded to `T`
+once (`table_type`). The build needs only `+ − × /` and `sqrt` (the
+Jacobian through `ForwardDiff`, `det`, `inv`, Cholesky), which
+`Float64x2` has to about `10⁻³²`; a test checks that the rounded tables
+equal `BigFloat`'s bit for bit. It is 6.4 to 7.5 times faster: on the
+laptop, the local ball's 24 576 shell elements (`bin/nested_ball.jl
+--levels=2 --w0=2 --hdiv=4`) take 11.9 s on one thread against 88.6 s,
+and 3.7 s on four against 29.0 s. At M3b's scale on 64 threads (393 216
+shell elements, one Symmetry node, EPYC 7543) the build is bound by the
+garbage collector, not by arithmetic: 1051 s in `BigFloat`, 884 s of it
+collecting the 2.3 TB it allocates, against 93 s in `Float64x2`, 74 s of
+it collecting 204 GB, and the whole problem builds in 150 s. A wider `T`
+builds in `BigFloat`, as before. A diagonal geometry's per-line tables are cheap and stay
+`BigFloat`'s.
 
 `Float32` runs, with the same step count as `Float64` and an error that
 agrees to `1e-3` at a coarse mesh. A MultiFloats type is not tested: the
@@ -3087,7 +3110,8 @@ With three levels the finest cube sets the step, `dt = 1/256`, the
 boxes' own, as [The seven-patch ball](#the-seven-patch-ball) says. A
 right-hand side over the whole ball takes 0.17 s, against 0.036 s on the
 boxes, and the ball's truncation, the shells' per-element solve, adds
-another 0.085 s. The pulse's runs to `t = 96` at `λ = 16` and 4 are
+another 0.085 s. The problem took 930 s to build with the shells' tables
+in `BigFloat`, and takes 150 s in `Float64x2` ([Precision](#precision)). The pulse's runs to `t = 96` at `λ = 16` and 4 are
 `nested_ball.sh`'s, and wait.
 
 ### Refined forests
@@ -3881,10 +3905,12 @@ the initial:
   about 45 ns. The nested boxes take 4.5 ns per node, measurements
   included: the ball costs ten times as much per node. **Memory** is 28
   GB at `R₁ = 50`, 590 bytes per node, against the nested boxes' 180.
-- **The setup is serial,** 15 minutes at `R₁ = 25` and 1¾ hours at
+- **The setup was serial,** 15 minutes at `R₁ = 25` and 1¾ hours at
   `R₁ = 50`, nearly all of it `element_truncation`: per element, `√g` at
   its nodes in 512-bit `BigFloat`, its Gram matrix and its Cholesky
-  factor, one block after another.
+  factor, one block after another. M8b builds it by block on all threads
+  and only for the shells, and then in `Float64x2`
+  ([Precision](#precision)), after these runs.
 
 **A difference against exact Dirichlet data does not isolate the
 sphere's reflection.** A second problem on the same forest and tables,
@@ -4471,8 +4497,8 @@ and the device and threading test files.
 - **(proposed)** A cheaper general Laplacian on a full geometry, which
   forms `F^d` at every window point; the shells take it and are now most
   of the ball's right-hand side. `PLAN.md` has it with the other savings
-  measured after M8b: a faster build of the shells' tables, and smaller
-  tables and coefficients.
+  measured after M8b: a faster build of the shells' tables beyond
+  `Float64x2`, and smaller tables and coefficients.
 - **(proposed)** A refinement that does not amplify the evolved data's
   jumps across element faces, so that the dead band between the
   thresholds could be narrower (see the open question below).
@@ -4501,10 +4527,6 @@ and the device and threading test files.
   its time.
 - The graded and nested passes on a device, and the pairing there too;
   they run on the host now.
-- **(proposed)** `element_truncation` by block on the threads, and one
-  factor for all elements of an affine patch such as the ball's cube,
-  whose `√g` is constant: the serial build takes 1¾ hours at
-  `R₁ = 50` ([The radiative sphere](#the-radiative-sphere)).
 - A smooth reading kernel of width about `hₑ` for the forces
   (`INSPIRAL.md`, "The transfer operator", and M4's fallback in
   `HISTORY.md`, "Gates of the finished milestones"), should the gradient's

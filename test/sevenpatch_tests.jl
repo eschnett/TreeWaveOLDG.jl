@@ -150,6 +150,27 @@ end
     end
 end
 
+@testset "The shells' tables built in Float64x2 are BigFloat's, bit for bit" begin
+    # The tables are built in `Float64x2` for a `Float64` problem and
+    # rounded once; a build whose 106 bits are not enough, or a step that
+    # still runs in `Float64` (a constant, the map's Jacobian, the
+    # Cholesky factor), rounds some entry differently from the `BigFloat`
+    # build.
+    @test TreeWaveOLDG.table_type(Float64) === TreeWaveOLDG.Float64x2
+    @test TreeWaveOLDG.table_type(BigFloat) === BigFloat
+    for P in (2, 3)
+        el = Element(Float64, P)
+        forest, geo = sevenpatch_forest(Float64, P, 2; roots=(2, 1), Lc=1, R1=3)
+        fast = TreeWaveOLDG.element_truncation(geo, forest, el, TreeWaveOLDG.CPU())
+        slow = TreeWaveOLDG.element_truncation(geo, forest, el, TreeWaveOLDG.CPU(),
+                                               BigFloat)
+        @test fast.modes == slow.modes
+        @test fast.weights == slow.weights
+        @test fast.chol == slow.chol
+        @test fast.slot == slow.slot
+    end
+end
+
 @testset "The energy is invariant across the ball's cube–shell and shell–shell glues" begin
     # `dE/dt = Σ w √g v v̇ + Σ w √g ∇u ⋅ ∇v` vanishes when the wide
     # derivative is summation by parts across every glue, which holds when

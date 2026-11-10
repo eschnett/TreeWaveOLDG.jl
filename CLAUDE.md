@@ -239,8 +239,11 @@ Each is the rule; the `CODE.md` section named after it has the reason.
 - **Pass `d` to the gradient and Laplacian kernels as a `Val`, through
   an `@inline` closure**; a runtime `d` costs 2.5× ("The right-hand
   side").
-- **The tables are built in `BigFloat` and rounded once.** Do not build
-  them in `T` or convert from the `Float64` ones ("Precision").
+- **The tables are built in `BigFloat` and rounded once,** except a full
+  geometry's per-element truncation tables, built in `Float64x2` when `T`
+  is at most `Float64` (`table_type`), which a test holds to `BigFloat`'s
+  bit for bit. Do not build them in `T` or convert from the `Float64`
+  ones ("Precision").
 - **The time step is `cfl · hₑ/(P+1)²`**, not TreeWave's `cfl · h`
   ("Time step").
 - **A diagonal geometry glues by the identity only.** The `d`-th

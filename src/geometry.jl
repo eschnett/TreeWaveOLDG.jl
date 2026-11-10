@@ -54,7 +54,8 @@ have. A full geometry is `isbits` and provides:
   patch `p`, the volume element `J = √g` and the area vectors
   `S[d] = √g ∇ξ^d`, `S[d][i] = √g ∂ξ^d/∂x^i`, one `D`-tuple of Cartesian
   components per logical dimension `d`. It must be generic in the number
-  type of `x`, since the truncation's tables evaluate it in `BigFloat`;
+  type of `x`, since the truncation's tables evaluate it in `Float64x2` or
+  `BigFloat` (`table_type`);
 - `physical_coordinates(geo, x, p)`: the physical position;
 - `check_geometry(geo, forest)`: refuse a forest the map does not fit;
 - `geometry_boundary(geo)`: whether the forest has outer faces, which
@@ -255,7 +256,7 @@ sevenpatch_index(k, s) = 1 + 2(k - 1) + (s == 1 ? 2 : 1)
 
 # The physical position of logical `ξ` (an `SVector{3}`) of patch `p`, in
 # `ξ`'s number type, so that `ForwardDiff` differentiates it and the
-# truncation's tables evaluate it in `BigFloat`.
+# truncation's tables evaluate it in `Float64x2` or `BigFloat`.
 @inline function sevenpatch_position(geo::SevenPatchBall, ξ, p)
     n, m = geo.roots
     Lc = geo.Lc

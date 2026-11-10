@@ -8,7 +8,9 @@ things go").
 
 **Status.** Every item is **(proposed)**. The cube's flat path, the
 first of them, is written (2026-11-09; `CODE.md`, "The seven-patch
-ball"), and what it left is the first item below.
+ball"), and what it left is the first item below. The shells' tables are
+built in `Float64x2` (2026-11-10; `CODE.md`, "Precision"), and what that
+left is in "The shells' truncation tables".
 
 **Contents**
 
@@ -67,34 +69,40 @@ The build, per element of a shell, on one thread, in ms:
 
 | number type | volume `√g` | Gram matrix | Cholesky | total | rounded tables |
 |---|---|---|---|---|---|
-| `BigFloat`, 512 bits (now) | 1.84 | 1.26 | 0.68 | 3.78 | — |
-| `Float64x2` (MultiFloats) | 0.19 | 0.37 | 0.018 | 0.58 | identical to `BigFloat`'s, all ~200 000 entries |
+| `BigFloat`, 512 bits (before 2026-11-10) | 1.84 | 1.26 | 0.68 | 3.78 | — |
+| `Float64x2` (MultiFloats; now) | 0.19 | 0.37 | 0.018 | 0.58 | identical to `BigFloat`'s, all ~200 000 entries |
 | `Float64` | 0.18 | 0.35 | 0.003 | 0.54 | wrong by up to `10¹¹` ulp |
 
 `Float64x2` costs about what `Float64` does, so its build is dominated
 by the build loops' allocations (arrays and generators per element in
 `gram_sumfact`), not by arithmetic. Start-up, in CPU time (divide by the
-thread count; each block is its own task):
+thread count; each block is its own task), estimated from the table
+above:
 
-| | elements | `BigFloat` (now) | transposed | `Float64x2` | both |
+| | elements | `BigFloat` (before) | transposed | `Float64x2` (now) | both |
 |---|---|---|---|---|---|
-| the local ball, `n = 4`, `m = 2` | 12 288 | 46 s | 15 s | 7 s | 1.4 s |
+| the local ball, `n = 4`, `m = 4` | 24 576 | 93 s | 31 s | 14 s | 2.9 s |
 | M3b's scale, `nested_ball.sh`, `n = 16`, `m = 4` | 393 216 | 25 min | 8 min | 3.8 min | 43 s |
 
-On 64 threads the M3b-scale build is about 23 s now, against runs of
-hours; the saving matters most on the laptop and in the suite, whose
-seven-patch tests take about 100 s, part of it these builds.
+On 64 threads the build is bound by the garbage collector instead
+(Symmetry, EPYC 7543, 2026-11-10): at M3b's scale the `BigFloat` build
+took 1051 s, 884 s of it collecting 2.3 TB of allocations, against the
+25 min / 64 = 23 s its arithmetic would take; in `Float64x2` it takes
+93 s, 74 s of it collecting 204 GB.
 
-- **Non-allocating build loops** first: with the arithmetic in
-  `Float64x2` close to `Float64`'s, this is where the time is.
-- **Build in `Float64x2` when `T` is at most `Float64`,** `BigFloat`
-  otherwise. The shells' tables need only `+ − × /` and `sqrt`, through
-  ForwardDiff's Jacobian, `det`, `inv` and Cholesky, which MultiFloats
-  has to about `1e-32`; it has no `sin`, `cos`, `tan`, `atan` or `cospi`,
-  which no table build needs (the Gauss–Lobatto nodes' `cospi` start
-  stays in `BigFloat`). It adds MultiFloats as a dependency and amends
-  the rule of `CODE.md`'s "Precision" and `CLAUDE.md`'s sharp edge
-  ("The tables are built in `BigFloat` and rounded once").
+**Written:** the build in `Float64x2` when `T` is at most `Float64`
+(`table_type`), whose rounded tables a test holds to `BigFloat`'s bit for
+bit. On the local ball's 24 576 shell elements it takes 11.9 s on one
+thread against 88.6 s, 0.48 ms per element, close to the estimate above.
+
+- **Non-allocating build loops:** with the arithmetic in `Float64x2`
+  close to `Float64`'s, the allocations are where the build's time is
+  now, and on many threads the collector's: 74 of the 93 s at M3b's
+  scale. The volume, the weights and the Gram matrix in preallocated
+  per-task arrays, and `gram_sumfact`'s generators as loops, would take
+  most of it; the rest of the problem's build (fill, speeds) allocates
+  another 117 GB and collects for about 40 s. Done when the M3b-scale
+  build's collection time is a small part of it, measured as above.
 - **Transpose one shell's tables to the other five.** Each shell's `√g`
   is a reference shell's with its axes permuted and its radial axis
   reversed for `s = −1`, so the weights and the Gram matrix carry over by
@@ -103,8 +111,8 @@ seven-patch tests take about 100 s, part of it these builds.
   reflecting either tangential axis and swapping the two, a group of 8,
   which would cut the volume and Gram steps by up to 8 more.
 
-Done when the build's rounded tables equal today's bit for bit (a test),
-and the start-up is measured as above.
+Done when the transposed build's rounded tables equal the direct
+build's bit for bit (a test), and the start-up is measured as above.
 
 ## Memory
 

@@ -618,8 +618,9 @@ element `e` of block `b`, the projection `Ψ G_e⁻¹ Ψᵀ W_e` onto `Q_{P-1}`.
 nodes (`(P+1)^D × P^D`, the same for every element); `weights[:, e, s]`
 is `W_e`, the element's quadrature weights on `[-1, 1]^D` times `√g`; and
 `chol[:, :, e, s]` is the upper Cholesky factor `U_e` of the Gram matrix
-`G_e = Ψᵀ W_e Ψ = U_eᵀ U_e`. Built in `BigFloat` and rounded once, the Gram
-matrix by sum factorization over the dimensions. `scratch` holds each
+`G_e = Ψᵀ W_e Ψ = U_eᵀ U_e`. Built in [`table_type`](@ref
+TreeWaveOLDG.table_type)`(T)` and rounded once, the Gram matrix by sum
+factorization over the dimensions. `scratch` holds each
 element's `P^D` coefficients through the two triangular solves.
 
 The tables are held only for the blocks of patches whose map is not
@@ -664,8 +665,18 @@ function gram_sumfact(w::AbstractVector, pair::AbstractMatrix, P1, P, D)
     return [A[pairindex(q, r)] for q in vec(basis), r in vec(basis)]
 end
 
-function element_truncation(geo, forest::Forest{D}, el::Element{T,P1},
-                            backend) where {D,T,P1}
+# The number type the shells' truncation tables are built in before they
+# are rounded to `T`: `Float64x2` for a `T` no wider than `Float64`, whose
+# 106 bits round to the same `T` as `BigFloat`'s 512 do (a test compares
+# them bit for bit) at about a sixth of the time, and `BigFloat` for a wider
+# `T`. The build needs only `+ − × /` and `sqrt` (the map's Jacobian, `det`,
+# `inv`, Cholesky), which `Float64x2` has; the Gauss–Lobatto nodes and
+# weights stay `BigFloat`'s, rounded to it ("Precision" in `CODE.md`).
+table_type(::Type{<:Union{Float16,Float32,Float64}}) = Float64x2
+table_type(::Type) = BigFloat
+
+function element_truncation(geo, forest::Forest{D}, el::Element{T,P1}, backend,
+                            ::Type{B}=table_type(T)) where {D,T,P1,B}
     P = P1 - 1
     E = forest.N ÷ P1
     origins = block_origins(forest, T)
@@ -682,8 +693,9 @@ function element_truncation(geo, forest::Forest{D}, el::Element{T,P1},
     modes = Array{T}(undef, n, m)
     weights = Array{T}(undef, n, E^D, ns)
     chol = zeros(T, m, m, E^D, ns)
-    ξ, ŵ = gll_nodes_weights(P)
+    ξbig, ŵbig = gll_nodes_weights(P)
     setprecision(BigFloat, 512) do
+        ξ, ŵ = B.(ξbig), B.(ŵbig)
         Lall = [legendre_all(P, x) for x in ξ]
         offsets = [(P + 1) * (1 + x) / 2 for x in ξ]
         offsets[1], offsets[P1] = 0, P1
@@ -693,15 +705,15 @@ function element_truncation(geo, forest::Forest{D}, el::Element{T,P1},
         ŵn = [prod(ŵ[K[d]] for d in 1:D) for K in vec(nodes)]
         modes .= T.(Ψ)
         # One block per task: each writes its own tables, so the result does
-        # not depend on the thread count, and the `BigFloat` precision is
-        # inherited by the tasks.
+        # not depend on the thread count, and a `BigFloat` build's precision
+        # is inherited by the tasks.
         Threads.@threads :dynamic for s in eachindex(tabled)
             b = tabled[s]
             for (e, Je) in enumerate(CartesianIndices(ntuple(_ -> E, D)))
                 w = [ŵn[i] *
                      geometry_volume(geo,
-                                     ntuple(d -> big(origins[b][d]) +
-                                                 big(spacings[b]) *
+                                     ntuple(d -> B(origins[b][d]) +
+                                                 B(spacings[b]) *
                                                  ((Je[d] - 1) * P1 + offsets[K[d]]), D),
                                      Int(patches[b]))
                      for (i, K) in enumerate(vec(nodes))]

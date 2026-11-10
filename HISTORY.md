@@ -270,6 +270,20 @@ patches.
   at 2.5 times, which `PLAN.md` keeps as an item. The suite's seven-patch
   tests went from about 106 s to 53 s with this and the threaded table
   build.
+- 2026-11-10: the shells' truncation tables built in `Float64x2`, the
+  second of `PLAN.md`'s items, at Erik Schnetter's request. The rule had
+  been that every table is built in `BigFloat` and rounded once; it now
+  has one exception, the full geometry's per-element tables, built in
+  MultiFloats' `Float64x2` when `T` is at most `Float64`, which a test
+  holds to `BigFloat`'s rounded tables bit for bit. MultiFloats became a
+  dependency. On the laptop the build is 7.5 times faster. At M3b's
+  scale on 64 threads the `BigFloat` build had taken 1051 s, 884 s of it
+  in the garbage collector, where the plan had estimated 23 s from the
+  arithmetic; in `Float64x2` it takes 93 s, still mostly collection,
+  which `PLAN.md`'s non-allocating loops would address. With M8a merged
+  in below this, its "the setup is serial" and its proposed threaded
+  build in `CODE.md` became "was serial" and were dropped: M8b builds
+  the tables by block on all threads and only for the shells.
 
 ## Refined forests
 
@@ -1683,3 +1697,5 @@ validation step 5.
   are gone, the path entries above and the `v0.2.7` tag's before them;
   the Symmetry script's `setup` no longer develops a TreeAMR checkout.
   The suite and the annulus pass against it unchanged.
+- 2026-11-10: MultiFloats 3.3.2 added, for building the full geometry's
+  truncation tables in `Float64x2` ("Multi-patch forests").
