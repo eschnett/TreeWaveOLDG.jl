@@ -221,6 +221,55 @@ patches.
   without its `u/R` term; a pulse of width 1 converges at order 2.9
   through the sphere. See "The seven-patch ball" under "Measured
   results" in `CODE.md`.
+- 2026-11-09: `INSPIRAL-PLAN.md`'s M8b, refinement inside the seven-patch
+  ball's cube, at Erik Schnetter's request, while M8a ran in another
+  session. Until then every geometry refused a refined forest, because
+  the coarse-fine coupling is energy-compatible in the flat weights. The
+  refusal now names the patches it applies to: a geometry says which of
+  its patches are affine (`affine_patch`), and refinement is refused
+  only in the others. On the cube `√g` and the frame are constants, so
+  the flat argument holds unchanged; the right-hand side on a refined
+  brick under the identity map is the flat one's bit for bit, which is
+  the test that TreeAMR treats the Cartesian gradient's components as it
+  treats the flat path's gradient sets. Three changes came with it:
+  - **The cube's truncation is the element's.** `ElementTruncation`
+    holds its tables for the shells' blocks only, and its build runs on
+    all threads; serial, it took about a minute for 192 shell blocks of
+    `16³`, and would have taken most of an hour at M3b's scale.
+  - **The time step is per block,** the smallest of each block's
+    spacing over its own largest speed, where it had been the finest
+    spacing over the fastest speed anywhere, which on a refined ball lie
+    in different blocks (the owner chose this over the plan's
+    "stays conservative"). On the test's ball it is 1.8 times larger.
+  - **The shells beside the cube's corners limit the step** more than
+    the plan's estimate assumed: their elements are thinner and sheared
+    there, and their own step is about 0.3 of the cube's root level's at
+    `R1 = 3Lc`, so the cube needs about three levels before its finest
+    sets the step.
+- 2026-11-09: `PLAN.md` started, at Erik Schnetter's request, with the
+  savings measured after M8b: a flat path for the cube's blocks and a
+  cheaper full-geometry Laplacian (the full geometry's right-hand side
+  costs 7.7 times the flat one's, nearly all of it in the two kernels),
+  a faster build of the shells' truncation tables (`Float64x2` gives
+  `BigFloat`'s rounded tables bit for bit at a sixth of the time, and
+  transposing one shell's to the other five saves two thirds more), and
+  smaller tables and coefficients. A layer of 26 barrel-distorted
+  patches around a Cartesian cube was considered for the shells' time
+  step and set aside: with three or more levels in the cube the cube's
+  finest level sets the step.
+- 2026-11-09: the cube's flat path, the first of `PLAN.md`'s items, at
+  Erik Schnetter's request. A block whose frame is one constant diagonal
+  skips the frame's zeros in both Cartesian kernels, bit for bit the
+  general path's result. Before it, on the same nested-box forest, the
+  full geometry with the identity map cost 7.7 times the flat path per
+  right-hand side (11.42 ms against 1.58 ms; gradient kernel 2.59 ms,
+  Laplacian kernel 6.62 ms), and the local ball 23.7 ns per node. After
+  it, 1.9 times (2.92 ms) and 13.6 ns per node. The plan had expected
+  about 1.1 times from the breakdown; the Laplacian kernel stays at 2.7
+  times the flat one for the same arithmetic, and the gradient's exchange
+  at 2.5 times, which `PLAN.md` keeps as an item. The suite's seven-patch
+  tests went from about 106 s to 53 s with this and the threaded table
+  build.
 
 ## Refined forests
 

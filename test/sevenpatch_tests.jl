@@ -23,6 +23,7 @@ TreeWaveOLDG.geometry_frame(::IdentityFrame, x, p) =
 TreeWaveOLDG.physical_coordinates(::IdentityFrame, x, p) = Tuple(x)
 TreeWaveOLDG.check_geometry(::IdentityFrame, forest) = nothing
 TreeWaveOLDG.geometry_boundary(::IdentityFrame) = false
+TreeWaveOLDG.affine_patch(::IdentityFrame, p) = true
 
 # Dirichlet data that are zero everywhere.
 struct ZeroData end
@@ -101,10 +102,18 @@ end
     # does not carry across a quarter turn.
     @test_throws "hold their points alike" WaveProblem(forest, el)
     @test_throws "full geometry only" WaveProblem(brick, el; boundary=wave)
+    # A cube root on the cube's face, refined, refines the shells across
+    # the glue, whose maps are not affine.
     refined, geo2 = sevenpatch_forest(Float64, 2, 2; roots=(2, 2))
     refine!(refined, refined.leaves[1:1])
     balance!(refined)
-    @test_throws "uniform forest" WaveProblem(refined, el; geometry=geo2, boundary=wave)
+    @test any(k -> patch(refined, k) > 1 && level(k) > 0, refined.leaves)
+    @test_throws "whose map is affine" WaveProblem(refined, el; geometry=geo2,
+                                                   boundary=wave)
+    @test_throws "reaches the cube's faces" sevenpatch_forest(
+        Float64, 2, 2; roots=(4, 1), refined=((0, 2), (0, 2), (0, 2)))
+    @test_throws "no block centre" sevenpatch_forest(Float64, 2, 2; roots=(2, 2),
+                                                     refined=true)
     walled = wave_forest(Float64, Val(3), 2, 2; roots=2, reflecting=true)
     @test_throws "Cartesian one" WaveProblem(walled, el; geometry=IdentityFrame())
 end
@@ -305,4 +314,192 @@ end
     @test free.l2 < 0.05
     wall = radiative_errors(; P=3, E=2, roots=(2, 2), tend=5, κ=0, inverse_r=false)
     @test abs(wall.energy / wall.energy0 - 1) < 1e-7
+end
+
+@testset "With the identity map the Cartesian path is the flat path on a refined brick too" begin
+    # Across a coarse-fine face the flat path reads `∂_d u` from the `d`-th
+    # gradient set, and the Cartesian path the `d`-th component of one set
+    # with ghosts on every face; TreeAMR's element-local coupling must treat
+    # the two alike, the fine ghost the coarse polynomial and the coarse
+    # ghost its adjoint restriction, or the energy argument on a refined
+    # cube does not carry over. With `√g = 1` and `S = I` the right-hand
+    # sides must agree, and on an affine map the truncation is the
+    # element's tensor projector, the flat path's own.
+    for D in (2, 3), P in (2, 3)
+        el = Element(Float64, P)
+        forest = wave_forest(Float64, Val(D), P, 2; roots=4, refined=true)
+        @test maxlevel(forest) == 1
+        pf = WaveProblem(forest, el)
+        pc = WaveProblem(forest, el; geometry=IdentityFrame())
+        @test all(iszero, pc.metric.truncation.slot)
+        u = statevector(pf.fs)
+        u .= scrambled(length(u), 0.4)
+        duf, duc = similar(u), similar(u)
+        wave_rhs!(duf, u, pf, 0.0)
+        wave_rhs!(duc, u, pc, 0.0)
+        @test duf == duc
+        @test wave_energy(pc, u) ≈ wave_energy(pf, u) rtol = 1e-14
+        @test truncate_state!(copy(u), pc) == truncate_state!(copy(u), pf)
+        @test oldg_timestep(pc; cfl=1) == oldg_timestep(pf; cfl=1)
+    end
+end
+
+# Zero `u` and `v` in the outermost elements of the ball's shells, of `m`
+# roots radially, so that nothing crosses the outer sphere under zero
+# Dirichlet data.
+function zero_outer_shell!(p::WaveProblem, u, m)
+    forest = p.fs.forest
+    ua = statearray(u, p.fs)
+    N = forest.N
+    he = (TreeWaveOLDG.order(p.element) + 1) / N # an element's logical width
+    for b in 1:nblocks(p.fs)
+        q = patch(forest, blockkey(p.fs, b))
+        q == 1 && continue
+        k, s = TreeWaveOLDG.SEVENPATCH_SHELLS[q - 1]
+        for I in CartesianIndices((N, N, N))
+            xk = coordinates(p.fs, b, Tuple(I))[k]
+            (s == 1 ? xk >= m - he - 1e-12 : xk <= he + 1e-12) && (ua[I, :, b] .= 0)
+        end
+    end
+    return u
+end
+
+@testset "The energy is invariant across the refined cube's coarse-fine faces and the glues" begin
+    # In the cube `√g` and `S` are constants, so the flux `F^d = S[d] ⋅ ∇u`
+    # is a constant times one Cartesian component and the `√g`-weighted
+    # inner product a constant times the flat one: the coarse ghost of the
+    # Cartesian gradient, the adjoint of the fine one in the flat weights,
+    # keeps the wide derivative summation by parts across a coarse-fine
+    # face. A coupling that is not adjoint, a frame read at the wrong
+    # level's node, or a truncation that is not `√g`-orthogonal on the
+    # refined blocks leaves a rate of the size of its terms.
+    for P in (2, 3), truncate in (false, true)
+        el = Element(Float64, P)
+        forest, geo = sevenpatch_forest(Float64, P, 2; roots=(4, 1), refined=true)
+        @test maxlevel(forest) == 1
+        @test all(k -> patch(forest, k) == 1 || level(k) == 0, forest.leaves)
+        p = WaveProblem(forest, el; geometry=geo, boundary=ZeroData(), truncate=truncate)
+        u = statevector(p.fs)
+        u .= scrambled(length(u), 0.7)
+        zero_outer_shell!(p, u, 1)
+        truncate_state!(u, p)
+        rate, scale = energy_rate(p, u)
+        @test scale > 1
+        @test abs(rate) < 1e-13 * scale
+    end
+end
+
+@testset "On the refined ball the cube takes the element's projector, the shells their own" begin
+    # On the cube `√g` is constant, so the element's tensor projector is
+    # the `√g`-orthogonal one and the cube's blocks hold no tables; the
+    # shells' blocks hold theirs. A slot that points at another block's
+    # tables, or a cube block sent through the per-element solve with no
+    # tables, breaks the adjointness or the projection.
+    for P in (2, 3)
+        el = Element(Float64, P)
+        forest, geo = sevenpatch_forest(Float64, P, 2; roots=(4, 1), refined=true)
+        p = WaveProblem(forest, el; geometry=geo, boundary=ZeroData())
+        t = p.metric.truncation
+        cube = [patch(forest, blockkey(p.fs, b)) == 1 for b in 1:nblocks(p.fs)]
+        @test all((t.slot .== 0) .== cube)
+        @test sort(t.slot[.!cube]) == 1:count(!, cube)
+        @test size(t.weights, 3) == count(!, cube)
+        n = length(statevector(p.fs))
+        a, b = statevector(p.fs), statevector(p.fs)
+        a .= scrambled(n, 0.15)
+        b .= scrambled(n, 0.65)
+        Πa, Πb = truncate_state!(copy(a), p), truncate_state!(copy(b), p)
+        va, vb = statevar(p, a, 2), statevar(p, b, 2)
+        Πva, Πvb = statevar(p, Πa, 2), statevar(p, Πb, 2)
+        scale = sqrt(metric_inner(p, va, va) * metric_inner(p, vb, vb))
+        @test abs(metric_inner(p, Πva, vb) - metric_inner(p, va, Πvb)) < 1e-14 * scale
+        @test truncate_state!(copy(Πa), p) ≈ Πa rtol = 1e-13
+        flat = copy(a)
+        TreeWaveOLDG.launch_truncation!(TreeWaveOLDG.CPU(), statearray(flat, p.fs), el, p,
+                                        forest.N ÷ (P + 1))
+        @test selectdim(statearray(Πa, p.fs), 5, cube) ==
+              selectdim(statearray(flat, p.fs), 5, cube)
+    end
+end
+
+@testset "The time step is the CFL limit of the block that binds" begin
+    # On the refined ball the finest spacing is in the cube and the fastest
+    # logical speed in the shells, beside the cube's corners; the step is
+    # the smaller of each block's own spacing over its own speed, which is
+    # the cube's finest blocks' here, `h/(n/2Lc)`, and larger than the
+    # finest spacing over the fastest speed. On a uniform ball the two are
+    # the same.
+    P = 2
+    el = Element(Float64, P)
+    forest, geo = sevenpatch_forest(Float64, P, 2; roots=(4, 1), Lc=1, refined=true)
+    p = WaveProblem(forest, el; geometry=geo, boundary=ZeroData())
+    h = minimum_spacing(forest)
+    @test oldg_timestep(p; cfl=1) ≈ h / (4 / 2) / (P + 1) rtol = 1e-14
+    @test oldg_timestep(p; cfl=1) > 1.5 * h / p.metric.speed / (P + 1)
+    uniform, geo0 = sevenpatch_forest(Float64, P, 2; roots=(4, 1))
+    p0 = WaveProblem(uniform, el; geometry=geo0, boundary=ZeroData())
+    @test oldg_timestep(p0; cfl=1) ≈
+          minimum_spacing(uniform) / p0.metric.speed / (P + 1) rtol = 1e-14
+end
+
+@testset "A plane wave on the refined ball is as accurate as on the uniform one" begin
+    # Refining the cube adds resolution there and nothing else, so the
+    # error cannot grow; a coarse-fine coupling wrong to `O(1)`, or a
+    # refined block's frame or truncation table taken from another block,
+    # makes it grow by orders. The rate on a refined ball is measured by
+    # `bin/nested_ball.jl` (CODE.md, "The seven-patch ball" under "Measured
+    # results").
+    for P in (2, 3)
+        r0 = sevenpatch_errors(; P=P, E=2, roots=(4, 1), tend=1/4)
+        r1 = sevenpatch_errors(; P=P, E=2, roots=(4, 1), tend=1/4, refined=true)
+        @test r1.nblocks > r0.nblocks
+        @test r1.l2 <= 1.01 * r0.l2
+        @test r1.h == r0.h / 2
+    end
+end
+
+# A constant frame that is not diagonal: an affine shear, `x₁ = ξ₁ - ξ₂/2`,
+# with `√g = 1`.
+struct ShearFrame <: FullGeometry end
+TreeWaveOLDG.geometry_frame(::ShearFrame, x, p) =
+    (one(x[1]), ((one(x[1]), x[1] * 0 + 1 / 2, zero(x[1])),
+                 (zero(x[1]), one(x[1]), zero(x[1])),
+                 (zero(x[1]), zero(x[1]), one(x[1]))))
+TreeWaveOLDG.physical_coordinates(::ShearFrame, x, p) = (x[1] - x[2] / 2, x[2], x[3])
+TreeWaveOLDG.check_geometry(::ShearFrame, forest) = nothing
+TreeWaveOLDG.geometry_boundary(::ShearFrame) = false
+
+@testset "On a block whose frame is a constant diagonal the flat path is the general one's, bit for bit" begin
+    # The cube's blocks skip the frame's zeros: `V_i = S[i][i] D_i u / √g`
+    # and `F^d = S[d][d] V_d`. Dropping products with exact zeros leaves
+    # every sum the same, so the right-hand side must not change by a bit
+    # when the blocks are sent through the general path instead. A
+    # component read from the wrong variable, a constant taken from the
+    # wrong block, or a window shifted by one plane makes them differ; a
+    # block whose frame varies, or is constant but not diagonal, must not
+    # take the flat path at all.
+    for P in (2, 3)
+        el = Element(Float64, P)
+        forest, geo = sevenpatch_forest(Float64, P, 2; roots=(4, 1), refined=true)
+        p = WaveProblem(forest, el; geometry=geo, boundary=ZeroData())
+        cube = [patch(forest, blockkey(p.fs, b)) == 1 for b in 1:nblocks(p.fs)]
+        @test p.metric.flat == cube
+        u = statevector(p.fs)
+        u .= scrambled(length(u), 0.35)
+        duflat, dugeneral = similar(u), similar(u)
+        wave_rhs!(duflat, u, p, 0.0)
+        p.metric.flat .= false
+        wave_rhs!(dugeneral, u, p, 0.0)
+        @test duflat == dugeneral
+    end
+    brick = wave_forest(Float64, Val(3), 2, 2; roots=2)
+    el = Element(Float64, 2)
+    @test all(WaveProblem(brick, el; geometry=IdentityFrame()).metric.flat)
+    sheared = WaveProblem(brick, el; geometry=ShearFrame())
+    @test !any(sheared.metric.flat)
+    u = statevector(sheared.fs)
+    u .= scrambled(length(u), 0.55)
+    du = similar(u)
+    wave_rhs!(du, u, sheared, 0.0)
+    @test all(isfinite, du)
 end

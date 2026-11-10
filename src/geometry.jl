@@ -32,7 +32,10 @@ can be a kernel and a fold argument, and provides:
   factorizes ("Truncation with a metric" in `CODE.md`). It is evaluated
   in `BigFloat` when the projections are built;
 - `physical_coordinates(geo, x, p)`: the physical position;
-- `check_geometry(geo, forest)`: refuse a forest the map does not fit.
+- `check_geometry(geo, forest)`: refuse a forest the map does not fit;
+- optionally `affine_patch(geo, p)`: whether patch `p`'s map is affine,
+  so that its metric is constant there; `false` by default. Only such a
+  patch may be refined ([`affine_patch`](@ref TreeWaveOLDG.affine_patch)).
 
 [`PolarAnnulus`](@ref) is the one implemented. A map whose metric is not
 diagonal, or whose `√g` does not factorize, is a [`FullGeometry`](@ref).
@@ -55,7 +58,8 @@ have. A full geometry is `isbits` and provides:
 - `physical_coordinates(geo, x, p)`: the physical position;
 - `check_geometry(geo, forest)`: refuse a forest the map does not fit;
 - `geometry_boundary(geo)`: whether the forest has outer faces, which
-  then take Dirichlet data ([`WaveProblem`](@ref)'s `boundary`).
+  then take Dirichlet data ([`WaveProblem`](@ref)'s `boundary`);
+- optionally `affine_patch(geo, p)`, as for a [`Geometry`](@ref).
 
 On a full geometry the gradient is carried in Cartesian components, one
 field set of `D` variables with a ghost plane on every face, because a
@@ -69,6 +73,20 @@ ghosts included. The truncation is the `√g`-orthogonal projection onto
 abstract type FullGeometry <: Geometry end
 
 geometry_boundary(::FullGeometry) = true
+
+"""
+    affine_patch(geo, p) -> Bool
+
+Whether patch `p`'s map to physical space is affine, so that `√g`, the
+flux coefficients and the frame are constants there. A geometry takes a
+refined forest only where this holds: across a coarse-fine face the
+coarse ghost is the adjoint of the fine one in the flat weights, which
+are the `√g`-weighted ones up to a constant only where `√g` is constant,
+so only there does the energy stay an exact invariant; and there the
+element's own projector is the `√g`-orthogonal truncation. `false` unless
+a geometry says otherwise. See "The seven-patch ball" in `CODE.md`.
+"""
+affine_patch(geo::Geometry, p) = false
 
 # A full geometry's gradient is Cartesian, so its folds weight by `√g`
 # alone, the potential energy's `√g |∇u|²` included (`layout.jl`).
@@ -252,6 +270,9 @@ end
 
 outer_radius(geo::SevenPatchBall) = geo.R1
 
+# The cube's map `x = Lc(2ξ/n - 1)` is affine; the shells' are not.
+affine_patch(::SevenPatchBall, p) = p == 1
+
 @inline function physical_coordinates(geo::SevenPatchBall, x, p)
     return Tuple(sevenpatch_position(geo, SVector(x[1], x[2], x[3]), p))
 end
@@ -320,7 +341,8 @@ function check_geometry(geo::SevenPatchBall, forest::Forest{D}) where {D}
 end
 
 """
-    sevenpatch_forest(T, P, E; roots=(2, 2), Lc=1, R1=3) -> (forest, geometry)
+    sevenpatch_forest(T, P, E; roots=(2, 2), Lc=1, R1=3, refined=false)
+        -> (forest, geometry)
 
 The ball `|x| ≤ R1` as TreeAMR's forest of seven patches, a cube of
 half-width `Lc` and six shells around it (see [`SevenPatchBall`](@ref)),
@@ -332,10 +354,21 @@ never reaches; the outer sphere is the only unglued face, and takes
 Dirichlet data ([`WaveProblem`](@ref)'s `boundary`). `E` must be even, as
 for [`wave_forest`](@ref).
 
+The ball is uniform by default. `refined` refines the cube, whose map is
+affine, as [`wave_forest`](@ref)'s `refined` refines a box: `true` the
+middle half, `(n/4, 3n/4)³`, a tuple of three intervals one region, or a
+vector of such tuples one region per level, all in the cube's logical
+coordinates `[0, n]³`, `n = roots[1]`. So `nested_cubes(Val(3), n/2^levels,
+levels)` gives the inspiral's nested cubes inside the ball, with
+`n % 4 == 0`. TreeAMR keeps a glued face conforming, so a region that
+refines a block on the cube's face would refine the shells across it, and
+is refused: a geometry takes refinement only where its map is affine
+([`affine_patch`](@ref TreeWaveOLDG.affine_patch)).
+
 Hand both to [`WaveProblem`](@ref): `WaveProblem(forest, el; geometry, boundary)`.
 """
 function sevenpatch_forest(::Type{T}, P::Integer, E::Integer; roots=(2, 2), Lc=1,
-                           R1=3) where {T}
+                           R1=3, refined=false) where {T}
     N = E * (P + 1)
     iseven(E) || throw(ArgumentError(
         "E = $E elements of order P = $P per block is odd, and E must be even: " *
@@ -344,5 +377,16 @@ function sevenpatch_forest(::Type{T}, P::Integer, E::Integer; roots=(2, 2), Lc=1
     geo = SevenPatchBall{T}(Lc, R1, Tuple(roots))
     forest = Forest{T}([(roots=sevenpatch_roots(geo, p),) for p in 1:7]; N=N,
                        glue=sevenpatch_glue())
+    refined === false && return forest, geo
+    n = geo.roots[1]
+    refine_regions!(forest, refinement_regions(refined, Val(3), n), n; p=1)
+    for key in forest.leaves
+        q = patch(forest, key)
+        q == 1 || level(key) == 0 || throw(ArgumentError(
+            "the refinement $(repr(refined)) reaches the cube's faces, and the glue keeps " *
+            "the leaves across a glued face at one level, so it refined shell $q, whose " *
+            "map is not affine: keep the regions at least one root inside the cube " *
+            "[0, $n]³"))
+    end
     return forest, geo
 end

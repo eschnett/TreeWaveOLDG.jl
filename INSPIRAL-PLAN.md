@@ -8,7 +8,7 @@ below without links.
 
 **Status.** M0 to M5 are done; M6a, M6b and M7 are not started; M8 is
 proposed (2026-11-09), M8a's runs are measured (2026-11-10) and its gate
-is with the owner, and M8b and M8c are not started. A
+is with the owner, M8b is started, and M8c is not started. A
 milestone's status line changes here when its work starts and when its
 pull request merges. A finished milestone keeps its number and one line
 saying where its results went; its earlier text, with the gates and
@@ -429,7 +429,11 @@ and M8c go ahead (a gate, below).
 
 ### M8b: Refinement inside the cube
 
-**Status:** proposed; not started. The field side, with no particles.
+**Status:** started (2026-11-09), before M8a's gate, at the owner's
+request. The code and tests are in, with `bin/nested_ball.jl` measured
+on the laptop (`CODE.md`, "The seven-patch ball" and its measured
+results); the runs at M3b's scale, `bin/symmetry/nested_ball.sh`, wait.
+The field side, with no particles.
 
 - **The refusal.** `check_metric_forest` refuses every refined forest on
   a geometry, because the coarse ghost is the adjoint in the flat
@@ -540,4 +544,7 @@ milestone named. Those of the finished milestones are in `HISTORY.md`
   ball if M8 is done by then.
 - M8a: `R₁`, `Lc`, `n_e` and the shells' radial elements.
 - M8b: whether affine blocks get a flat fast path in the right-hand
-  side.
+  side. Settled 2026-11-09: the owner had it written, since the full
+  geometry's right-hand side cost 7.7 times the flat one's per node on
+  the same blocks; with it the cube's blocks cost 1.9 times (`CODE.md`,
+  "The seven-patch ball", and `PLAN.md` for what is left).

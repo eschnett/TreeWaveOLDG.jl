@@ -45,8 +45,11 @@ with its discrete energy an exact invariant across the glued faces. On
 the seven-patch ball, glued by quarter turns, it runs in a general metric
 with the gradient exchanged in Cartesian components and Dirichlet data or
 a radiative condition on the outer sphere: a plane wave converges at
-order `P`, and an outgoing pulse leaves the ball; see
-[Multi-patch forests](#multi-patch-forests). The suite passes, also with
+order `P`, and an outgoing pulse leaves the ball. The ball's cube, whose
+map is affine, takes static refinement, M3b's nested cubes included,
+with the energy an exact invariant across its coarse-fine faces
+(`INSPIRAL-PLAN.md`'s M8b); see [Multi-patch
+forests](#multi-patch-forests). The suite passes, also with
 `--check-bounds=yes` and with four threads.
 
 **Inconsistent:** this status names two initial conditions, a standing
@@ -460,16 +463,24 @@ geometry inside its fold: the fold point carries the logical position,
 and a block tag carries the patch. `wave_norm` is the `√g`-weighted
 norm, the physical volume's.
 
-**The time step.** `oldg_timestep` divides the flat step `cfl·h/(P+1)`
-by the largest logical wave speed `√g^{dd}` at any node. On the annulus
-that speed is `1/(r₀θ′)` at the inner wall. The RK4 limit in `cfl` is
-then the flat one's.
+**The time step.** `oldg_timestep` divides each block's flat step
+`cfl·h/(P+1)` by the largest logical wave speed `√g^{dd}` at its nodes,
+and takes the smallest over the blocks. On a uniform forest that is the
+one `h` over the largest speed anywhere; on the annulus that speed is
+`1/(r₀θ′)` at the inner wall. The RK4 limit in `cfl` is then the flat
+one's.
 
 **What the geometry refuses** (see `build_metric`):
 
-- **A forest that is not uniform.** The coarse ghost is the adjoint of
-  the fine one in the flat weights, not in the `√g`-weighted ones, so
-  the energy would not be invariant across a coarse-fine face.
+- **Refinement in a patch whose map is not affine.** The coarse ghost is
+  the adjoint of the fine one in the flat weights, which are the
+  `√g`-weighted ones up to a constant only where `√g` is constant, so
+  elsewhere the energy would not be invariant across a coarse-fine face.
+  A geometry names its affine patches (`affine_patch`); TreeAMR keeps
+  every glued face conforming, so a coarse-fine face lies inside one
+  patch, and the check is that every patch with leaves on two levels is
+  affine. The annulus has none; the seven-patch ball's cube is one ([A
+  refined cube](#the-seven-patch-ball)).
 - **A device.** The truncation's tables are arrays inside a struct that
   is not adapted to one.
 - **A forest the geometry does not map** (`check_geometry`).
@@ -554,7 +565,8 @@ reports the `√g`-weighted L2 error and the physical radial spacing
 - **Only diagonal metrics.** The `d`-th set holds `A_d D_d u`, which has
   no term for an off-diagonal `g^{de}`.
 - **Only a separable `√g`,** for the truncation.
-- **Only uniform forests on the CPU,** and no particles.
+- **Only uniform forests on the CPU,** since no patch of the annulus is
+  affine, and no particles.
 
 ### The seven-patch ball
 
@@ -635,10 +647,31 @@ column of a scratch array, and multiplies by `Ψ`, one work item per
 element. That is about `2 (P+1)^D P^D + P^{2D}` multiply-adds per
 element, against `2D(P+1)^D` for the tensor form. The tables take
 `P^{2D} + (P+1)^D` numbers per element: 793 at `P = 3` in 3D, about
-0.4 MB per block of `16³`.
+0.4 MB per block of `16³`. The blocks are built on all threads, one per
+task; each writes its own tables, so they do not depend on the thread
+count.
 
-**The time step** divides the flat step by the largest logical wave
-speed, `√λ_max(g^{de})` with `g^{de} = S[d] ⋅ S[e] / g`, at any node.
+The tables are held only for the blocks of a patch whose map is not
+affine. On the cube `√g` is constant, so the element's own tensor
+projector is the `√g`-orthogonal one; `ElementTruncation`'s `slot` is 0
+for a cube block, whose work items take the tensor form, and otherwise
+the block's index into the tables. The cube's blocks cost neither the
+tables nor their build, which matters once the cube holds nested cubes.
+
+**The time step** divides each block's flat step by the largest logical
+wave speed at its nodes, `√λ_max(g^{de})` with `g^{de} = S[d] ⋅ S[e] / g`,
+and takes the smallest over the blocks. On a uniform ball that is the
+fastest node's, in a shell beside a corner of the cube; on a refined one
+the cube's finest blocks set it where they are fine enough, and the old
+bound, the finest spacing over the fastest speed anywhere, was 1.8 times
+smaller on the test's ball. The shells' elements beside the cube's
+edges and corners are thinner radially, since a radial line there runs
+from `√3 Lc` and not from `Lc`, and sheared; with radial elements as
+wide as the cube's at its faces' centres, the shells' own step is 0.15,
+0.27, 0.32, 0.36 and 0.39 of the cube's root level's at `R1/Lc = 2`,
+2.5, 3, 4 and 6 (measured, `P = 2`, `n = 4`). So the shells set the step
+unless the cube's refinement ratio, `2^{levels−1}`, is about 3 or more
+(`levels ≥ 3` at `R1 = 3Lc`).
 
 **The outer boundary.** The ball's only unglued faces are the outer
 sphere's, and TreeAMR cannot make them reflecting: its face kinds are
@@ -713,6 +746,53 @@ data. `sevenpatch_exact` gives `u` and `v` at the nodes, and
 reports the `√g`-weighted L2 error and the cube's physical spacing
 `2Lc h/n`.
 
+**A refined cube** (`INSPIRAL-PLAN.md`'s M8b). The cube's map
+`x = Lc(2ξ/n − 1)` is affine, so `√g = (2Lc/n)³` and `S[d][i] = a² δ_di`
+with `a = 2Lc/n` are constants there, and the Cartesian gradient is
+`V = (1/a) D u`, the flat path's gradient over a constant. The flux the
+Laplacian forms, `F^d = a² V_d`, is then a constant times the `d`-th
+component, and the energy's weights `√g w` a constant times the flat
+ones, so the flat coupling's argument ([The energy](#the-energy)) holds
+for the cube's coarse-fine faces unchanged: the coarse ghost of each
+Cartesian component is the adjoint of the fine one, as it is for the
+flat path's `d`-th gradient set. `cartgrad`'s ghosts on every face are
+`ufs`'s layout, which a refined forest already exchanges; what TreeAMR
+does across a coarse-fine face it does per variable, so the `d`-th
+component crosses it as the `d`-th set would. With the identity map on
+a refined brick the right-hand side is the flat one's, bit for bit (a
+test).
+
+**The cube's flat path.** On a block whose frame is one constant
+diagonal at every node, `√g` and each `S[d][i]` the same at all its nodes
+and `S[d][i] = 0` for `d ≠ i` exactly (`FullMetric`'s `flat`, found from
+the coefficients when the problem is built), the two Cartesian kernels
+take a flat path: `V_i = S[i][i] D_i u / √g` and `F^d = S[d][d] V_d`, from
+the block's first node's coefficients, reading one component of `V` per
+window point where the general path reads all three and the frame at
+every point. It drops only products with the frame's exact zeros, so it
+gives the general path's right-hand side bit for bit (a test, which also
+sends a constant sheared frame through the general path). On the same
+blocks the full geometry's right-hand side then costs 1.9 times the
+flat one's, where it cost 7.7 ([Measured results](#measured-results)).
+The cube's blocks still write and exchange all three components, since
+the shells read them across the glue.
+
+- `sevenpatch_forest(…; refined)` refines the cube as `wave_forest`'s
+  `refined` refines a box, in the cube's logical coordinates `[0, n]³`;
+  `nested_cubes(Val(3), n/2^levels, levels)` gives the inspiral's nested
+  cubes, with `n % 4 == 0`. A region that refines a block on the cube's
+  face would, through the glue's conformity, refine the shell across it,
+  and is refused.
+- The shells stay at the cube's root level. So the cube's root level
+  has the shells' tangential spacing at their inner face, and the
+  nested levels go inside it, as on nested boxes. The cube is then a
+  nested box whose periodic faces are replaced by the shells and the
+  radiative sphere ([Nested boxes](#nested-boxes)).
+- `sevenpatch_errors` and `radiative_errors` take `refined`, and
+  `bin/nested_ball.jl` sends `nested_waves.jl`'s pulse through nested
+  cubes inside the ball (under "The seven-patch ball" in [Measured
+  results](#measured-results)).
+
 **What it does not do:**
 
 - **No reflecting outer sphere,** which would need per-patch face kinds
@@ -727,9 +807,11 @@ reports the `√g`-weighted L2 error and the cube's physical spacing
 - **The shells are coarse where short waves reach them.** At `λ = 4` the
   cube–shell faces and the shells send back more than the condition
   does, and keep a fifth of the energy; a second-order condition would
-  not change that.
-- **Only uniform forests on the CPU,** and no particles, as for every
-  geometry.
+  not change that. Their tangential spacing grows with the radius, and
+  the scheme's central fluxes do not damp an under-resolved wave on its
+  way out.
+- **Refinement only in the cube,** where the map is affine, and on the
+  CPU; no particles, as for every geometry (`INSPIRAL-PLAN.md`'s M8c).
 
 ## Refined forests
 
@@ -1140,8 +1222,10 @@ and the limit falls as `1/√D` (the Laplacian's spectral radius adds over
 dimensions); see [The RK4 limit](#the-rk4-limit). The drivers default to
 `cfl = 1/2`. On a refined forest `hₑ` is the finest level's, and the
 limit there is the uniform forest's at that spacing, to a few per cent.
-On a geometry `hₑ` is logical and the step is divided by the largest
-logical wave speed ([The metric](#the-metric)).
+On a geometry `hₑ` is logical and each block's step is divided by the
+largest logical wave speed at its nodes; the step is the smallest over
+the blocks ([The metric](#the-metric), [The seven-patch
+ball](#the-seven-patch-ball)).
 
 RK4's error is fourth order in `dt ∝ h`, so beyond `P = 4` it eventually
 dominates the spatial error. A convergence study at higher order needs a
@@ -2381,8 +2465,9 @@ written without the averaging and the force read both ways, are
 - `src/element.jl`: Gauss–Lobatto nodes and weights, `Element`.
 - `src/layout.jl`: `check_layout`, node positions, `fill_at_nodes!`,
   `quadrature_norm`.
-- `src/geometry.jl`: `Geometry`, `PolarAnnulus` and `annulus_forest`;
-  `FullGeometry`, `SevenPatchBall`, its glue and `sevenpatch_forest`.
+- `src/geometry.jl`: `Geometry`, `affine_patch`, `PolarAnnulus` and
+  `annulus_forest`; `FullGeometry`, `SevenPatchBall`, its glue and
+  `sevenpatch_forest`, uniform or with its cube refined.
 - `src/evolution.jl`: the kernels, the Cartesian ones of a full geometry
   beside them, `WaveProblem` (from a forest, or from a state set after
   `regrid!`, flat or on a geometry, with its `Metric` and
@@ -2393,8 +2478,8 @@ written without the averaging and the force read both ways, are
   `wave_norm`, `oldg_timestep`, `convergence_rate`.
 - `src/stepping.jl`: `state_partition` and `wave_integrator`.
 - `src/sinewave.jl`: `wave_forest`, uniform, two-level or refined level
-  by level, `nested_cubes`, the standing sine mode and its driver
-  `wave_errors`.
+  by level (`refine_regions!`, which `sevenpatch_forest` shares),
+  `nested_cubes`, the standing sine mode and its driver `wave_errors`.
 - `src/refinement.jl`: `modal_indicator`, `mode_amplitude`,
   `refine_mark`, `refine_flags` and `refinement_buffer`.
 - `src/blast.jl`: the radial blast wave, its exact solution, and its
@@ -2479,6 +2564,13 @@ written without the averaging and the force read both ways, are
   the energy, run in the package environment;
   `bin/symmetry/sphere_waves.sh` runs it on a Symmetry AMD node ([The
   radiative sphere](#the-radiative-sphere)).
+- `bin/nested_ball.jl`: the same pulse through nested cubes inside the
+  seven-patch ball's cube, with shells out to a radiative sphere, its
+  error and the exact solution in each level's ball and the whole ball,
+  and with `--cost` the right-hand side's and the truncation's time per
+  node and the problem's bytes beside `nested_waves.jl`'s nested boxes,
+  run in the package environment; `bin/symmetry/nested_ball.sh` runs it
+  on a Symmetry AMD node.
 - `test/reference.jl`: dense global operators built from the element's
   tables, and the state rearranged into global arrays, which the kernels
   are checked against.
@@ -2583,7 +2675,8 @@ tests about 40 s on one.
   one's bit for bit, in 2D and 3D, `P = 2, 3`, and its truncation the
   element's to rounding; the frame is the cofactor of the map's
   Jacobian, exact on the cube, and the shells meet the cube's faces and
-  the sphere; a forest the ball does not map, a refined one, a missing
+  the sphere; a forest the ball does not map, refinement that reaches a
+  shell (by `WaveProblem` and by `sevenpatch_forest`), a missing
   `boundary`, Dirichlet data without a full geometry, a reflecting
   forest, and the flat path on the ball are refused; the per-element
   truncation is self-adjoint in `√g`, a projection onto `Q_{P−1}`,
@@ -2596,7 +2689,18 @@ tests about 40 s on one.
   its terms, for four conditions with and without truncation, the
   boundary refuses a negative `κ`, a geometry that is not full and one
   without an outer radius, an outgoing pulse leaves the ball, and the
-  Neumann wall keeps the energy.
+  Neumann wall keeps the energy. On a refined cube (M8b): with the
+  identity map on a refined brick the right-hand side is the flat one's
+  bit for bit and the truncation and step the same, in 2D and 3D,
+  `P = 2, 3`; `dE/dt` vanishes to `1e-13` of its terms across the cube's
+  coarse-fine faces and every glue; the cube's blocks take the element's
+  projector and hold no tables, the shells theirs, and the truncation is
+  self-adjoint in `√g`; the step is the cube's finest blocks' and larger
+  than the finest spacing over the fastest speed; a plane wave on the
+  refined ball is no less accurate than on the uniform one; and the
+  cube's blocks, and the identity map's, take the kernels' flat path, a
+  constant sheared frame does not, and the flat path's right-hand side
+  equals the general path's bit for bit.
 - `reflect_tests.jl`: the reflecting box — the Neumann `cos` mode converges
   at order `P` in 1D and 2D, the wall is an exact discrete symmetry
   (energy conserved to the integrator's loss), the parities the wall imposes
@@ -2899,6 +3003,92 @@ A pulse of width 1, L2 errors and least-squares rates:
 
 The test asserts the energy left at `s = 1`, below `1e-2`, and the wall's
 energy to `1e-7`.
+
+Since the truncation's tables are held for the shells only and built on
+all threads (M8b), the table's runs give the same errors to every digit
+printed, and take less time: 12.8 s at `P = 3`, `s = 2` with
+truncation, against 26.7 s.
+
+**A refined cube** (M8b, `bin/nested_ball.jl`, the laptop at four
+threads, 2026-11-09). `nested_waves.jl`'s pulse, `λ = 4`, `σ = 2`, through
+two nested levels, the finest of half-width `w0 = 2` at `hₑ = 1/4`, 16
+elements across each level, `P = 3`, `cfl = 1/2`, to `t = 16`: on the
+nested boxes, a periodic box of side 8 (`nested_waves.jl --levels=2
+--w0=2 --hdiv=4 --lambda=4`), and in the ball with that box as its cube,
+`Lc = 4`, shells of 16 radial elements to a Sommerfeld sphere at
+`R1 = 12`. `err` is the L2 error of `u` and `v` together in the ball of
+radius 2 about the centre, the finest level's:
+
+| `t` | 1 | 2 | 3 | 4 | 6 | 8 | 12 | 16 |
+|---|---|---|---|---|---|---|---|---|
+| nested boxes, `err` | 4.2e-4 | 6.7e-4 | 3.5e-3 | 3.5e-2 | 0.16 | 0.22 | 0.34 | 0.13 |
+| ball, `err` | 4.1e-4 | 4.4e-4 | 2.9e-4 | 2.8e-4 | 1.8e-4 | 2.0e-4 | 1.6e-4 | 1.6e-4 |
+| ball, `E/E₀` | 1 | 1 | 1 | 1 | 1 − 2e-8 | 0.9999 | 0.50 | 1.3e-4 |
+
+The pulse's exact maximum in that ball falls from 5.9 to 0.28 by `t = 4`
+and below `10⁻⁶` by `t = 9`.
+
+| per node | right-hand side | truncation | problem's bytes |
+|---|---|---|---|
+| nested boxes (491 520 nodes) | 3.1 ns | 0.27 ns | 55 |
+| the same forest, identity map as a full geometry | 5.9 ns | 0.27 ns | 142 |
+| ball (2 064 384 nodes, 76 % in the shells) | 13.6 ns | 9.0 ns | 220 |
+
+The right-hand side by pass on the same forest, in ms per call, flat
+and as a full geometry with the identity map, whose blocks all take the
+flat path ([The seven-patch ball](#the-seven-patch-ball)):
+
+| | `u` exchange | gradient kernel | gradient exchange | Laplacian kernel | whole |
+|---|---|---|---|---|---|
+| flat | 0.22 | 0.41 | 0.26 | 0.42 | 1.51 |
+| full, flat path | 0.22 | 0.57 | 0.66 | 1.13 | 2.92 |
+
+**What the tables show:**
+
+- **Until the periodic box's faces are felt the two agree** (`t = 1`),
+  so the cube's coarse-fine face does in the ball what it does on nested
+  boxes. Then the box's faces spoil its finest ball (from `t ≈ 2`, the
+  faces at 4 and twice the speed of light), and the pulse, which cannot
+  leave a periodic box, comes back through it.
+- **In the ball the pulse leaves.** The error in the finest ball stays at
+  about `2e-4`, half of the error at `t = 1`, through the pulse's
+  crossing of the coarse-fine face at 2, the cube's faces at 4, where the
+  shells take over, and the sphere at 12, whose return reaches the
+  centre from `t ≈ 24`, after this run. The energy holds to `2e-8` while
+  the pulse is inside, and `1.3e-4` of it is left at `t = 16`.
+- **On the cube's blocks the full geometry costs 1.9 times the flat
+  path per node.** The rest is the Cartesian gradient: its exchange,
+  with ghosts on every face, costs 2.5 times the three per-dimension
+  ones, and the Laplacian kernel 2.7 times the flat one's, reading one
+  component of a three-component set with ghosts on every face. Before
+  the cube's flat path it cost 7.7 times (`HISTORY.md`, "Multi-patch
+  forests"). In the ball the shells, which take the general path, are
+  now most of the right-hand side's 13.6 ns per node. The truncation on
+  the cube is the flat one's; the shells' per-element solve is what
+  makes the ball's 33 times the boxes'.
+- **The shells set the step here,** 0.0050 in the ball against the
+  boxes' 0.0078, the finest level's `cfl · hₑ/(P+1)²`: their elements
+  beside the cube's corners, since two levels are too few to outweigh
+  them at `R1 = 3Lc` ([The seven-patch ball](#the-seven-patch-ball)).
+
+**At M3b's scale** (`bin/symmetry/nested_ball.sh`'s layout, one Symmetry
+node, EPYC 7532, 64 threads, 2026-11-09): three levels in a cube of
+`Lc = 16`, the finest of half-width 4 at `hₑ = 1/8`, and shells of 16
+radial elements to a sphere at 48, 71.3 M nodes, 25.2 M of them in the
+shells, beside `nested_waves.jl`'s nested boxes with the same cubes,
+46.1 M nodes:
+
+| per node | right-hand side | truncation | problem's bytes |
+|---|---|---|---|
+| nested boxes | 0.78 ns | 0.037 ns | 54 |
+| ball | 2.44 ns | 1.20 ns | 178 |
+
+With three levels the finest cube sets the step, `dt = 1/256`, the
+boxes' own, as [The seven-patch ball](#the-seven-patch-ball) says. A
+right-hand side over the whole ball takes 0.17 s, against 0.036 s on the
+boxes, and the ball's truncation, the shells' per-element solve, adds
+another 0.085 s. The pulse's runs to `t = 96` at `λ = 16` and 4 are
+`nested_ball.sh`'s, and wait.
 
 ### Refined forests
 
@@ -4278,6 +4468,11 @@ and the device and threading test files.
 
 ## Possible extensions
 
+- **(proposed)** A cheaper general Laplacian on a full geometry, which
+  forms `F^d` at every window point; the shells take it and are now most
+  of the ball's right-hand side. `PLAN.md` has it with the other savings
+  measured after M8b: a faster build of the shells' tables, and smaller
+  tables and coefficients.
 - **(proposed)** A refinement that does not amplify the evolved data's
   jumps across element faces, so that the dead band between the
   thresholds could be narrower (see the open question below).
