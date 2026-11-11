@@ -19,7 +19,11 @@
 # - `nodes`, `far_points`: the box's nodes and the far rule's source
 #   evaluations;
 # - `far_device`, `far_host`: one far rule, seconds, the least of `reps`
-#   after a warm-up, and `far_ns_per_point` on the device;
+#   after a warm-up, and `far_ns_per_point` on the device; and its two
+#   kernels alone on the device, `far_source_device`, the source at the
+#   Gauss points, and `far_contract_device`, their contraction;
+# - `far_transition_points`: the far rule's points in the window's
+#   transition, `R₁ < |x - centre| < R₂`, where the source carries `∇W`;
 # - `rhs_device`: one `wave_rhs!` over the box on the device, for scale;
 # - `far_relative_difference`: the device's far rule against the host's,
 #   `‖dev − host‖/‖host‖` over the box;
@@ -28,7 +32,8 @@
 
 include("backend.jl")
 using TreeWaveOLDG: SVector, statevector, statearray, projection_plan, project_far!,
-                    element_class, element_box, nblocks, FAR_ELEMENT
+                    element_class, element_box, nblocks, FAR_ELEMENT, device_source,
+                    source_points_kernel!, contract_kernel!, TreeAMR
 using LinearAlgebra: norm
 
 function option(name, default)
@@ -81,8 +86,24 @@ function measure(backend, hdiv, order, reps, offgrid)
         nfar += element_class(lo, hi, host.plan.region, host.plan.particles,
                               host.plan.rf) == FAR_ELEMENT
     end
-    points = nfar * length(host.t.gauss)^3
-    rows = Pair{String,Any}["nodes" => length(host.du) ÷ 2, "far_points" => points]
+    Q = length(host.t.gauss)
+    points = nfar * Q^3
+    ntransition = 0
+    w = host.S.window
+    for b in 1:nblocks(host.p.fs), J in CartesianIndices((E, E, E))
+        lo, hi = element_box(host.plan.origins[b], host.plan.spacings[b], Tuple(J) .- 1,
+                             Val(P1), Val(3))
+        element_class(lo, hi, host.plan.region, host.plan.particles,
+                      host.plan.rf) == FAR_ELEMENT || continue
+        for K in CartesianIndices((Q, Q, Q))
+            x = SVector(ntuple(d -> lo[d] + (hi[d] - lo[d]) *
+                                       (1 + host.t.gauss[K[d]]) / 2, 3))
+            r² = sum(abs2, x - w.centre)
+            ntransition += w.R₁^2 < r² < w.R₂^2
+        end
+    end
+    rows = Pair{String,Any}["nodes" => length(host.du) ÷ 2, "far_points" => points,
+                            "far_transition_points" => ntransition]
     far!(host)
     reference = copy(host.du)
     push!(rows, "far_host" => best(() -> far!(host), CPU(), reps))
@@ -93,7 +114,19 @@ function measure(backend, hdiv, order, reps, offgrid)
         u = statevector(dev.p.fs)
         fill!(u, 1)
         du = similar(u)
+        plan, n = dev.plan, length(dev.plan.active)
+        Sd = device_source(dev.S, backend)
+        source!() = TreeAMR.launch_by_owner!(
+            source_points_kernel!, backend, dev.scratch, Sd, plan.dev_origins,
+            plan.dev_spacings, plan.active, dev.t, plan.region, plan.particles, plan.rf,
+            Val(3), Val(P1); ndrange=(E * Q, E * Q, E * Q, n))
+        contract!() = TreeAMR.launch_by_owner!(
+            contract_kernel!, backend, dev.dua, dev.scratch, plan.dev_origins,
+            plan.dev_spacings, plan.active, dev.t, plan.region, plan.particles, plan.rf,
+            -1.0, 2, Val(3), Val(P1); ndrange=(E, E, E, n))
         append!(rows, ["far_device" => tdev, "far_ns_per_point" => 1e9 * tdev / points,
+                       "far_source_device" => best(source!, backend, reps),
+                       "far_contract_device" => best(contract!, backend, reps),
                        "rhs_device" => best(() -> wave_rhs!(du, u, dev.p, 0.0), backend,
                                             reps),
                        "far_relative_difference" => difference])

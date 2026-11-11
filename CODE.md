@@ -1583,8 +1583,24 @@ no partition).
   particles: `InspiralProblem` refuses a device, since the transfer's
   graded and nested rules, the averaging over shared nodes and the
   pairing are host code. Moving them is `PLAN.md`'s "Particles on a
-  device"; the far rule's two kernels already run on one
-  (`bin/far_rule.jl`).
+  device"; the far rule already runs on one (`bin/far_rule.jl`).
+- **The source's coefficient tables are an array on a device.** A
+  `ParticleSource` held each particle's lab-slice coefficients as
+  `SVector`s, 12.9 KB per particle at order 3, and as a kernel argument
+  every work item copied them into its local memory: 35 to 52 KB of it
+  per thread on an H200, and 255 registers, at every order
+  (`bin/source_probe.jl`). `device_source(S, backend)` moves the tables
+  into one device array and gives each particle `TableRef`s into it,
+  which the generated forms read through `_coefficient` as they read an
+  `SVector`; the source shrinks from 25.8 KB to 1.9 KB, and is the same
+  to the bit on the CPU, where `device_source` returns `S` itself.
+  `project_far!` calls it.
+- **On a device the far rule runs over a list of its elements**
+  (`projection_plan`'s `far`, `project_far_list!`), one work item per
+  Gauss point of a far element. The CPU's launch over the ball's blocks
+  gave a work item to every point of them, a fifth idle, each
+  classifying its element again; the list saves 46 of the far rule's
+  168 ms on an H200. On the CPU the two give the same `du` bit for bit (a test).
 
 `test/device_tests.jl` holds the device to the host
 ([Tests](#tests)). On the laptop's GPU (Apple M-series, Metal,
@@ -2768,6 +2784,8 @@ written without the averaging and the force read both ways, are
   their timer, which waits for the device.
 - `bin/far_rule.jl`: the far rule of the source projection on a device
   against the host, the gate for moving the particles there.
+  `bin/source_probe.jl`: the source alone on a CUDA device, its
+  registers, local memory and time per point for variants of the call.
   `bin/symmetry/gpu.sh` runs the device tests, both benchmarks and it on
   one H200 of Symmetry, in an environment of its own that adds CUDA.
 - `bin/projection.jl`: the cost of the transfer on the first run's
@@ -3081,7 +3099,9 @@ one thread on CI, is otherwise silent until its summary.
 - `device_tests.jl`, last, on the device `TREEWAVEOLDG_TEST_BACKEND=cuda`
   or `metal` names, loaded only then and not a test dependency, or with
   the CPU standing in, as on CI, where it checks the plumbing: the state
-  and the spacings come back on the device; a periodic and a refined
+  and the spacings come back on the device; the far rule over its list of
+  elements is the one over the ball's blocks, bit for bit on the CPU and
+  to `sqrt(eps)` on a device with `Float64`; a periodic and a refined
   box's runs, the seven-patch plane wave with Dirichlet data and a pulse
   through the thirteen-patch ball's radiative sphere give the host's
   errors and energies to `sqrt(eps)` in the step counts the host takes;
@@ -4015,11 +4035,39 @@ are within 2 %), the ball the benchmark ball.
   ball's truncation 13 times.
 - **`Float32`** saves a third on the ball and a fifth on the flat box.
 - **The far rule** of the binary's source at `d/8`, order 3
-  (`bin/far_rule.jl`), 6.7 M source evaluations: 0.363 s on the H200, 54
-  ns a point, against 0.856 s on 64 cores (job 592110 above; 5.3 s on the
-  job's eight host threads), and equal to the host's to `1.7·10⁻¹¹`
-  relative. That is 2.4 times, short of the ten times `PLAN.md`'s gate
-  asks for before the rest of the projection follows.
+  (`bin/far_rule.jl`), 6.7 M source evaluations, 87 % of them in the
+  window's transition: 0.363 s on the H200 as first ported, 54 ns a
+  point, against 0.856 s on 64 cores (job 592110 above; 4.4 s on the
+  job's eight host threads). With the source's tables in a device array
+  0.168 s, and over the list of far elements 0.122 s (jobs 595357 and
+  595366): 7.0 times 64 cores, equal to the host's to `1.7·10⁻¹¹`
+  relative, on and off the grid. Its contraction is 0.2 ms of it. That
+  is short of the ten times `PLAN.md`'s gate asks for.
+
+**The source on an H200** (`bin/source_probe.jl`, job 595363), ns per
+point at `n = 2²¹` points, nine tenths in the window's inner ball, one
+work item per point:
+
+| order | 0 | 1 | 2 | 3 | 3, all in the transition |
+|---|---|---|---|---|---|
+| `SVector` tables, one particle | 3.80 | 4.07 | 6.45 | 14.17 | |
+| tables in an array, one particle | 0.52 | 0.77 | 1.63 | 5.02 | |
+| `SVector` tables, two particles | 7.35 | 8.33 | 13.28 | 28.65 | |
+| tables in an array, two particles | 1.45 | 1.86 | 3.94 | 10.56 | 15.08 |
+
+- **The tables in an array save 2.7 to 5 times,** most at the low orders,
+  where the copies were nearly all the work.
+- **What is left at order 3 is the lab slice's order-3 term:** 255
+  registers and 24 KB of local memory per thread, which is its own frame,
+  a generated function of 273 coefficients on nested dual numbers. With
+  the order a compile-time constant the lower orders need 78 to 226
+  registers and 1.5 to 10 KB, and order 3 the same as before. Capping the
+  registers (`maxregs` 64 to 168) or changing the block size (64 to 256)
+  moves order 3 by at most 7 %.
+- **The transition costs half as much again,** 15.1 against 10.6 ns: its
+  points carry `∇W` as a further partial, and they are 87 % of the far
+  rule's. On one CPU thread the same evaluation takes about 4.8 µs, so an
+  H200 does about 450 threads' worth.
 
 ### The source bracket
 

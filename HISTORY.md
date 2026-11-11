@@ -614,6 +614,20 @@ patches.
   runs 2.4 times faster than on 64 cores, short of the ten times the
   gate asked for, so the per-point evaluation comes before the rest of
   the particles' port. Tables in `CODE.md`, "Threads on Symmetry".
+- 2026-11-10: Erik Schnetter asked to work on the particles' source
+  kernel first. A probe of the source on an H200 (`bin/source_probe.jl`)
+  found every variant at 255 registers and 35 to 52 KB of local memory
+  per thread, at order 0 too: the 12.9 KB of each particle's coefficient
+  tables, a kernel argument, copied into every work item. Inlining the
+  call changed nothing, and the source in a one-element device array was
+  worse. The tables now go into a device array of their own
+  (`device_source`, `TableRef`), read in place, which made the source 2.7
+  to 5 times faster there; register caps and block sizes moved it by at
+  most 7 %. Timing the far rule's two kernels apart showed the
+  contraction negligible and the launch over the ball's blocks costly, so
+  a device now runs it over a list of the far elements. The far rule went
+  from 2.4 to 7.0 times 64 cores, short of the gate's ten; the choice of
+  how to go on is with the owner (`PLAN.md`, B0).
 
 ## Particles
 

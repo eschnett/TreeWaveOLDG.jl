@@ -529,12 +529,16 @@ end
         e = ntuple(d -> (I[d] - 1) ÷ Q, Val(D))
         lo, hi = element_box(origins[b], h, e, Val(P1), Val(D))
         if element_class(lo, hi, ball, particles, rfar) == FAR_ELEMENT
-            x = SVector(ntuple(d -> lo[d] + (hi[d] - lo[d]) *
-                                         (1 + t.gauss[(I[d] - 1) % Q + 1]) / 2, Val(D)))
+            x = gauss_point(lo, hi, t, ntuple(d -> (I[d] - 1) % Q + 1, Val(D)))
             scratch[ntuple(d -> I[d], Val(D))..., b] = S(x)
         end
     end
 end
+
+# The Gauss point `j` (one-based per dimension) of the element `[lo, hi]`.
+@inline gauss_point(lo, hi, t::TransferTables, j) =
+    SVector(ntuple(d -> lo[d] + (hi[d] - lo[d]) * (1 + t.gauss[j[d]]) / 2,
+                   Val(length(lo))))
 
 # The far rule, pass 2, one work item per far element: the values at its
 # `Q^D` points are contracted with `contract` one dimension at a time, in
@@ -552,28 +556,69 @@ end
         e = ntuple(d -> J[d] - 1, Val(D))
         lo, hi = element_box(origins[b], spacings[b], e, Val(P1), Val(D))
         if element_class(lo, hi, ball, particles, rfar) == FAR_ELEMENT
-            base = ntuple(d -> e[d] * Q, Val(D))
-            for d in 1:D
-                lines = ntuple(k -> k < d ? P1 : (k == d ? 1 : Q), Val(D))
-                for K in CartesianIndices(lines)
-                    at(j) = ntuple(k -> base[k] + (k == d ? j : K[k]), Val(D))
-                    line = ntuple(j -> scratch[at(j)..., b], Val(length(t.gauss)))
-                    for i in 1:P1
-                        acc = zero(eltype(scratch))
-                        for j in 1:Q
-                            acc += t.contract[i][j] * line[j]
-                        end
-                        scratch[at(i)..., b] = acc
-                    end
-                end
-            end
-            for K in CartesianIndices(ntuple(_ -> P1, Val(D)))
-                node = ntuple(d -> e[d] * P1 + K[d], Val(D))
-                local_ = ntuple(d -> base[d] + K[d], Val(D))
-                du[node..., var, b] += factor * scratch[local_..., b]
-            end
+            contract_element!(du, scratch, b, e, t, factor, var, Val(D), Val(P1))
         end
     end
+end
+
+# The contraction of far element `e` (zero-based) of block `b`, in place in
+# `scratch`, and its `factor` times `P S` added to variable `var` of `du`.
+@inline function contract_element!(du, scratch, b, e, t::TransferTables, factor, var,
+                                   ::Val{D}, ::Val{P1}) where {D,P1}
+    Q = length(t.gauss)
+    @inbounds begin
+        base = ntuple(d -> e[d] * Q, Val(D))
+        for d in 1:D
+            lines = ntuple(k -> k < d ? P1 : (k == d ? 1 : Q), Val(D))
+            for K in CartesianIndices(lines)
+                at(j) = ntuple(k -> base[k] + (k == d ? j : K[k]), Val(D))
+                line = ntuple(j -> scratch[at(j)..., b], Val(length(t.gauss)))
+                for i in 1:P1
+                    acc = zero(eltype(scratch))
+                    for j in 1:Q
+                        acc += t.contract[i][j] * line[j]
+                    end
+                    scratch[at(i)..., b] = acc
+                end
+            end
+        end
+        for K in CartesianIndices(ntuple(_ -> P1, Val(D)))
+            node = ntuple(d -> e[d] * P1 + K[d], Val(D))
+            local_ = ntuple(d -> base[d] + K[d], Val(D))
+            du[node..., var, b] += factor * scratch[local_..., b]
+        end
+    end
+    return nothing
+end
+
+# The far rule on a device, over the far elements alone: `far[f]` is the
+# block and the zero-based element of far element `f`, which the plan
+# lists on the host. One work item per Gauss point, `(j, f)` with `j`
+# the point's linear index in its element, and then one per element. On
+# the CPU the launch runs over the ball's blocks and classifies each
+# element there (`source_points_kernel!`); on a device that launched a work
+# item for every point of those blocks, a fifth of them idle, each
+# classifying its element again, about 40 % of the far rule's time on an
+# H200 ("On a device" in `CODE.md`).
+@kernel function far_points_kernel!(scratch, S, @Const(origins), @Const(spacings),
+                                    @Const(far), t::TransferTables, ::Val{D},
+                                    ::Val{P1}) where {D,P1}
+    j, f = @index(Global, NTuple)
+    Q = length(t.gauss)
+    @inbounds begin
+        b, e = far[f]
+        lo, hi = element_box(origins[b], spacings[b], e, Val(P1), Val(D))
+        J = Tuple(CartesianIndices(ntuple(_ -> Q, Val(D)))[j])
+        x = gauss_point(lo, hi, t, J)
+        scratch[ntuple(d -> e[d] * Q + J[d], Val(D))..., b] = S(x)
+    end
+end
+
+@kernel function far_contract_kernel!(du, scratch, @Const(far), t::TransferTables,
+                                      factor, var, ::Val{D}, ::Val{P1}) where {D,P1}
+    f = @index(Global, Linear)
+    @inbounds b, e = far[f]
+    contract_element!(du, scratch, b, e, t, factor, var, Val(D), Val(P1))
 end
 
 """
@@ -719,12 +764,13 @@ function projection_plan(p::WaveProblem{T,D}, t::TransferTables{T,P1}, particles
         lo = SVector(origins[b])
         box_distance2(region[1], lo, lo .+ spacings[b] * forest.N, 1:D) < region[2]^2
     end
-    near, graded = host_elements(fs, t, origins, spacings, mask, region, particles, rn, rf,
-                                 Val(P1))
+    near, graded, far = host_elements(fs, t, origins, spacings, mask, region, particles, rn,
+                                      rf, Val(P1))
     return (; fs, backend, hₑ, rn, rf, region, particles, origins, spacings,
             dev_origins=to_backend(backend, origins),
             dev_spacings=to_backend(backend, spacings),
-            active=to_backend(backend, Int32.(findall(mask))), near, graded)
+            active=to_backend(backend, Int32.(findall(mask))), near, graded,
+            far=to_backend(backend, far))
 end
 
 # The far elements: the source at their Gauss points, then the
@@ -739,6 +785,11 @@ function project_far!(dua, plan, t::TransferTables{T,P1,Q}, S, scratch, factor,
     D = length(plan.region[1])
     E = fs.forest.N ÷ P1
     n = length(plan.active)
+    # On a device the source's coefficient tables go into an array of
+    # their own, so that the kernel's argument is small; on the CPU it is
+    # `S` itself.
+    S = S isa ParticleSource ? device_source(S, backend) : S
+    backend isa CPU || return project_far_list!(dua, plan, t, S, scratch, factor, var)
     TreeAMR.launch_by_owner!(source_points_kernel!, backend, scratch, S, plan.dev_origins,
                              plan.dev_spacings, plan.active, t, plan.region,
                              plan.particles, plan.rf, Val(D), Val(P1);
@@ -748,6 +799,24 @@ function project_far!(dua, plan, t::TransferTables{T,P1,Q}, S, scratch, factor,
                              plan.dev_spacings, plan.active, t, plan.region,
                              plan.particles, plan.rf, factor, var, Val(D), Val(P1);
                              ndrange=(ntuple(_ -> E, D)..., n))
+    synchronize(backend)
+    return nothing
+end
+
+# The far rule over the plan's list of far elements, as a device runs it:
+# the same points and the same contraction as `project_far!`'s launch over
+# the ball's blocks, so on any backend the same `du` (a test runs both on
+# the CPU).
+function project_far_list!(dua, plan, t::TransferTables{T,P1,Q}, S, scratch, factor,
+                           var) where {T,P1,Q}
+    backend = plan.backend
+    D = length(plan.region[1])
+    nf = length(plan.far)
+    nf == 0 && return nothing
+    far_points_kernel!(backend)(scratch, S, plan.dev_origins, plan.dev_spacings, plan.far,
+                                t, Val(D), Val(P1); ndrange=(Q^D, nf))
+    far_contract_kernel!(backend)(dua, scratch, plan.far, t, factor, var, Val(D), Val(P1);
+                                  ndrange=nf)
     synchronize(backend)
     return nothing
 end
@@ -849,12 +918,15 @@ function host_elements(fs::FieldSet{T,D}, t::TransferTables, origins, spacings, 
     hₑ = minimum_spacing(fs.forest) * P1
     near = Tuple{Int,NTuple{D,Int},Int}[]
     graded = map(_ -> Tuple{Int,NTuple{D,Int}}[], t.graded)
+    far = Tuple{Int32,NTuple{D,Int32}}[]
     for b in 1:nblocks(fs)
         mask[b] || continue
         for J in CartesianIndices(ntuple(_ -> E, D))
             e = Tuple(J) .- 1
             lo, hi = element_box(origins[b], spacings[b], e, Val(P1), Val(D))
-            element_class(lo, hi, region, particles, rf) == HOST_ELEMENT || continue
+            class = element_class(lo, hi, region, particles, rf)
+            class == FAR_ELEMENT && push!(far, (Int32(b), Int32.(e)))
+            class == HOST_ELEMENT || continue
             dist² = map(s -> box_distance2(s.z, lo, hi, 1:D), particles)
             if minimum(dist²) >= rn^2
                 δ = sqrt(minimum(dist²)) / hₑ
@@ -870,7 +942,7 @@ function host_elements(fs::FieldSet{T,D}, t::TransferTables, origins, spacings, 
             push!(near, (b, e, argmin(dist²)))
         end
     end
-    return near, graded
+    return near, graded, far
 end
 
 # The block and element that hold the point `x`, and the element's box.

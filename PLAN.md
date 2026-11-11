@@ -123,17 +123,30 @@ evaluation costs about 5 µs on one CPU thread at order 3 for both
 particles, so the projection is bound by arithmetic, which a GPU has
 plenty of in `Float64`.
 
-- **B0, the gate. Measured** (2026-11-10, job 595237; `CODE.md`,
-  "Threads on Symmetry"): `bin/far_rule.jl` runs the far rule on one
-  H200 in 0.363 s, 54 ns a point, against 0.856 s on 64 cores, 2.4
-  times, and equal to the host's to `1.7·10⁻¹¹`. The source, about
-  26 KB, compiles as a kernel argument. That is short of the ten times
-  asked for, so the next step is the per-point evaluation itself, before
-  B1 to B5: the particles' jets in device memory rather than in the
-  kernel's arguments, no `@noinline` boundaries inside it on a device,
-  and a look at its registers and spills (`CUDA.@device_code_sass`).
-  Done when the far rule on the H200 is about ten times 64 cores', or
-  the reason it cannot be is recorded.
+- **B0, the gate. Measured** (2026-11-10; `CODE.md`, "On a device" and
+  "Threads on Symmetry"). As first ported the far rule ran 2.4 times
+  faster on one H200 than on 64 cores. Two changes took it to 7.0 times,
+  0.122 s against 0.856 s, equal to the host's to `1.7·10⁻¹¹`: the
+  source's coefficient tables in a device array (`device_source`), which
+  every work item had copied into its local memory, and the far rule
+  launched over a list of its elements. Still short of ten times. What
+  is left is the source itself, 87 % of whose far-rule points are in the
+  window's transition at 15 ns each, and in it the lab slice's order-3
+  term, a generated function whose frame takes 255 registers and 24 KB
+  of local memory per thread. The ways on, for the owner to choose:
+  - **Accept seven times** and go on to B1. The projection would then
+    cost about what the field does on the device, and an inspiral step
+    at `d/8` perhaps a fifth of the 64-core node's.
+  - **Reshape the generated order-3 term** for a device: Horner chains
+    on the dual numbers instead of `evalpoly` over tuples of lifted
+    coefficients, or the term split into launches by group. This is a
+    change to `derivations/generate.wl`, and the host's results must stay
+    bit for bit.
+  - **Truncate the order-3 polynomials far from the particles**, which
+    `CODE.md` leaves open for want of a bound; the transition is far from
+    them.
+  Done when one of these is chosen, and, for the last two, the far rule
+  on the H200 is timed again.
 - **B1, the right-hand side's plumbing.** The `6K` particle numbers at
   the end of the state are copied as one tail rather than read one by
   one; `inspiral_rhs!`'s threaded passes over the ball's blocks (zero

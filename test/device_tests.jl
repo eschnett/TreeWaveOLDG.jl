@@ -85,6 +85,43 @@ device_close_arrays(dev, host, ::Type{T}) where {T} =
         @test get_backend(p.spacings) isa typeof(DEVICE)
     end
 
+    @testset "the far rule over its element list is the one over the ball's blocks" begin
+        # The device's far rule launches over a list of the far elements;
+        # the CPU's over the ball's blocks. Guards against the list missing
+        # an element or the two evaluating other points; run on the CPU,
+        # where both run, and on the device against the host.
+        P, E, L = 3, 4, 5.0
+        forest = wave_forest(Float64, Val(3), P, E; roots=5, L=L)
+        c = TreeWaveOLDG.SVector(L / 2, L / 2, L / 2)
+        m = ParticleModel(; Q=0.07, ℓ=1e-3, M=1.0)
+        v = TreeWaveOLDG.SVector(0.0, 0.2, 0.0)
+        a = TreeWaveOLDG.SVector(-0.08, 0.0, 0.0)
+        tr = Trajectory(; z=c + TreeWaveOLDG.SVector(0.5, 0.0, 0.0), v=v, a=a,
+                        ȧ=-0.16 * v, ä=-0.16 * a, a⃛=0.0256 * v, a⃜=0.0256 * a)
+        w = Window(c, 1.25, 2.5; continuity=P + 1)
+        S = ParticleSource((m,), w, (tr,); order=3)
+        particles = (ParticleSupport(m, tr),)
+        function far(backend, list)
+            p = WaveProblem(forest, Element(Float64, P); backend=backend)
+            t = TransferTables(Float64, P)
+            plan = TreeWaveOLDG.projection_plan(p, t, particles, (c, w.R₂), 1.0)
+            du = statevector(p.fs)
+            fill!(du, 0)
+            dua = TreeWaveOLDG.statearray(du, p.fs)
+            scratch = projection_scratch(p, t)
+            Sd = TreeWaveOLDG.device_source(S, backend)
+            list ? TreeWaveOLDG.project_far_list!(dua, plan, t, Sd, scratch, -1.0, 2) :
+            TreeWaveOLDG.project_far!(dua, plan, t, S, scratch, -1.0, 2)
+            return Array(du)
+        end
+        host = far(CPU(), false)
+        @test far(CPU(), true) == host
+        @test norm(host) > 0
+        if supports_float64(DEVICE)
+            @test device_close_arrays(far(DEVICE, true), host, Float64)
+        end
+    end
+
     for T in DEVICE_TYPES
         @testset "a periodic box's run on the device gives the host's ($T)" begin
             # Guards against a kernel or the integrator's broadcast path
