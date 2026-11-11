@@ -3,7 +3,7 @@
 #
 #     julia -t N,0 --project=. bin/nested_waves.jl [--levels=4] [--w0=4] \
 #         [--hdiv=8] [--lambda=16] [--sigma=lambda/2] [--tend=2^levels w0] \
-#         [--every=0.5] [--cfl=0.5]
+#         [--every=0.5] [--cfl=0.5] [--radii=w0,2w0,…]
 #
 # Like `bin/uniform_motion.jl`, this runs against the package environment;
 # `bin/symmetry/nested_waves.sh` runs it on a Symmetry node.
@@ -35,7 +35,7 @@
 # At `t = 0`: `nodes`, `nodes_level<k>` per level `k` (0 the root),
 # `steps`, `dt`. Every `every` in time, for each level's cube, the ball of
 # radius `w_k = 2^k w0` about the centre (`k = 0` the finest, inside the
-# finest level): the error against the exact solution, `u` and `v`
+# finest level), or for each of `--radii` instead: the error against the exact solution, `u` and `v`
 # together, in quadrature-weighted L2 (`err_w<w>`) and L∞ (`errinf_w<w>`),
 # the exact solution's L∞ there, `u` and `v` together (`exactinf_w<w>`),
 # and the discrete
@@ -101,11 +101,10 @@ function forest_of(levels, w0, hdiv)
                        L=2^levels * w0, refined=nested_cubes(Val(3), w0, levels))
 end
 
-function observe(p, u, t, c, σ, λ, levels, w0, tag)
+function observe(p, u, t, c, σ, λ, radii, tag)
     ue = initial_state(p, OutgoingPulse(Tuple(c), σ, λ, t))
     e = u .- ue
-    for k in 0:(levels - 1)
-        w = 2^k * w0
+    for w in radii
         name = isinteger(w) ? string(Int(w)) : string(w)
         emit(tag..., t, "err_w$name", ball_norm(p, e, c, w))
         emit(tag..., t, "errinf_w$name", ball_norm(p, e, c, w; p=Inf))
@@ -123,6 +122,9 @@ function main()
     σ = parse(Float64, option("sigma", string(λ / 2)))
     tend = parse(Float64, option("tend", string(2^levels * w0)))
     every = parse(Float64, option("every", "0.5"))
+    rs = option("radii", "")
+    radii = isempty(rs) ? [2.0^k * w0 for k in 0:(levels - 1)] :
+            [parse(Float64, strip(r)) for r in split(rs, ",")]
     cfl = parse(Float64, option("cfl", "0.5"))
     tag = (levels, w0, hdiv, λ, σ)
     println(join(("threads", "levels", "w0", "hdiv", "lambda", "sigma", "t", "quantity",
@@ -142,11 +144,11 @@ function main()
     emit(tag..., 0.0, "steps", integ.nsteps)
     emit(tag..., 0.0, "dt", integ.dt)
     n = max(1, round(Int, every / integ.dt))
-    observe(p, integ.u, integ.t, c, σ, λ, levels, w0, tag)
+    observe(p, integ.u, integ.t, c, σ, λ, radii, tag)
     while integ.nstep < integ.nsteps
         step!(integ)
         (integ.nstep % n == 0 || integ.nstep == integ.nsteps) &&
-            observe(p, integ.u, integ.t, c, σ, λ, levels, w0, tag)
+            observe(p, integ.u, integ.t, c, σ, λ, radii, tag)
     end
     return nothing
 end

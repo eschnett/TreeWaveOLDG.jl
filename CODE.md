@@ -813,8 +813,13 @@ the shells read them across the glue.
   does, and keep a fifth of the energy; a second-order condition would
   not change that. Their tangential spacing grows with the radius, and
   the scheme's central fluxes do not damp an under-resolved wave on its
-  way out. Radial elements of four per wavelength, as on the nested
-  boxes' coarsest level, leave `1.3e-3` of the energy instead
+  way out. The reflection at the cube's faces is the jump in radial
+  resolution there: at 2:1 it is the nested boxes' coarse-fine face's,
+  and at 1:1 below `1e-6`; grading the shells' radial spacing from the
+  cube's `hₑ` outward is **(proposed)** in [Possible
+  extensions](#possible-extensions). Radial elements of four per
+  wavelength, as on the nested boxes' coarsest level, leave `1.3e-3` of
+  the energy instead
   ([The seven-patch ball](#the-seven-patch-ball-1) under Measured results,
   "The pulse at M3b's scale").
 - **Refinement only in the cube,** where the map is affine, and on the
@@ -3177,6 +3182,44 @@ The energy left at `t = 96`, of its initial value: `1.4e-7` at
   runs took 14.5 to 17 hours. The problem is 12.7 GB at `hshell = 2` and
   18.8 GB at `hshell = 1`.
 
+**What the cube–shell face sends back** (2026-11-11, Symmetry, EPYC
+7543, 64 threads). A uniform cube of half-width 4 at `hₑ = 1/4`, shells
+to a sphere at 12, and the pulse at `λ = 8`, `σ = 2`: 32 elements per
+wavelength in the cube, as at M3b's `λ = 16`. Only the shells' radial
+spacing changes, so the jump in radial width across the cube's faces
+goes from 8:1 to 1:1; beside it, nested boxes of three levels
+(`nested_waves.jl --levels=3 --w0=4 --hdiv=4`), whose face at 4 joins
+`hₑ = 1/4` to `1/2` across a flat face. `err` is the L2 error of `u` and
+`v` in the centre ball of radius 2 (`--radii=2`), which the pulse has
+left by `t ≈ 6`:
+
+| `hshell` | jump | elements per `λ` in the shells | `err`, `t = 6` | `t = 8` | `t = 10` | `t = 12` | energy left at `t = 20` | step, `dt` |
+|---|---|---|---|---|---|---|---|---|
+| 2 | 8:1 | 4 | 5.3e-3 | 1.3e-2 | 2.2e-2 | 3.1e-2 | 2.9e-2 | 0.067 s, 0.0045 |
+| 1 | 4:1 | 8 | 3.2e-4 | 4.3e-4 | 6.6e-4 | 3.8e-4 | 1.7e-5 | 0.100 s, 0.0043 |
+| 1/2 | 2:1 | 16 | 9.6e-6 | 1.2e-5 | 7.2e-6 | 5.7e-6 | 7.7e-9 | 0.128 s, 0.0037 |
+| 1/4 | 1:1 | 32 | 1.2e-6 | 4.2e-7 | 7.2e-7 | 5.1e-7 | 1.8e-10 | 0.240 s, 0.0025 |
+| boxes | 2:1, flat | 16 | 8.6e-6 | 1.2e-5 | 7.6e-6 | 2.2e-5 | — | 0.0078 |
+
+The boxes' periodic faces at 8 send the pulse back into the ball from
+`t ≈ 11`.
+
+- **The reflection is the jump in radial resolution, not the
+  interface.** At 2:1 the cube–shell face sends back what the boxes'
+  flat 2:1 face does, to the digits shown, though the shells' radial
+  lines bend at the face and the gradient crosses a glue in Cartesian
+  components. What a 1:1 face sends back, `≲ 1e-6`, bounds what the bend
+  and the glue add.
+- **It falls steeply with the shells' resolution:** about forty times
+  from 4:1 to 2:1 and fifteen from 2:1 to 1:1, about `h⁵` to `h⁴`, as
+  the error of the coarse side's elements at the pulse's wavelengths
+  would. So M3b's layout at `λ = 16`, with shells at 8 elements per
+  wavelength, sends back about forty times the boxes' face, as
+  measured there; `hshell = 1` should bring it to the boxes'.
+- **Finer shells cost steps here,** because with one level in the cube
+  the shells' sheared corner elements set the step; with three or more,
+  as in M8, the finest cube sets it down to about `hshell = hroot`.
+
 ### Refined forests
 
 The standing sine mode (`m = 1`, unit box) to a quarter period, as in
@@ -4562,6 +4605,19 @@ and the device and threading test files.
   of the ball's right-hand side. `PLAN.md` has it with the other savings
   measured after M8b: a faster build of the shells' tables beyond
   `Float64x2`, and smaller tables and coefficients.
+- **(proposed)** Graded radial spacing in the seven-patch ball's shells:
+  `ρ = s(ξ_k/m)` with a stretch `s` whose slope at the cube makes the
+  first radial element about the cube's root `hₑ`, widening towards the
+  sphere to what the outgoing waves need (8 or more elements per
+  wavelength at `P = 3`). The cube–shell face's reflection is the jump in
+  radial width (1:1 sends back `≲ 1e-6` where 4:1 sends `4e-4`;
+  [The seven-patch ball](#the-seven-patch-ball-1) under Measured results,
+  "What the cube–shell face sends back"), so this would take M3b's
+  layout from 4:1 to about 1:1 at the face for perhaps a third more
+  shell nodes, where a uniform `hshell = 1` doubles them. Only the map
+  changes; the tables and the energy invariant do not depend on it. To
+  measure: the same study with the graded map, and whether the widening
+  itself sends anything back.
 - **(proposed)** A refinement that does not amplify the evolved data's
   jumps across element faces, so that the dead band between the
   thresholds could be narrower (see the open question below).

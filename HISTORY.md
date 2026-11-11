@@ -293,6 +293,15 @@ patches.
   keeps `1.3e-3`. Observations every 0.5 had taken about half the wall
   time at `λ = 4`, so the third observed every 1. See "The seven-patch
   ball" under "Measured results" in `CODE.md`.
+- 2026-11-11: what the cube–shell face sends back, at Erik Schnetter's
+  request, after M8b's runs showed it to be the largest error in the
+  finest ball at `λ = 16`: one uniform cube with shells of radial
+  spacing 8:1 to 1:1 against the cube's, beside nested boxes (Symmetry
+  jobs 595817–595821, with `--radii` added to both pulse scripts). At
+  2:1 the face sends back what the boxes' flat 2:1 face does, and at 1:1
+  below `1e-6`, so the cause is the jump in radial resolution, not the
+  bend of the shells' radial lines or the glue. Graded radial spacing in
+  the shells is proposed in `CODE.md` ("Possible extensions").
 
 ## Refined forests
 

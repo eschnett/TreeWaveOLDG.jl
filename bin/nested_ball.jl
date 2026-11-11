@@ -4,7 +4,8 @@
 #
 #     julia -t N,0 --project=. bin/nested_ball.jl [--levels=4] [--w0=4] \
 #         [--hdiv=8] [--lambda=16] [--sigma=lambda/2] [--R1=3Lc] \
-#         [--hshell=hroot] [--tend=2R1] [--every=0.5] [--cfl=0.5] [--cost=no]
+#         [--hshell=hroot] [--tend=2R1] [--every=0.5] [--cfl=0.5] [--cost=no] \
+#         [--radii=w0,2w0,…]
 #
 # Like `bin/nested_waves.jl`, which it mirrors, this runs against the
 # package environment; `bin/symmetry/nested_ball.sh` runs it on a Symmetry
@@ -43,7 +44,7 @@
 # At `t = 0`: `nodes`, `nodes_level<k>` per level `k` (0 the root),
 # `nodes_shells`, `shell_radial_elements`, `steps`, `dt`. Every `every` in time, for each level's
 # cube, the ball of radius `w_k = 2^k w0` about the origin (`k = 0` the
-# finest), and for the whole ball (`w = R1`): the error against the exact
+# finest), or for each of `--radii` instead, and for the whole ball (`w = R1`): the error against the exact
 # solution, `u` and `v` together, `√g`-weighted L2 (`err_w<w>`) and L∞
 # (`errinf_w<w>`), the exact solution's L∞ there (`exactinf_w<w>`), and the
 # discrete energy (`energy`), the radiative boundary's own included. The
@@ -212,10 +213,10 @@ function cost(p, tag, suffix)
     return nothing
 end
 
-function observe(p, geo, u, t, σ, λ, levels, w0, R1, tag)
+function observe(p, geo, u, t, σ, λ, radii, R1, tag)
     ue = initial_state(p, WithPatch(OnBall(geo, ModulatedPulse(σ, λ, t))))
     e = u .- ue
-    for w in [2.0^k * w0 for k in 0:(levels - 1)]
+    for w in radii
         name = isinteger(w) ? string(Int(w)) : string(w)
         emit(tag..., t, "err_w$name", ball_errors(p, geo, e, w))
         emit(tag..., t, "errinf_w$name", ball_errors(p, geo, e, w; norm=Inf))
@@ -242,6 +243,9 @@ function main()
     hshell = isempty(hs) ? nothing : parse(Float64, hs)
     tend = parse(Float64, option("tend", string(2R1)))
     every = parse(Float64, option("every", "0.5"))
+    rs = option("radii", "")
+    radii = isempty(rs) ? [2.0^k * w0 for k in 0:(levels - 1)] :
+            [parse(Float64, strip(r)) for r in split(rs, ",")]
     cfl = parse(Float64, option("cfl", "0.5"))
     withcost = option("cost", "no") == "yes"
     tag = (levels, w0, hdiv, λ, σ, R1)
@@ -275,7 +279,7 @@ function main()
     emit(tag..., 0.0, "dt", integ.dt)
     n = max(1, round(Int, every / integ.dt))
     timed_observe() = begin
-        s = @elapsed observe(p, geo, integ.u, integ.t, σ, λ, levels, w0, R1, tag)
+        s = @elapsed observe(p, geo, integ.u, integ.t, σ, λ, radii, R1, tag)
         emit(tag..., integ.t, "observe_s", s)
         emit(tag..., integ.t, "wall_s", time() - start)
     end
