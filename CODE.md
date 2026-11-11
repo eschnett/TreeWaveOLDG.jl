@@ -1581,14 +1581,13 @@ no partition).
 - **Host-only:** the blast wave's exact solution (host tables) and the
   annulus's (Bessel functions), whose drivers keep the CPU; and of the
   particles the pairing, so that `particle_forces` refuses a device.
-- **The inspiral's right-hand side runs on a device,** with one of its
-  parts still on the host (`PLAN.md`, "Particles on a device", B1 and
-  B3): the wave equation, the far and graded rules, the passes over the
-  ball's blocks and the averaging over shared nodes are kernels there;
-  the nested rule evaluates the source on the host, while the device
-  works on the others, and one kernel adds its elements' values
-  (`add_elements!`); the particles' six numbers each are copied to and
-  from the host in one piece. `inspiral_initial_state` fills the field
+- **The inspiral's right-hand side runs on a device** (`PLAN.md`,
+  "Particles on a device", B1, B3 and B4): the wave equation, the three
+  rules of the projection, the passes over the ball's blocks and the
+  averaging over shared nodes are kernels there. The host lists the
+  nested rule's points while the device works on the far and graded
+  rules, and copies the particles' six numbers each to and from the
+  device in one piece. `inspiral_initial_state` fills the field
   on a host field set of the same layout and copies it. The result is
   the host's to `sqrt(eps)` (a test), and on the CPU the same as before
   to the bit.
@@ -1616,6 +1615,17 @@ no partition).
   recursively (`tensor_rule`) and takes the same products in the same
   order, so the kernels on the CPU give its result to the bit (a test);
   a device fuses some multiply-adds.
+- **On a device the nested rule runs over a list of its points**
+  (`project_near_points!`). The host lists them with their weights, the
+  products of their lines' weights (`nested_points`), in two passes
+  threaded over the outermost lines' points, one counting and one
+  writing: collected into a vector per point they allocated 200 MB at
+  `d/8` and took 117 ms on eight host threads, most of it in the garbage
+  collector, against 18 ms so. The device evaluates the source at each
+  point, sums each chunk of up to 256 of an element's points per node,
+  and each element's chunks in order. The points are the host rule's
+  and the sums in another order: the result is the host's to `5·10⁻¹⁶`
+  on the CPU (a test).
 - **The generated lab slice makes no calls on the nested dual numbers**
   ([The near field](#the-near-field), "No calls inside them"). Its
   order-3 term called `evalpoly` 46 times and a four-factor product 32
@@ -2128,8 +2138,9 @@ discontinuous across faces. It is element-local and needs no exchange.
   block evaluates `S` into a scratch array (`projection_scratch`), and
   one per element contracts its `q^D` values one dimension at a time, in
   place, into `P S` at its nodes. On a device the far rule runs over a
-  list of its elements instead, and so does the graded rule, in kernels
-  of the same kind ([On a device](#on-a-device)). The
+  list of its elements instead, the graded rule in kernels of the same
+  kind, and the nested rule over a list of its points
+  ([On a device](#on-a-device)). On the CPU the
   others run on the host: those at
   least `rnear·hₑ` from every particle take the graded rule, `q` points
   per dimension by their distance from the nearest particle, evaluated
@@ -2140,8 +2151,7 @@ discontinuous across faces. It is element-local and needs no exchange.
   afterwards in the rule's order, since the element that holds a
   particle can be a third of the nested work. Both keep each element's
   values on the host, and one kernel adds them to its nodes on the
-  state's backend (`add_elements!`); on a device that is the nested
-  rule's alone. Each element writes only
+  state's backend (`add_elements!`). Each element writes only
   its own nodes, and every sum is
   in a fixed order, so the result does not depend on the thread count. An
   element near two particles takes its rule from the nearer one, since
@@ -2173,8 +2183,8 @@ every particle's support must lie inside the box, and `support_elements`
 refuses a support that reaches a face. On a refined forest every block
 the source's ball meets, and every block that holds part of a particle's
 support, must be on the finest level ([Nested boxes](#nested-boxes)).
-The nested rule and the pairing run on the host, and the graded rule
-too on the CPU.
+The pairing runs on the host, and on the CPU the graded and nested
+rules too.
 
 ### The averaging
 
@@ -3157,7 +3167,9 @@ one thread on CI, is otherwise silent until its summary.
   elements is the one over the ball's blocks, bit for bit on the CPU and
   to `sqrt(eps)` on a device with `Float64`; the graded rule's kernels
   are the host's tensor rule, bit for bit on the CPU and to `sqrt(eps)`
-  on a device; an inspiral right-hand side
+  on a device; the nested rule over its listed points is the host's to
+  `10⁻¹³` on the CPU and to `sqrt(eps)` on a device, with the particles
+  on and off the element corners; an inspiral right-hand side
   and initial state of a particle on a circle, with and without the
   averaging, are the host's to `sqrt(eps)` in the field, the source
   alone too, and exactly in the particles, on a device with `Float64`; a periodic and a refined
@@ -4117,7 +4129,14 @@ are within 2 %), the ball the benchmark ball.
   1.11 and 0.92 s. With the graded rule on the device (job 595837) it
   takes 20 ms there, 2.5 M points against the far rule's 6.8 M, and the
   right-hand side 0.93 s, equal to the host's as before; the nested
-  rule's 0.92 s on the host is nearly all of it (`PLAN.md`, B4).
+  rule's 0.92 s on the host was nearly all of it. With the nested rule
+  on the device (job 595881) the right-hand side takes 0.102 s, 50 times
+  the eight host threads' 5.13 s and about 7.4 times what 64 cores of
+  an EPYC 7543 take (0.753 s for the projection there, job 595813),
+  equal to the host's as before. The nested rule, 1.58 M points, takes
+  36 to 53 ms: 18 ms to list its points on the host, 4 ms to copy them,
+  8.5 ms for the source at them and 2.5 ms for the sums. The far rule's
+  55 ms is now the largest part.
 
 **The source on an H200** (`bin/source_probe.jl`, jobs 595363 and
 595800, the last two rows), ns per

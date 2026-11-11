@@ -662,6 +662,15 @@ patches.
   `tensor_rule`. On an H200 at `d/8` the graded rule takes 20 ms instead
   of 1.11 s on eight host threads, and a right-hand side 0.93 s instead
   of 2.04, nearly all of it the nested rule on the host.
+- 2026-11-11: Erik Schnetter asked for B4. On a device the host lists the
+  nested rule's points with their weights and the device evaluates and
+  sums them. Listing them first into a vector per point allocated 200 MB
+  at `d/8` and took 117 ms on an H200 node's eight threads, mostly
+  garbage collection, so it counts and then writes into preallocated
+  arrays, 18 ms; a first version that concatenated the vectors with
+  `reduce(vcat; init)` took seconds, and one that named the result like
+  the threaded loop's locals raced. A `d/8` right-hand side takes 0.102 s
+  on the H200, about 7.4 times 64 cores, equal to the host's.
 
 ## Particles
 

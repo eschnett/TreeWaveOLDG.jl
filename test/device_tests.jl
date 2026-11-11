@@ -166,6 +166,49 @@ device_close_arrays(dev, host, ::Type{T}) where {T} =
         end
     end
 
+    @testset "the nested rule's listed points give the host's nested rule" begin
+        # A device runs the nested rule over a list of its points, which the
+        # host plans, summing them per chunk and element; the host sums
+        # them line by line. Guards against the list missing or repeating
+        # points, or a weight or basis function going wrong: on the CPU the
+        # two must agree to rounding, and a device with `Float64` with the
+        # host to `sqrt(eps)`. Two particles, on and off the element
+        # corners.
+        P, E, L = 3, 4, 5.0
+        SV = TreeWaveOLDG.SVector
+        forest = wave_forest(Float64, Val(3), P, E; roots=5, L=L)
+        c = SV(L / 2, L / 2, L / 2)
+        m = ParticleModel(; Q=0.07, ℓ=1e-3, M=1.0)
+        v, a = SV(0.0, 0.2, 0.0), SV(-0.08, 0.0, 0.0)
+        w = Window(c, 1.25, 2.5; continuity=P + 1)
+        for off in (SV(0.0, 0.0, 0.0), SV(0.031, 0.017, 0.043))
+            tr₁ = Trajectory(; z=c + SV(0.5, 0.0, 0.0) + off, v=v, a=a, ȧ=-0.16 * v,
+                             ä=-0.16 * a)
+            tr₂ = Trajectory(; z=c - SV(0.5, 0.0, 0.0) + off, v=-v, a=-a, ȧ=0.16 * v,
+                             ä=0.16 * a)
+            S = ParticleSource((m, m), w, (tr₁, tr₂); order=3)
+            particles = (ParticleSupport(m, tr₁), ParticleSupport(m, tr₂))
+            function nested(backend, points)
+                p = WaveProblem(forest, Element(Float64, P); backend=backend)
+                t = TransferTables(Float64, P)
+                plan = TreeWaveOLDG.projection_plan(p, t, particles, (c, w.R₂), 1.0)
+                du = statevector(p.fs)
+                fill!(du, 0)
+                dua = TreeWaveOLDG.statearray(du, p.fs)
+                points ? TreeWaveOLDG.project_near_points!(dua, plan, t, S, -1.0, 2) :
+                TreeWaveOLDG.project_near!(dua, plan, t, S, -1.0, 2)
+                return Array(du), plan
+            end
+            host, plan = nested(CPU(), false)
+            @test !isempty(plan.near)
+            @test norm(host) > 0
+            @test norm(nested(CPU(), true)[1] - host) <= 1e-13 * norm(host)
+            if supports_float64(DEVICE)
+                @test device_close_arrays(nested(DEVICE, false)[1], host, Float64)
+            end
+        end
+    end
+
     @testset "an inspiral right-hand side on the device is the host's" begin
         # Guards the inspiral's plumbing on a device (PLAN.md, B1): the
         # particles' tail copied in one piece, the passes over the ball's

@@ -103,8 +103,8 @@ level's.
 
 The field runs on a GPU (`CODE.md`, "On a device"); the particles did
 not, and they have to follow, decided with the owner on 2026-11-10. Since
-B1 their right-hand side runs on a device with the graded and nested
-rules on the host. At `d/8` on M4's five-level forest,
+B4 their right-hand side runs on a device; only the forces are read on
+the host alone. At `d/8` on M4's five-level forest,
 75.5 M nodes, `project_source!` takes 0.585 s per right-hand side at
 order 3 on 64 cores against 0.073 s for the wave equation, about 85 % of
 a 2.71 s step; the binary's projection off the grid takes 1.24 s
@@ -175,14 +175,16 @@ plenty of in `Float64`.
   eight host threads, 0.115 s on 64 cores), and a right-hand side
   0.93 s, of which the nested rule on the host is 0.92 s. The CPU keeps
   `tensor_rule`.
-- **B4, the nested rule.** The host plans the segments of each nested
-  element's lines (`line_fold`, `support_breaks`) into preallocated flat
-  arrays, without the allocations of today's plan; one kernel evaluates
-  all nested points; each element's sums are taken in a fixed order and
-  written to its nodes. Done when the nested rule matches the host's to
-  rounding on and off the grid, and the projection's three rules are
-  timed on an H200 (0.92 s on eight host threads at `d/8` now, nearly
-  all of a right-hand side there).
+- **B4, the nested rule. Done** (2026-11-11; `CODE.md`, "On a device").
+  The host lists every point of the nested rule with its weight, in two
+  threaded passes into preallocated arrays; the device evaluates the
+  source at them and sums them per chunk and element in a fixed order.
+  It matches the host's rule to `5·10⁻¹⁶` on the CPU, on and off the
+  grid, and on an H200 to `6·10⁻¹⁴` in a whole right-hand side. At
+  `d/8` the three rules take 55, 20 and 36 to 53 ms there, and a
+  right-hand side 0.102 s, about 7.4 times 64 cores and 50 times the
+  job's eight host threads. The far rule is the largest part again; a
+  register cap (B0) would be the next thing to try.
 - **B5, the forces.** The pairing stays on the host: it reads the
   density, not the source, over at most a few dozen elements, whose
   nodal values (the support's elements and their sharers') are copied

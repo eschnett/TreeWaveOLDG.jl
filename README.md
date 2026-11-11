@@ -156,8 +156,8 @@ The field runs on a GPU too, through KernelAbstractions: the boxes,
 refined or not, and both balls, on CUDA in `Float64` and `Float32` and on
 Metal in `Float32`, holding to the host's results; ask
 `WaveProblem(…; backend)` for one. The particles' right-hand side runs on
-a CUDA device as well, in `Float64`, with part of its source projection
-still on the host; their forces are read on the CPU only.
+a CUDA device as well, in `Float64`; their forces are read on the CPU
+only.
 
 **Inconsistent:** [CODE.md](CODE.md) ("The seven-patch ball") has a
 radiative outer boundary on the seven-patch ball, an outflow condition,

@@ -942,22 +942,42 @@ end
 # hundreds of times the others, and with the lab slice's source one chunk
 # held most of the work, 0.96 s where the evaluations take about 0.2 s on
 # 64 threads (CODE.md, "Prescribed paths" under "Measured results").
+#
+# On a device the host plans the nested rule's points and the device
+# evaluates and sums them (`project_near_points!`).
 function project_near!(dua, plan, t::TransferTables{T,P1}, S, factor, var) where {T,P1}
+    isempty(plan.near) && return nothing
+    plan.backend isa CPU && return project_near_host!(dua, plan, t, S, factor, var)
+    Sd = S isa ParticleSource ? device_source(S, plan.backend) : S
+    return project_near_points!(dua, plan, t, Sd, factor, var)
+end
+
+# The outermost line's segments of every near element, as `(element, xs,
+# ws)`, in the order of `plan.near`, and its points as `(segment, point)`.
+function near_segments(plan, t::TransferTables{T,P1}, ::Val{D}) where {T,P1,D}
     near = plan.near
-    isempty(near) && return nothing    # and the loops are not compiled
-    D = ndims(dua) - 2                 # from the type, so that `Val(D)` is static
-    origins, spacings, particles = plan.origins, plan.spacings, plan.particles
-    box(i) = element_box(origins[near[i][1]], spacings[near[i][1]], near[i][2], Val(P1),
-                         Val(D))
-    # The outermost line's segments of every element, as `(element, xs, ws)`.
     segments = Tuple{Int,Vector{T},Vector{T}}[]
     for i in eachindex(near)
-        lo, hi = box(i)
+        lo, hi = near_box(plan, i, Val(P1), Val(D))
         line_fold((list, xs, ws) -> push!(list, (i, collect(T, xs), collect(T, ws))),
-                  segments, particles[near[i][3]], t, lo, hi, SVector{0,T}(), D == 1, false,
-                  Val(D))
+                  segments, plan.particles[near[i][3]], t, lo, hi, SVector{0,T}(), D == 1,
+                  false, Val(D))
     end
     items = [(j, k) for j in eachindex(segments) for k in eachindex(segments[j][2])]
+    return segments, items
+end
+
+@inline near_box(plan, i, ::Val{P1}, ::Val{D}) where {P1,D} =
+    element_box(plan.origins[plan.near[i][1]], plan.spacings[plan.near[i][1]],
+                plan.near[i][2], Val(P1), Val(D))
+
+function project_near_host!(dua, plan, t::TransferTables{T,P1}, S, factor,
+                            var) where {T,P1}
+    near = plan.near
+    D = ndims(dua) - 2                 # from the type, so that `Val(D)` is static
+    particles = plan.particles
+    box(i) = near_box(plan, i, Val(P1), Val(D))
+    segments, items = near_segments(plan, t, Val(D))
     wₙ = element_weights(t, plan.hₑ, Val(D))
     values = Vector{typeof(wₙ)}(undef, length(items))
     Threads.@threads :greedy for n in eachindex(items)
@@ -979,6 +999,170 @@ function project_near!(dua, plan, t::TransferTables{T,P1}, S, factor, var) where
     end
     add_elements!(dua, plan.backend, near, map(s -> factor .* s ./ wₙ, sums), var)
     return nothing
+end
+
+# The nested rule as a device runs it, on any backend. The host lists
+# every point of the rule with its weight, the product of its lines'
+# weights, threaded over the outermost lines' points as the host's rule
+# is; the backend evaluates the source at each point, one work item per
+# point, sums each chunk of up to `NEAR_CHUNK` of an element's points per
+# node, and each element's chunks in order, and adds the result to its
+# nodes. The points are the host rule's, and the sums are in another
+# order, so the result is the host's to rounding (a test).
+const NEAR_CHUNK = 256
+
+function project_near_points!(dua, plan, t::TransferTables{T,P1}, S, factor,
+                              var) where {T,P1}
+    near = plan.near
+    D = ndims(dua) - 2
+    xs, ws, first = nested_points(plan, t, Val(D))
+    n = length(xs)
+    n == 0 && return nothing
+    # The chunks, `(first point, last point)`, and each element's.
+    chunks = Tuple{Int32,Int32}[]
+    elements = Tuple{Int32,NTuple{D,Int32},Int32,Int32}[]
+    boxes = Tuple{SVector{D,T},SVector{D,T}}[]
+    for i in eachindex(near)
+        c₁ = length(chunks) + 1
+        for a in first[i]:NEAR_CHUNK:(first[i + 1] - 1)
+            push!(chunks, (a, min(a + NEAR_CHUNK - 1, first[i + 1] - 1)))
+            push!(boxes, near_box(plan, i, Val(P1), Val(D)))
+        end
+        push!(elements, (Int32(near[i][1]), Int32.(near[i][2]), c₁, length(chunks)))
+    end
+    backend = plan.backend
+    dxs, dws = to_backend(backend, xs), to_backend(backend, ws)
+    values = allocate(backend, T, n)
+    near_points_kernel!(backend)(values, S, dxs; ndrange=n)
+    M = P1^D
+    partials = allocate(backend, T, M, length(chunks))
+    near_partials_kernel!(backend)(partials, values, dxs, dws, to_backend(backend, chunks),
+                                   to_backend(backend, boxes), t, Val(D), Val(P1);
+                                   ndrange=(M, length(chunks)))
+    near_finish_kernel!(backend)(dua, partials, to_backend(backend, elements),
+                                 element_weights(t, plan.hₑ, Val(D)), factor, var, Val(D),
+                                 Val(P1); ndrange=(M, length(elements)))
+    return nothing
+end
+
+# Every point of the nested rule over the plan's near elements, `xs[p]`
+# with weight `ws[p]`, element `i`'s from `first[i]` to `first[i + 1] - 1`.
+# Threaded over the outermost lines' points, in two passes: one counts
+# each one's points, the other writes them at their offsets. Collecting
+# them into a vector per point allocated 200 MB at `d/8` and spent most
+# of its time in the garbage collector.
+function nested_points(plan, t::TransferTables{T,P1}, ::Val{D}) where {T,P1,D}
+    near = plan.near
+    segments, items = near_segments(plan, t, Val(D))
+    function visit(sink, n)
+        j, k = items[n]
+        i = segments[j][1]
+        lo, hi = near_box(plan, i, Val(P1), Val(D))
+        collect_points!(sink, plan.particles[near[i][3]], t, lo, hi,
+                        SVector{1,T}(segments[j][2][k]), segments[j][3][k], Val(D - 1))
+        return sink.n
+    end
+    counts = zeros(Int, length(items))
+    Threads.@threads :greedy for n in eachindex(items)
+        counts[n] = visit(PointSink{SVector{D,T},T}(nothing, nothing, 0), n)
+    end
+    offsets = cumsum(vcat(0, counts))
+    xs = Vector{SVector{D,T}}(undef, offsets[end])
+    ws = Vector{T}(undef, offsets[end])
+    Threads.@threads :greedy for n in eachindex(items)
+        visit(PointSink{SVector{D,T},T}(xs, ws, offsets[n]), n)
+    end
+    perelement = zeros(Int, length(near))
+    for n in eachindex(items)
+        perelement[segments[items[n][1]][1]] += counts[n]
+    end
+    return xs, ws, cumsum(vcat(1, perelement))
+end
+
+# Where `collect_points!` puts the points: it counts them in `n`, and
+# writes them from `n + 1` on into `xs` and `ws` unless they are `nothing`.
+mutable struct PointSink{X,W,XS<:Union{Nothing,Vector{X}},WS<:Union{Nothing,Vector{W}}}
+    xs::XS
+    ws::WS
+    n::Int
+end
+
+PointSink{X,W}(xs, ws, n) where {X,W} = PointSink{X,W,typeof(xs),typeof(ws)}(xs, ws, n)
+
+@inline function sink_point!(s::PointSink, x, w)
+    s.n += 1
+    if s.xs !== nothing
+        @inbounds s.xs[s.n] = x
+        @inbounds s.ws[s.n] = w
+    end
+    return nothing
+end
+
+# The points of the nested rule's remaining `n` dimensions through
+# `prefix`, each with `w` times its lines' weights, into `sink`. A method
+# per level, as `nested_rule` has.
+@inline collect_points!(sink, s, t, lo, hi, prefix, w, ::Val{0}) =
+    sink_point!(sink, prefix, w)
+
+for n in 1:4
+    @eval function collect_points!(sink::PointSink, s::ParticleSupport, t::TransferTables,
+                                   lo, hi, prefix::SVector, w, ::Val{$n})
+        op = (acc, lxs, lws) -> begin
+            for k in eachindex(lxs, lws)
+                collect_points!(sink, s, t, lo, hi, push(prefix, lxs[k]), w * lws[k],
+                                Val($(n - 1)))
+            end
+            acc
+        end
+        line_fold(op, nothing, s, t, lo, hi, prefix, $(n == 1), false, Val($n))
+        return nothing
+    end
+end
+
+@kernel function near_points_kernel!(values, S, @Const(xs))
+    p = @index(Global, Linear)
+    @inbounds values[p] = S(xs[p])
+end
+
+# Work item `(m, c)`: chunk `c`'s points summed for node `m` of their
+# element, `Σ w S φ_m`, with `φ_m` as `element_basis` forms it.
+@kernel function near_partials_kernel!(partials, @Const(values), @Const(xs), @Const(ws),
+                                       @Const(chunks), @Const(boxes), t::TransferTables,
+                                       ::Val{D}, ::Val{P1}) where {D,P1}
+    m, c = @index(Global, NTuple)
+    @inbounds begin
+        a, b = chunks[c]
+        lo, hi = boxes[c]
+        K = CartesianIndices(ntuple(_ -> P1, Val(D)))[m]
+        acc = zero(eltype(partials))
+        for p in a:b
+            x = xs[p]
+            φ = one(eltype(partials))
+            for d in 1:D
+                ξ = (2x[d] - lo[d] - hi[d]) / (hi[d] - lo[d])
+                φ = lagrange_values(t, ξ)[K[d]] * φ
+            end
+            acc += ws[p] * (values[p] * φ)
+        end
+        partials[m, c] = acc
+    end
+end
+
+# Work item `(m, i)`: element `i`'s chunks summed in order for node `m`,
+# and `factor` times that over `wₙ[m]` added to its node.
+@kernel function near_finish_kernel!(du, @Const(partials), @Const(elements), wₙ, factor,
+                                     var, ::Val{D}, ::Val{P1}) where {D,P1}
+    m, i = @index(Global, NTuple)
+    @inbounds begin
+        b, e, c₁, c₂ = elements[i]
+        acc = zero(eltype(partials))
+        for c in c₁:c₂
+            acc += partials[m, c]
+        end
+        K = CartesianIndices(ntuple(_ -> P1, Val(D)))[m]
+        node = ntuple(d -> e[d] * P1 + K[d], Val(D))
+        du[node..., var, b] += factor * acc / wₙ[m]
+    end
 end
 
 # The host's elements of the projection, found on the host: the nested
