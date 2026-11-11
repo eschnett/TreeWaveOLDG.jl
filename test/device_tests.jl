@@ -214,9 +214,11 @@ device_close_arrays(dev, host, ::Type{T}) where {T} =
         # particles' tail copied in one piece, the passes over the ball's
         # blocks and the averaging over shared nodes as kernels, the far
         # rule on the device with the host's rules' results added there,
-        # and the initial state filled on the host and copied. A particle
-        # on a circle, so that the lab slice's terms are not zero. On the
-        # CPU stand-in the same code twice; the particles need `Float64`.
+        # the initial state filled on the host and copied, the forces read
+        # from copies of the blocks around the particle, and the integrator
+        # stepping the whole state there. A particle on a circle, so that
+        # the lab slice's terms are not zero. On the CPU stand-in the same
+        # code twice; the particles need `Float64`.
         SV = TreeWaveOLDG.SVector
         function inspiral(backend, continuous)
             forest = wave_forest(Float64, Val(3), 3, 2; roots=4, L=4.0)
@@ -231,20 +233,27 @@ device_close_arrays(dev, host, ::Type{T}) where {T} =
             wave_only = similar(field_state(u, p))
             wave_rhs!(wave_only, field_state(u, p), p.wave, 0.1)
             source = Array(field_state(du, p)) .- Array(wave_only)
-            return p, Array(u), Array(du), source
+            F = particle_forces(p, u, 0.0)
+            dt = oldg_timestep(p.wave; cfl=0.5)
+            integ = inspiral_integrator(p, u, 0.0, 3dt; dt=dt)
+            TreeWaveOLDG.solve!(integ)
+            return p, Array(u), Array(du), source, F, Array(integ.u),
+                   particle_forces(p, integ.u, 3dt)
         end
         if supports_float64(DEVICE)
             for continuous in (true, false)
-                _, uh, duh, sh = inspiral(CPU(), continuous)
-                pd, ud, dud, sd = inspiral(DEVICE, continuous)
+                _, uh, duh, sh, Fh, u3h, F3h = inspiral(CPU(), continuous)
+                pd, ud, dud, sd, Fd, u3d, F3d = inspiral(DEVICE, continuous)
                 L = TreeWaveOLDG.fieldlength(pd)
                 @test norm(sh) > 1e-3
                 @test device_close_arrays(ud, uh, Float64)
                 @test device_close_arrays(dud, duh, Float64)
                 @test device_close_arrays(sd, sh, Float64)
                 @test dud[(L + 1):end] == duh[(L + 1):end]
-                DEVICE isa CPU ||
-                    @test_throws ArgumentError particle_forces(pd, ud, 0.1)
+                @test norm(F3h[1]) > 0
+                @test device_close(Fd[1], Fh[1], Float64)
+                @test device_close_arrays(u3d, u3h, Float64)
+                @test device_close(F3d[1], F3h[1], Float64)
             end
         end
     end

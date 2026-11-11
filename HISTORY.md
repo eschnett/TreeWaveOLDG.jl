@@ -671,6 +671,11 @@ patches.
   `reduce(vcat; init)` took seconds, and one that named the result like
   the threaded loop's locals raced. A `d/8` right-hand side takes 0.102 s
   on the H200, about 7.4 times 64 cores, equal to the host's.
+- 2026-11-11: Erik Schnetter asked for B5. The pairing stays on the host
+  and reads copies of the blocks around each particle from a device, so
+  `particle_forces` takes a device state and the inspiral runs there
+  entire. A `d/8` RK4 step takes 0.41 s on an H200, 50 times the node's
+  eight host threads; reading the forces adds 35 ms.
 
 ## Particles
 

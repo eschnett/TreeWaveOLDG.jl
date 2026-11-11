@@ -65,10 +65,10 @@ are read through it ([`average_shared!`](@ref)); `false` is the transfer
 and its adjoint alone, as before M4's decision ("The averaging" in
 `CODE.md`).
 
-The wave problem may be on a device. The far rule then runs there, the
-graded and nested rules on the host, whose results are added on the
-device; the forces ([`particle_forces`](@ref)) are read on the host only
-("Particles on a device" in `PLAN.md`).
+The wave problem may be on a device, in `Float64`. The right-hand side
+then runs there, but for the nested rule's points, which the host lists,
+and the forces ([`particle_forces`](@ref)) are read on the host from the
+few blocks around each particle ("Particles on a device" in `PLAN.md`).
 
 The window has to hold the particles: its ball and every particle's
 support lie inside the box, which the transfer checks when it runs. The
@@ -426,10 +426,6 @@ read it the other way, for comparison.
 """
 function particle_forces(p::InspiralProblem{T,K}, u, t;
                          continuous::Bool=p.continuous) where {T,K}
-    get_backend(p.wave.fs.work) isa CPU || throw(ArgumentError(
-        "the forces are read on the host only, and the wave problem is on " *
-        "$(get_backend(p.wave.fs.work)): the pairing reads the field at the nodes " *
-        "(\"Particles on a device\" in PLAN.md, B5)"))
     fu = field_state(u, p)
     trajs = trajectories(p, u, t)
     return ntuple(Val(K)) do k

@@ -103,8 +103,7 @@ level's.
 
 The field runs on a GPU (`CODE.md`, "On a device"); the particles did
 not, and they have to follow, decided with the owner on 2026-11-10. Since
-B4 their right-hand side runs on a device; only the forces are read on
-the host alone. At `d/8` on M4's five-level forest,
+B5 the inspiral runs on a device, forces included. At `d/8` on M4's five-level forest,
 75.5 M nodes, `project_source!` takes 0.585 s per right-hand side at
 order 3 on 64 cores against 0.073 s for the wave equation, about 85 % of
 a 2.71 s step; the binary's projection off the grid takes 1.24 s
@@ -185,13 +184,16 @@ plenty of in `Float64`.
   right-hand side 0.102 s, about 7.4 times 64 cores and 50 times the
   job's eight host threads. The far rule is the largest part again; a
   register cap (B0) would be the next thing to try.
-- **B5, the forces.** The pairing stays on the host: it reads the
-  density, not the source, over at most a few dozen elements, whose
-  nodal values (the support's elements and their sharers') are copied
-  down each call; `particle_forces` then accepts a device. Done when the
-  inspiral tests pass on CUDA in `Float64`, matching the host to
-  rounding, and a `d/8` step with the forces sampled is timed on an
-  H200. The particles need `Float64`, so Metal cannot run them.
+- **B5, the forces. Done** (2026-11-11; `CODE.md`, "On a device"). The
+  pairing stays on the host and reads, from a device, copies of the
+  blocks that hold the support's elements and their neighbours
+  (`BlockCopies`); `particle_forces` accepts a device. The device test
+  holds the forces, and the state after three RK4 steps, to the host's;
+  it passes on an H200. At `d/8` a step takes 0.41 s there, against
+  20.7 s on the job's eight host threads, and both particles' forces
+  35 ms. The inspiral suite itself (`test/inspiral_tests.jl`) still
+  builds its problems on the CPU only. The particles need `Float64`, so
+  Metal cannot run them.
 
 Not planned here: nested boxes at `d/16`, 151 GB, exceed one H200's
 141 GB; they would need several GPUs through MPI, which TreeAMR has, or

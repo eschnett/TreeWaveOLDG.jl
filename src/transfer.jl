@@ -1428,8 +1428,11 @@ operator"), over the elements that meet the particle's support
 return a number or a static vector, for `K = ρ` and `K = ∇ρ`.
 
 Each element is integrated by the nested rule split at the support, which
-is exact up to the inner Gauss rule's order inside it, and the state is
-read directly on the host. A `mesh_fold` of `wₙ (P K)ₙ gₙ` over every
+is exact up to the inner Gauss rule's order inside it, on the host. The
+state is read there directly, or, from a device, through copies of
+variable `var` of the blocks that hold the elements and their
+neighbours, a few tens of kilobytes each ([`BlockCopies`](@ref
+TreeWaveOLDG.BlockCopies)). A `mesh_fold` of `wₙ (P K)ₙ gₙ` over every
 node gives the same, at the cost of a pass over the mesh; the tests keep
 it as the reference.
 
@@ -1444,9 +1447,11 @@ function pairing(p::WaveProblem{T,D}, t::TransferTables{T,P1}, u, K,
                  s::ParticleSupport{D}; var::Int=1,
                  continuous::Bool=false) where {T,D,P1}
     check_tables(p, t)
+    elements = support_elements(p, s)
     ua = statearray(u, p.fs)
+    get_backend(p.fs.work) isa CPU || (ua = BlockCopies(p.fs, ua, elements, var, Val(P1)))
     acc = zero(K(s.z))
-    for (b, e) in support_elements(p, s)
+    for (b, e) in elements
         key = blockkey(p.fs, b)
         lo, hi = element_box(block_origin(T, p.fs.forest, key),
                              spacing(T, p.fs.forest, key), e, Val(P1), Val(D))
@@ -1456,6 +1461,43 @@ function pairing(p::WaveProblem{T,D}, t::TransferTables{T,P1}, u, K,
                            t, lo, hi, SVector{0,T}(), Val(D), true)
     end
     return acc
+end
+
+"""
+    BlockCopies(fs, ua, elements, var, Val(P1))
+
+What [`pairing`](@ref) reads of a state on a device: variable `var` of
+each block that holds one of `elements`, `(block, element)` pairs, or an
+element across one of their faces, edges or corners, copied to the host,
+one copy per block. Indexed as the state array is, `c[i..., var, b]`, for
+those blocks and that variable only.
+"""
+struct BlockCopies{T,D}
+    blocks::Dict{Int,Array{T,D}}
+    var::Int
+end
+
+function BlockCopies(fs::FieldSet{T,D}, ua, elements, var, ::Val{P1}) where {T,D,P1}
+    needed = Set{Int}()
+    for (b, e) in elements
+        key = blockkey(fs, b)
+        lo, hi = element_box(block_origin(T, fs.forest, key), spacing(T, fs.forest, key), e,
+                             Val(P1), Val(D))
+        for s in CartesianIndices(ntuple(_ -> -1:1, D))
+            x = (lo + hi) / 2 + SVector(Tuple(s)) .* (hi - lo)
+            all(d -> first(fs.forest.extents[d]) < x[d] < last(fs.forest.extents[d]), 1:D) ||
+                continue
+            push!(needed, locate_element(fs, Val(P1), x)[1])
+        end
+    end
+    copies = Dict(b => Array(view(ua, ntuple(_ -> :, D)..., var, b)) for b in needed)
+    return BlockCopies{T,D}(copies, var)
+end
+
+@inline function Base.getindex(c::BlockCopies{T,D}, I::Vararg{Integer}) where {T,D}
+    I[D + 1] == c.var || throw(ArgumentError(
+        "variable $(I[D + 1]) of a block was read, and only $(c.var) was copied"))
+    return c.blocks[I[D + 2]][ntuple(d -> I[d], Val(D))...]
 end
 
 """

@@ -1579,8 +1579,11 @@ no partition).
   through `BigFloat`** (`rounded`), since `Float64x2` converts to
   `Float64` only.
 - **Host-only:** the blast wave's exact solution (host tables) and the
-  annulus's (Bessel functions), whose drivers keep the CPU; and of the
-  particles the pairing, so that `particle_forces` refuses a device.
+  annulus's (Bessel functions), whose drivers keep the CPU. The
+  particles' pairing runs on the host too: from a device it reads copies
+  of variable `var` of the blocks that hold the support's elements and
+  their neighbours (`BlockCopies`), a few tens of kilobytes each, so
+  `particle_forces` takes a state on the device.
 - **The inspiral's right-hand side runs on a device** (`PLAN.md`,
   "Particles on a device", B1, B3 and B4): the wave equation, the three
   rules of the projection, the passes over the ball's blocks and the
@@ -2163,7 +2166,8 @@ discontinuous across faces. It is element-local and needs no exchange.
   finds, those meeting the box `[z - ℓ, z + ℓ]`, at most `2^D` since
   `2ℓ < hₑ`, from the box's corners through `TreeAMR.locate_point` and
   the element arithmetic of `node_coordinates`, and reads the state on
-  the host. A `mesh_fold` of `wₙ (P K)ₙ gₙ` gives the same at the cost of
+  the host, from a device through copies of the blocks it touches. A
+  `mesh_fold` of `wₙ (P K)ₙ gₙ` gives the same at the cost of
   a projection and a pass over the mesh; the tests keep it as the
   reference ([The transfer's cost](#the-transfers-cost) has both).
   With `continuous = true` it first replaces each node on an element's
@@ -2446,8 +2450,8 @@ with `wave_rhs!` unchanged and the source subtracted after it.
 - `particle_forces(p, u, t)`: the remainder's force on each particle,
   `F = -(Q/γ)(∇̄Φ_r + vΠ̄_r) = ∫(∇ρ)Φ_r,h - v∫ρΠ_r,h`, through the pairing
   over the support's elements. It is a diagnostic and does not act on the
-  particles; the analytic parts of the force are M6a's. It refuses a
-  device: the pairing reads the state at the nodes on the host.
+  particles; the analytic parts of the force are M6a's. On a device the
+  pairing reads copies of the few blocks around each particle.
 - `ball_norm(p, u, centre, radius; p = 2, vars = 1:2)`:
   `quadrature_norm` over the nodes within a ball, through `mesh_fold`,
   with each node's position and weight from its own block's origin and
@@ -3172,7 +3176,8 @@ one thread on CI, is otherwise silent until its summary.
   on and off the element corners; an inspiral right-hand side
   and initial state of a particle on a circle, with and without the
   averaging, are the host's to `sqrt(eps)` in the field, the source
-  alone too, and exactly in the particles, on a device with `Float64`; a periodic and a refined
+  alone too, and exactly in the particles, and so are the forces and
+  the state after three RK4 steps, on a device with `Float64`; a periodic and a refined
   box's runs, the seven-patch plane wave with Dirichlet data and a pulse
   through the thirteen-patch ball's radiative sphere give the host's
   errors and energies to `sqrt(eps)` in the step counts the host takes;
@@ -4136,7 +4141,10 @@ are within 2 %), the ball the benchmark ball.
   equal to the host's as before. The nested rule, 1.58 M points, takes
   36 to 53 ms: 18 ms to list its points on the host, 4 ms to copy them,
   8.5 ms for the source at them and 2.5 ms for the sums. The far rule's
-  55 ms is now the largest part.
+  55 ms is now the largest part. An RK4 step takes 0.41 s on the H200
+  against 20.7 s on the eight host threads (job 595926), and reading
+  both particles' forces 35 ms, from copies of their blocks, against
+  32 ms on the host.
 
 **The source on an H200** (`bin/source_probe.jl`, jobs 595363 and
 595800, the last two rows), ns per
