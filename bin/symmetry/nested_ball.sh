@@ -26,11 +26,13 @@
 # checkout, built on the login node by `setup` without precompiling, and
 # precompiled by the job on the node type that runs it.
 #
-# The runs are estimated, not measured: three levels in the cube and the
-# shells are about 7·10⁷ nodes and take about 25000 steps to `t = 96`, at
-# about twice the nested boxes' cost per node (`--cost` on the laptop), so
-# several hours each on `amdq`. The shells' truncation tables are built in
-# `BigFloat` on all threads first. Threads are pinned by Julia
+# Each run takes 14 to 17 hours on `amdq` (2026-11-10): three levels in
+# the cube and the shells are 71 M nodes (96 M at `hshell = 1`), 24576
+# steps to `t = 96` at 1.1–1.6 s each, and an observation takes 110–200
+# s, so `TREEWAVEOLDG_EVERY=1` halves their part. One job per wavelength
+# (`TREEWAVEOLDG_LAMBDAS`) keeps each inside the 24-hour limit. The
+# problem builds in about 150 s (CODE.md, "The seven-patch ball" under
+# "Measured results"). Threads are pinned by Julia
 # (`JULIA_EXCLUSIVE=1` with `srun --cpu-bind=none`, `-t 64,0`). Each run's
 # rows go to a file of their own in `$OUTDIR` as they are printed, so a
 # job that runs out of time keeps what it measured, and are echoed at the

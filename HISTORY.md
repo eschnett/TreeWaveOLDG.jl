@@ -284,6 +284,15 @@ patches.
   in below this, its "the setup is serial" and its proposed threaded
   build in `CODE.md` became "was serial" and were dropped: M8b builds
   the tables by block on all threads and only for the shells.
+- 2026-11-11: M8b's runs at M3b's scale (`bin/symmetry/nested_ball.sh`,
+  Symmetry jobs 594441, 594442 and 594995), the pulse at `λ = 16` and 4
+  through three nested cubes in the ball to `t = 96`. The first two used
+  `hshell = 2`; at `λ = 4` they showed the shells, at two radial elements
+  per wavelength, keeping a fifth of the energy, as M8a had found on the
+  uniform ball, and the owner asked for the third at `hshell = 1`, which
+  keeps `1.3e-3`. Observations every 0.5 had taken about half the wall
+  time at `λ = 4`, so the third observed every 1. See "The seven-patch
+  ball" under "Measured results" in `CODE.md`.
 
 ## Refined forests
 

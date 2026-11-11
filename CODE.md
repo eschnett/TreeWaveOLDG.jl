@@ -47,8 +47,9 @@ with the gradient exchanged in Cartesian components and Dirichlet data or
 a radiative condition on the outer sphere: a plane wave converges at
 order `P`, and an outgoing pulse leaves the ball. The ball's cube, whose
 map is affine, takes static refinement, M3b's nested cubes included,
-with the energy an exact invariant across its coarse-fine faces
-(`INSPIRAL-PLAN.md`'s M8b); see [Multi-patch
+with the energy an exact invariant across its coarse-fine faces, and
+M3b's pulse leaves through the shells where the nested boxes' periodic
+faces send it back (`INSPIRAL-PLAN.md`'s M8b); see [Multi-patch
 forests](#multi-patch-forests). The suite passes, also with
 `--check-bounds=yes` and with four threads.
 
@@ -812,7 +813,10 @@ the shells read them across the glue.
   does, and keep a fifth of the energy; a second-order condition would
   not change that. Their tangential spacing grows with the radius, and
   the scheme's central fluxes do not damp an under-resolved wave on its
-  way out.
+  way out. Radial elements of four per wavelength, as on the nested
+  boxes' coarsest level, leave `1.3e-3` of the energy instead
+  ([The seven-patch ball](#the-seven-patch-ball-1) under Measured results,
+  "The pulse at M3b's scale").
 - **Refinement only in the cube,** where the map is affine, and on the
   CPU; no particles, as for every geometry (`INSPIRAL-PLAN.md`'s M8c).
 
@@ -3114,8 +3118,64 @@ boxes' own, as [The seven-patch ball](#the-seven-patch-ball) says. A
 right-hand side over the whole ball takes 0.17 s, against 0.036 s on the
 boxes, and the ball's truncation, the shells' per-element solve, adds
 another 0.085 s. The problem took 930 s to build with the shells' tables
-in `BigFloat`, and takes 150 s in `Float64x2` ([Precision](#precision)). The pulse's runs to `t = 96` at `λ = 16` and 4 are
-`nested_ball.sh`'s, and wait.
+in `BigFloat`, and takes 150 s in `Float64x2` ([Precision](#precision)).
+
+**The pulse at M3b's scale** (`nested_ball.sh`, 2026-11-10), to
+`t = 96 = 2R₁`, beside M3b's nested boxes of four levels
+(`nested_waves.sh`, job 587560), which share the ball's cube and add a
+level of `hₑ = 1` to a periodic box of half-width 32. At `λ = 4` a third
+run takes the shells' radial elements at `hshell = 1`, four per
+wavelength as on the boxes' coarsest level, where the others have 2,
+two per wavelength (96.5 M nodes, 50.3 M in the shells). `err` is the
+L2 error of `u` and `v` together in the finest ball, of radius 4:
+
+| `t` | 8 | 16 | 24 | 32 | 40 | 48 | 56 | 64 | 80 | 96 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `λ = 16`, boxes | 4.2e-7 | 2.8e-7 | 2.5e-7 | 3.6e-7 | 1.2e-5 | 1.2e-3 | 2.0e-2 | 5.0e-2 | | |
+| `λ = 16`, ball | 4.2e-7 | 2.7e-6 | 7.0e-6 | 1.6e-5 | 9.0e-6 | 2.3e-6 | 1.2e-6 | 5.4e-7 | 1.2e-5 | 8.2e-5 |
+| `λ = 4`, boxes | 2.3e-6 | 2.0e-5 | 2.3e-6 | 1.6e-3 | 1.6e-3 | 3.6e-4 | 1.2e-3 | 1.9e-2 | | |
+| `λ = 4`, ball, `hshell = 2` | 2.3e-6 | 2.0e-5 | 9.2e-6 | 8.3e-3 | 1.5e-2 | 1.1e-2 | 8.5e-3 | 7.2e-3 | 2.6e-2 | 4.5e-2 |
+| `λ = 4`, ball, `hshell = 1` | 2.3e-6 | 2.0e-5 | 2.3e-6 | 1.7e-3 | 1.9e-3 | 5.6e-4 | 4.6e-4 | 7.8e-4 | 2.6e-3 | 4.2e-3 |
+
+The energy left at `t = 96`, of its initial value: `1.4e-7` at
+`λ = 16`, `0.21` at `λ = 4` with `hshell = 2`, `1.3e-3` with
+`hshell = 1`. The exact pulse's maximum in the finest ball is 0.37 at
+`λ = 16` and 5.9 at `λ = 4`, at `t = 0`.
+
+- **Inside the cube the ball is the nested boxes,** at `λ = 4` with
+  `hshell = 1` to within 20 % through `t = 48`: what the coarse-fine
+  faces at 4 and 8 send back is the same in both. Every row is the
+  boxes' to the digits shown until the first return from outside the
+  cube.
+- **The cube–shell faces send back more than the boxes' coarse-fine
+  face at the same place.** At `λ = 16` the finest ball's error from
+  `t ≈ 12` to 40 is up to `1.6e-5`, against the boxes' `3.6e-7`, whose
+  face at 16 joins `hₑ = 1/2` to `hₑ = 1` across a flat face: about
+  forty times, as M8a found on the uniform ball ([The radiative
+  sphere](#the-radiative-sphere)).
+- **After that the ball keeps the pulse out,** where the boxes' periodic
+  faces bring it back from `t ≈ 40`. At `λ = 16` the ball's error falls
+  to `5e-7` by `t = 64`, when the boxes' is `5e-2`, and rises from
+  `t ≈ 76` with the sphere's return, to `8.2e-5` at `t = 96`. At
+  `λ = 4` with `hshell = 1` it is `5e-4` to `8e-4` from `t = 48` to 64,
+  against the boxes' `1.9e-2` at 64.
+- **At two elements per wavelength the shells trap `λ = 4`.** With
+  `hshell = 2` the cube–shell faces send back five times as much as
+  with `hshell = 1`, and a fifth of the energy stays in the shells to
+  the end, falling about 1 % per ten units of time. At `hshell = 1` it
+  leaves but for `1.3e-3`. The trapping is the shells' radial
+  resolution, not the condition or the coupling.
+- **The energy holds as on the boxes** while the pulse is inside: to
+  `1e-15` at `λ = 16` until its tail reaches the sphere, and at `λ = 4`
+  down by `3e-11` by `t = 24` on both, the truncation's loss on what the
+  coarse levels do not resolve.
+- **The cost:** a step took 1.13 s at `hshell = 2` and 1.60 s at
+  `hshell = 1` (EPYC 7543), and 1.25 s at `hshell = 2` on an EPYC 7532,
+  about 16 ns per node, against M3b's 0.28 s on the boxes' 60.8 M nodes,
+  4.6 ns per node. An observation, the errors in four balls in physical
+  coordinates and the energy, took 110–200 s, about a hundred steps; the
+  runs took 14.5 to 17 hours. The problem is 12.7 GB at `hshell = 2` and
+  18.8 GB at `hshell = 1`.
 
 ### Refined forests
 
