@@ -1601,6 +1601,14 @@ no partition).
   gave a work item to every point of them, a fifth idle, each
   classifying its element again; the list saves 46 of the far rule's
   168 ms on an H200. On the CPU the two give the same `du` bit for bit (a test).
+- **The generated lab slice makes no calls on the nested dual numbers**
+  ([The near field](#the-near-field), "No calls inside them"). Its
+  order-3 term called `evalpoly` 46 times and a four-factor product 32
+  times, each with its tuple through memory: most of the 24 KB of local
+  memory each work item of the source took. Written out, the same
+  operations to the bit, the source takes 8 KB for two particles, a
+  point in the window's transition costs 6.9 ns instead of 15.1, and the
+  far rule 55 ms instead of 122.
 
 `test/device_tests.jl` holds the device to the host
 ([Tests](#tests)). On the laptop's GPU (Apple M-series, Metal,
@@ -1894,7 +1902,7 @@ terms. The powers the groups multiply, of `v·y`, `α′·y` and `r` or `ℓ`,
 are formed once per evaluation before the groups and named by their
 exponent (`vy³`, `r⁻⁵`), and each group multiplies two or three of them:
 on the bracket's nested dual numbers, forming them in every group cost
-as much as the polynomials. Three things the generated code must keep,
+as much as the polynomials. Four things the generated code must keep,
 each found the hard way:
 
 - **Running sums.** Julia parses `a + b + …` as one call of `+` with as
@@ -1903,7 +1911,22 @@ each found the hard way:
 - **No inlining.** A `BigFloat` Hessian of the order-3 lab slice with
   every radial function inlined took 178 s to compile, against 4 s in
   `Float64`, and 17 s with them out of line. `_lab_coefficients` and
-  `_lab_evaluate` are not inlined; the polynomials inside them are.
+  `_lab_evaluate` are not inlined.
+- **No calls inside them.** On the nested dual numbers Julia inlines
+  neither `evalpoly(x, (c₁, …, cₙ))` nor a product of four or more
+  factors, `a * b * c * d`, which it parses as one call of `*` and folds
+  from the left: the order-3 term made 46 calls of the one and 32 of
+  the other, each taking its tuple of lifted coefficients or factors
+  through memory, and on a device that memory was most of a work item's
+  24 KB of local memory ([On a device](#on-a-device)). So each group's
+  polynomial is Horner's rule written out, `poly = muladd(x, poly, cᵢ)`
+  from the last coefficient down, each read where it is used, and its
+  monomial a product nested from the left, `((vy² * ay) * ℓ⁻¹) * poly`:
+  the same operations in the same order, and the same results to the
+  bit in `Float64` and `BigFloat`. The radial functions of the near
+  field and the profile keep `evalpoly`: there the inlined chain lets
+  LLVM fuse other multiply-adds, which moves `Float64` results by an
+  ulp, and they are a small part of the cost.
 - **No copies of the tables.** The bracket reads a coefficient in place
   through `_coefficient(c, i, d)`, which lifts it from its rates there;
   wrapping the tables for every point copied them, about 10 KB per
@@ -1919,9 +1942,14 @@ on the laptop (`source_terms`, inside and outside the particle):
 | one function per order, ns | 17 | 72 | 380 | 1867 |
 | grouped, ns | 15 | 71 | 315 | 1017 |
 | grouped, outside the particle, ns | 16 | 69 | 287 | 941 |
-| powers shared, as now, outside, ns | 16 | 53 | 197 | 540 |
+| powers shared, outside, ns | 16 | 53 | 197 | 540 |
+| Horner written out, as now, outside, ns | 32 | 65 | 173 | 428 |
 
-At order 3, outside the particle, the shared powers cut the lab slice's
+The last row was measured on a busier laptop, beside the previous form
+in one process, which there gave 31, 68, 209 and 557 ns: writing Horner
+out takes 17 and 23 % off orders 2 and 3, inside the particle as
+outside, and the first `BigFloat` bracket compiles in about 40 s either
+way. At order 3, outside the particle, the shared powers cut the lab slice's
 term on the bracket's dual numbers from 472 to 274 ns, and its
 Laplacian, in plain numbers, from 98 to 21 ns; the near-field terms
 (73 ns at orders 1–3) and forming the invariants (14 ns) are the rest.
@@ -4041,10 +4069,16 @@ are within 2 %), the ball the benchmark ball.
   job's eight host threads). With the source's tables in a device array
   0.168 s, and over the list of far elements 0.122 s (jobs 595357 and
   595366): 7.0 times 64 cores, equal to the host's to `1.7·10⁻¹¹`
-  relative, on and off the grid. Its contraction is 0.2 ms of it. That
-  is short of the ten times `PLAN.md`'s gate asks for.
+  relative, on and off the grid. Its contraction is 0.2 ms of it. With
+  the lab slice's Horner chains written out ([The near
+  field](#the-near-field)) 0.0546 s (job 595812), on and off the grid,
+  equal to the host's as before; the same change takes 64 cores of an
+  EPYC 7543 from 0.676 to 0.506 s (job 595813, `cn107`), so the H200 is
+  9.3 times 64 cores of the same code, and 12.4 times the code it was
+  first held against.
 
-**The source on an H200** (`bin/source_probe.jl`, job 595363), ns per
+**The source on an H200** (`bin/source_probe.jl`, jobs 595363 and
+595800, the last two rows), ns per
 point at `n = 2²¹` points, nine tenths in the window's inner ball, one
 work item per point:
 
@@ -4054,20 +4088,28 @@ work item per point:
 | tables in an array, one particle | 0.52 | 0.77 | 1.63 | 5.02 | |
 | `SVector` tables, two particles | 7.35 | 8.33 | 13.28 | 28.65 | |
 | tables in an array, two particles | 1.45 | 1.86 | 3.94 | 10.56 | 15.08 |
+| and Horner written out, one particle | 0.45 | 0.57 | 0.86 | 2.56 | |
+| and Horner written out, two particles | 1.32 | 1.58 | 2.46 | 5.46 | 6.89 |
 
 - **The tables in an array save 2.7 to 5 times,** most at the low orders,
   where the copies were nearly all the work.
-- **What is left at order 3 is the lab slice's order-3 term:** 255
-  registers and 24 KB of local memory per thread, which is its own frame,
-  a generated function of 273 coefficients on nested dual numbers. With
-  the order a compile-time constant the lower orders need 78 to 226
-  registers and 1.5 to 10 KB, and order 3 the same as before. Capping the
-  registers (`maxregs` 64 to 168) or changing the block size (64 to 256)
-  moves order 3 by at most 7 %.
-- **The transition costs half as much again,** 15.1 against 10.6 ns: its
-  points carry `∇W` as a further partial, and they are 87 % of the far
-  rule's. On one CPU thread the same evaluation takes about 4.8 µs, so an
-  H200 does about 450 threads' worth.
+- **Horner written out halves order 3,** 10.56 to 5.46 ns with both
+  particles and 15.08 to 6.89 in the transition, and takes a third off
+  order 2. Before, the order-3 term took 255 registers and 24 KB of
+  local memory per thread, most of it the tuples its calls of
+  `evalpoly` and of four-factor products took through memory
+  ([The near field](#the-near-field)); now 8 KB with both particles,
+  4.5 KB with the order a compile-time constant, still at 255 registers.
+- **A cap of 128 registers now saves a fifth,** 5.03 to 4.07 ns at
+  order 3 with the order a constant, where before caps of 64 to 168
+  and block sizes of 64 to 256 moved it by at most 7 %.
+  KernelAbstractions' CUDA back end takes no register cap, so the far
+  rule cannot use one yet **(open)**.
+- **The transition costs a quarter more,** 6.89 against 5.46 ns (half
+  as much again before): its points carry `∇W` as a further partial,
+  and they are 87 % of the far rule's. On one core of an EPYC 7543 the
+  same evaluation takes about 2.05 µs (3.70 before; `bin/projection.jl`'s
+  `source`), so an H200 does about 375 cores' worth.
 
 ### The source bracket
 
@@ -5000,6 +5042,30 @@ rather than in every group ([The near field](#the-near-field)):
   contribution, a later coefficient's reaches 180 times it at order 3
   and `3·10⁵` times at order 1, where the point limit vanishes for some
   directions **(open)**.
+
+**Horner written out** (job 595813, `cn107`, EPYC 7543, 2026-11-11;
+`bin/projection.jl --hdiv=8`, order 3, 64 threads; after and before
+one after the other on the node, before as the old `_lab_evaluate`
+defined over the new). The generated lab slice writes each group's
+polynomial as a `muladd` chain and nests its products, instead of
+calling `evalpoly` and an n-ary `*` ([The near field](#the-near-field)),
+with the same results to the bit:
+
+| | before | after |
+|---|---|---|
+| source, µs | 3.70 | 2.05 |
+| source inside a support, µs | 3.58 | 1.84 |
+| projection | 1.092 | 0.753 |
+|   far | 0.676 | 0.506 |
+|   graded | 0.180 | 0.115 |
+|   near | 0.169 | 0.105 |
+
+- **The projection costs 31 % less and the source 45 % less;** the far
+  rule 25 % less, the graded and nested rules 36 and 38 %.
+- **This node is faster than `cn087`**, on which the far rule took
+  0.856 s before; held to the same node and code, one H200 runs the far
+  rule 9.3 times faster than 64 cores ([Threads on
+  Symmetry](#threads-on-symmetry)).
 
 **The circle at `v = 0.2`** (M5; `--v=0.2`, Julia 1.13.3, 64 threads).
 Orders 2 and 3 without `a⃜`, branch `inspiral-m5-labslice` at `31d065b`,

@@ -628,6 +628,21 @@ patches.
   a device now runs it over a list of the far elements. The far rule went
   from 2.4 to 7.0 times 64 cores, short of the gate's ten; the choice of
   how to go on is with the owner (`PLAN.md`, B0).
+- 2026-11-11: Erik Schnetter chose to reshape the generated order-3
+  code. Julia had inlined neither `evalpoly` nor products of four or more
+  factors on the nested dual numbers: the order-3 term made 78 calls,
+  each passing a tuple through memory, on the CPU as on the device, where
+  they were most of 24 KB of local memory per work item. `generate.wl`
+  now writes each group's polynomial as a `muladd` chain and nests its
+  products, the same operations, so the host's results are the same to
+  the bit in `Float64` and `BigFloat` (checked over 120 000 points at
+  orders 1–3, and by the suite). Doing the same to the near field's
+  radial functions moved results by an ulp, so they keep `evalpoly`. On
+  an H200 the source at order 3 runs twice as fast and the far rule in
+  0.0546 s; on 64 cores the projection costs 31 % less, and the far rule
+  0.506 s, so the H200 is 9.3 times 64 cores of the same code. A
+  register cap of 128 now saves a fifth on the device, where before it
+  saved at most 7 %.
 
 ## Particles
 

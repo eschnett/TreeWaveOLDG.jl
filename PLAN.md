@@ -119,34 +119,32 @@ kernels, the graded rule at 2.6 M on host threads, the nested rule at
 1.6 to 2.5 M on host threads after a serial, allocating plan; the
 averaging over shared nodes is a host loop, and the pairing, which reads
 the forces, a serial host call over 1 to 8 elements. One source
-evaluation costs about 5 µs on one CPU thread at order 3 for both
-particles, so the projection is bound by arithmetic, which a GPU has
+evaluation costs about 2 µs on one CPU thread at order 3 for both
+particles (5 µs before B0), so the projection is bound by arithmetic, which a GPU has
 plenty of in `Float64`.
 
-- **B0, the gate. Measured** (2026-11-10; `CODE.md`, "On a device" and
-  "Threads on Symmetry"). As first ported the far rule ran 2.4 times
-  faster on one H200 than on 64 cores. Two changes took it to 7.0 times,
-  0.122 s against 0.856 s, equal to the host's to `1.7·10⁻¹¹`: the
+- **B0, the gate. Measured** (2026-11-10 and 11; `CODE.md`, "On a
+  device" and "Threads on Symmetry"). As first ported the far rule ran
+  2.4 times faster on one H200 than on 64 cores. Three changes took it
+  from 0.363 s to 0.0546 s, equal to the host's to `1.7·10⁻¹¹`: the
   source's coefficient tables in a device array (`device_source`), which
-  every work item had copied into its local memory, and the far rule
-  launched over a list of its elements. Still short of ten times. What
-  is left is the source itself, 87 % of whose far-rule points are in the
-  window's transition at 15 ns each, and in it the lab slice's order-3
-  term, a generated function whose frame takes 255 registers and 24 KB
-  of local memory per thread. The ways on, for the owner to choose:
-  - **Accept seven times** and go on to B1. The projection would then
-    cost about what the field does on the device, and an inspiral step
-    at `d/8` perhaps a fifth of the 64-core node's.
-  - **Reshape the generated order-3 term** for a device: Horner chains
-    on the dual numbers instead of `evalpoly` over tuples of lifted
-    coefficients, or the term split into launches by group. This is a
-    change to `derivations/generate.wl`, and the host's results must stay
-    bit for bit.
+  every work item had copied into its local memory; the far rule
+  launched over a list of its elements; and, chosen by the owner, the
+  generated lab slice with its Horner chains and products written out
+  (`derivations/generate.wl`), the same to the bit on the host, where
+  Julia had made them calls that took their arguments through memory.
+  The last also speeds up the host's projection by 31 %, so the gate's
+  baseline moved: on one EPYC 7543 node the far rule takes 0.506 s on 64
+  cores, and the H200 is 9.3 times that, 12.4 times the code before.
+  About at the gate. What is left, should more be wanted:
+  - **A register cap** of 128 saves a fifth of the source on a device
+    (`bin/source_probe.jl`), which KernelAbstractions' CUDA back end
+    cannot pass; the far rule's source kernel would need a launch of its
+    own through CUDA.
   - **Truncate the order-3 polynomials far from the particles**, which
     `CODE.md` leaves open for want of a bound; the transition is far from
     them.
-  Done when one of these is chosen, and, for the last two, the far rule
-  on the H200 is timed again.
+  Done when the owner decides to go on to B1.
 - **B1, the right-hand side's plumbing.** The `6K` particle numbers at
   the end of the state are copied as one tail rather than read one by
   one; `inspiral_rhs!`'s threaded passes over the ball's blocks (zero

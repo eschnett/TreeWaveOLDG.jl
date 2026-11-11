@@ -351,11 +351,13 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   bracket keeps `O(a)` inside the particle, and the remainder an `r⁰`
   structure whose force the grid reads the more strongly the finer it
   is ("The near field").
-- **The generated lab slice sums with `+=`, is not inlined, and the
-  bracket reads its coefficients in place** (`_coefficient`). One long
-  `a + b + …` allocates, inlining makes a `BigFloat` Hessian take minutes
-  to compile, and wrapping the tables per point copies kilobytes ("The
-  near field").
+- **The generated lab slice sums with `+=`, is not inlined, writes
+  Horner's rule out and nests its products, and the bracket reads its
+  coefficients in place** (`_coefficient`). One long `a + b + …`
+  allocates, inlining makes a `BigFloat` Hessian take minutes to compile,
+  `evalpoly` and `a * b * c * d` on the nested duals are calls that take
+  their arguments through memory, and wrapping the tables per point
+  copies kilobytes ("The near field").
 - **The source is written and the forces read through the averaging
   over shared nodes** (`InspiralProblem`'s `continuous`, the default):
   the transfer alone reads the jump of the field across a face the
