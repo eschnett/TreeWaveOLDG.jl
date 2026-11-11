@@ -1618,6 +1618,12 @@ no partition).
   recursively (`tensor_rule`) and takes the same products in the same
   order, so the kernels on the CPU give its result to the bit (a test);
   a device fuses some multiply-adds.
+- **The passes that evaluate the source launch over one linear index**
+  (`launch_points!`, `points_kernel!`), each work item recovering its
+  point from it, `far_point!`, `graded_point!` and `near_point!`: the
+  multi-dimensional index KernelAbstractions forms takes run-time
+  divisions, which cost the far rule's source pass a tenth of its time
+  on an H200, as TreeAMR found for its copy kernels.
 - **On a device the nested rule runs over a list of its points**
   (`project_near_points!`). The host lists them with their weights, the
   products of their lines' weights (`nested_points`), in two passes
@@ -4144,7 +4150,10 @@ are within 2 %), the ball the benchmark ball.
   55 ms is now the largest part. An RK4 step takes 0.41 s on the H200
   against 20.7 s on the eight host threads (job 595926), and reading
   both particles' forces 35 ms, from copies of their blocks, against
-  32 ms on the host.
+  32 ms on the host. Launched over one linear index (`launch_points!`),
+  the three source passes save 7 % of that (job 595944): the far rule
+  50 ms, the graded rule 18 ms, a right-hand side 0.0955 s and a step
+  0.383 s.
 
 **The source on an H200** (`bin/source_probe.jl`, jobs 595363 and
 595800, the last two rows), ns per

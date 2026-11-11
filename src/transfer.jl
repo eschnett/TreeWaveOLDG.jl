@@ -606,12 +606,12 @@ end
 # element there (`source_points_kernel!`); on a device that launched a work
 # item for every point of those blocks, a fifth of them idle, each
 # classifying its element again, about 40 % of the far rule's time on an
-# H200 ("On a device" in `CODE.md`).
-@kernel function far_points_kernel!(scratch, S, @Const(origins), @Const(spacings),
-                                    @Const(far), t::TransferTables, ::Val{D},
-                                    ::Val{P1}) where {D,P1}
-    j, f = @index(Global, NTuple)
-    Q = length(t.gauss)
+# H200 ("On a device" in `CODE.md`). Point `i` is the far rule's point
+# `j` of far element `f`, `i - 1 = (f - 1)Q^D + (j - 1)`, as
+# `launch_points!` runs it.
+@inline function far_point!(i, scratch, S, origins, spacings, far,
+                            t::TransferTables{T,P1,Q}, ::Val{D}) where {T,P1,Q,D}
+    f, j = divrem(i - 1, Q^D) .+ 1
     @inbounds begin
         b, e = far[f]
         lo, hi = element_box(origins[b], spacings[b], e, Val(P1), Val(D))
@@ -619,7 +619,22 @@ end
         x = gauss_point(lo, hi, t, J)
         scratch[ntuple(d -> e[d] * Q + J[d], Val(D))..., b] = S(x)
     end
+    return nothing
 end
+
+# The passes that evaluate the source on a device, one work item per
+# point: `body(i, args...)` for `i` in `1:n`, which recovers its point
+# from `i` itself. One linear index, where KernelAbstractions forms a
+# multi-dimensional one with run-time divisions per axis, saves a tenth
+# of the far rule's source pass on an H200, as TreeAMR found for its
+# copy kernels.
+@kernel function points_kernel!(body, args)
+    i = @index(Global, Linear)
+    body(i, args...)
+end
+
+launch_points!(backend, body, n, args) =
+    n == 0 ? nothing : points_kernel!(backend)(body, args; ndrange=n)
 
 @kernel function far_contract_kernel!(du, scratch, @Const(far), t::TransferTables,
                                       factor, var, ::Val{D}, ::Val{P1}) where {D,P1}
@@ -635,10 +650,9 @@ end
 # and the contraction takes the same products in the same order, so on
 # the CPU the result is the host rule's to the bit (a test); a device
 # fuses some of the multiply-adds.
-@kernel function graded_points_kernel!(scratch, S, @Const(origins), @Const(spacings),
-                                       @Const(list), g::GaussRule{T,P1,Q}, ::Val{D},
-                                       ::Val{P1}) where {T,D,P1,Q}
-    j, f = @index(Global, NTuple)
+@inline function graded_point!(i, scratch, S, origins, spacings, list,
+                               g::GaussRule{T,P1,Q}, ::Val{D}) where {T,P1,Q,D}
+    f, j = divrem(i - 1, Q^D) .+ 1
     @inbounds begin
         b, e = list[f]
         lo, hi = element_box(origins[b], spacings[b], e, Val(P1), Val(D))
@@ -646,6 +660,7 @@ end
         x = SVector(ntuple(d -> lo[d] + (hi[d] - lo[d]) * (1 + g.nodes[J[d]]) / 2, Val(D)))
         scratch[J..., f] = S(x)
     end
+    return nothing
 end
 
 @kernel function graded_contract_kernel!(du, scratch, @Const(list), g::GaussRule, factor,
@@ -852,8 +867,8 @@ function project_far_list!(dua, plan, t::TransferTables{T,P1,Q}, S, scratch, fac
     D = length(plan.region[1])
     nf = length(plan.far)
     nf == 0 && return nothing
-    far_points_kernel!(backend)(scratch, S, plan.dev_origins, plan.dev_spacings, plan.far,
-                                t, Val(D), Val(P1); ndrange=(Q^D, nf))
+    launch_points!(backend, far_point!, Q^D * nf,
+                   (scratch, S, plan.dev_origins, plan.dev_spacings, plan.far, t, Val(D)))
     far_contract_kernel!(backend)(dua, scratch, plan.far, t, factor, var, Val(D), Val(P1);
                                   ndrange=nf)
     return nothing
@@ -884,8 +899,8 @@ function project_graded_list!(dua, plan, g::GaussRule{T,P1,Q}, list, S, factor,
     D = ndims(dua) - 2
     backend = plan.backend
     scratch = allocate(backend, T, ntuple(_ -> Q, D)..., n)
-    graded_points_kernel!(backend)(scratch, S, plan.dev_origins, plan.dev_spacings, list, g,
-                                   Val(D), Val(P1); ndrange=(Q^D, n))
+    launch_points!(backend, graded_point!, Q^D * n,
+                   (scratch, S, plan.dev_origins, plan.dev_spacings, list, g, Val(D)))
     graded_contract_kernel!(backend)(dua, scratch, list, g, factor, var, Val(D), Val(P1);
                                      ndrange=n)
     return nothing
@@ -1033,7 +1048,7 @@ function project_near_points!(dua, plan, t::TransferTables{T,P1}, S, factor,
     backend = plan.backend
     dxs, dws = to_backend(backend, xs), to_backend(backend, ws)
     values = allocate(backend, T, n)
-    near_points_kernel!(backend)(values, S, dxs; ndrange=n)
+    launch_points!(backend, near_point!, n, (values, S, dxs))
     M = P1^D
     partials = allocate(backend, T, M, length(chunks))
     near_partials_kernel!(backend)(partials, values, dxs, dws, to_backend(backend, chunks),
@@ -1119,9 +1134,9 @@ for n in 1:4
     end
 end
 
-@kernel function near_points_kernel!(values, S, @Const(xs))
-    p = @index(Global, Linear)
+@inline function near_point!(p, values, S, xs)
     @inbounds values[p] = S(xs[p])
+    return nothing
 end
 
 # Work item `(m, c)`: chunk `c`'s points summed for node `m` of their

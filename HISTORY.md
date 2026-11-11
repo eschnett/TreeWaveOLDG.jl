@@ -676,6 +676,12 @@ patches.
   `particle_forces` takes a device state and the inspiral runs there
   entire. A `d/8` RK4 step takes 0.41 s on an H200, 50 times the node's
   eight host threads; reading the forces adds 35 ms.
+- 2026-11-11: Erik Schnetter asked to try a register cap on the source
+  passes. A prototype of the far rule's source pass as a plain `@cuda`
+  kernel showed half the gain without a cap: KernelAbstractions'
+  multi-dimensional index cost a tenth of the pass. So the three source
+  passes now launch over one linear index, 7 % off a right-hand side
+  and a step.
 
 ## Particles
 
