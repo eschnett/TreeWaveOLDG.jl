@@ -122,6 +122,50 @@ device_close_arrays(dev, host, ::Type{T}) where {T} =
         end
     end
 
+    @testset "the graded rule's kernels are the host's tensor rule" begin
+        # A device runs the graded rule as it runs the far rule, the source
+        # at every point and then the contraction, where the host visits
+        # the points recursively (`tensor_rule`). Guards against the two
+        # taking other points, products or orders: the kernels on the CPU
+        # must be the host rule to the bit, and on a device with `Float64`
+        # the host's to `sqrt(eps)`. Two particles, so that every band has
+        # elements.
+        P, E, L = 3, 4, 5.0
+        SV = TreeWaveOLDG.SVector
+        forest = wave_forest(Float64, Val(3), P, E; roots=5, L=L)
+        c = SV(L / 2, L / 2, L / 2)
+        m = ParticleModel(; Q=0.07, ℓ=1e-3, M=1.0)
+        v, a = SV(0.0, 0.2, 0.0), SV(-0.08, 0.0, 0.0)
+        tr₁ = Trajectory(; z=c + SV(0.5, 0.01, 0.02), v=v, a=a, ȧ=-0.16 * v, ä=-0.16 * a)
+        tr₂ = Trajectory(; z=c - SV(0.5, 0.03, 0.0), v=-v, a=-a, ȧ=0.16 * v, ä=0.16 * a)
+        w = Window(c, 1.25, 2.5; continuity=P + 1)
+        S = ParticleSource((m, m), w, (tr₁, tr₂); order=3)
+        particles = (ParticleSupport(m, tr₁), ParticleSupport(m, tr₂))
+        function graded(backend, kernels)
+            p = WaveProblem(forest, Element(Float64, P); backend=backend)
+            t = TransferTables(Float64, P)
+            plan = TreeWaveOLDG.projection_plan(p, t, particles, (c, w.R₂), 1.0)
+            du = statevector(p.fs)
+            fill!(du, 0)
+            dua = TreeWaveOLDG.statearray(du, p.fs)
+            if kernels
+                foreach((g, list) -> TreeWaveOLDG.project_graded_list!(dua, plan, g, list,
+                                                                       S, -1.0, 2),
+                        t.graded, plan.dev_graded)
+            else
+                TreeWaveOLDG.project_graded!(dua, plan, t, S, -1.0, 2)
+            end
+            return Array(du), plan
+        end
+        host, plan = graded(CPU(), false)
+        @test all(!isempty, plan.graded)
+        @test norm(host) > 0
+        @test graded(CPU(), true)[1] == host
+        if supports_float64(DEVICE)
+            @test device_close_arrays(graded(DEVICE, false)[1], host, Float64)
+        end
+    end
+
     @testset "an inspiral right-hand side on the device is the host's" begin
         # Guards the inspiral's plumbing on a device (PLAN.md, B1): the
         # particles' tail copied in one piece, the passes over the ball's

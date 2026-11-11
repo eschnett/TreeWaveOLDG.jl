@@ -563,29 +563,36 @@ end
 
 # The contraction of far element `e` (zero-based) of block `b`, in place in
 # `scratch`, and its `factor` times `P S` added to variable `var` of `du`.
-@inline function contract_element!(du, scratch, b, e, t::TransferTables, factor, var,
-                                   ::Val{D}, ::Val{P1}) where {D,P1}
-    Q = length(t.gauss)
+@inline contract_element!(du, scratch, b, e, t::TransferTables, factor, var, ::Val{D},
+                          ::Val{P1}) where {D,P1} =
+    contract_points!(du, scratch, b, ntuple(d -> e[d] * length(t.gauss), Val(D)), b, e,
+                     t.contract, factor, var, Val(D), Val(P1))
+
+# The same for any rule whose one-dimensional factor of `P` is `contract`,
+# `Q` points per dimension: element `e` of block `b`, whose values sit in
+# `scratch[base .+ j..., slot]`.
+@inline function contract_points!(du, scratch, slot, base, b, e,
+                                  contract::NTuple{P1,NTuple{Q}}, factor, var, ::Val{D},
+                                  ::Val{P1}) where {D,P1,Q}
     @inbounds begin
-        base = ntuple(d -> e[d] * Q, Val(D))
         for d in 1:D
             lines = ntuple(k -> k < d ? P1 : (k == d ? 1 : Q), Val(D))
             for K in CartesianIndices(lines)
                 at(j) = ntuple(k -> base[k] + (k == d ? j : K[k]), Val(D))
-                line = ntuple(j -> scratch[at(j)..., b], Val(length(t.gauss)))
+                line = ntuple(j -> scratch[at(j)..., slot], Val(Q))
                 for i in 1:P1
                     acc = zero(eltype(scratch))
                     for j in 1:Q
-                        acc += t.contract[i][j] * line[j]
+                        acc += contract[i][j] * line[j]
                     end
-                    scratch[at(i)..., b] = acc
+                    scratch[at(i)..., slot] = acc
                 end
             end
         end
         for K in CartesianIndices(ntuple(_ -> P1, Val(D)))
             node = ntuple(d -> e[d] * P1 + K[d], Val(D))
             local_ = ntuple(d -> base[d] + K[d], Val(D))
-            du[node..., var, b] += factor * scratch[local_..., b]
+            du[node..., var, b] += factor * scratch[local_..., slot]
         end
     end
     return nothing
@@ -619,6 +626,34 @@ end
     f = @index(Global, Linear)
     @inbounds b, e = far[f]
     contract_element!(du, scratch, b, e, t, factor, var, Val(D), Val(P1))
+end
+
+# The graded rule on a device, one band's `GaussRule` over its list of
+# elements, as the far rule runs there: the source at every point into
+# `scratch`, `Q` points per dimension and element `f` of the list, then
+# the contraction one dimension at a time. The points are `tensor_rule`'s,
+# and the contraction takes the same products in the same order, so on
+# the CPU the result is the host rule's to the bit (a test); a device
+# fuses some of the multiply-adds.
+@kernel function graded_points_kernel!(scratch, S, @Const(origins), @Const(spacings),
+                                       @Const(list), g::GaussRule{T,P1,Q}, ::Val{D},
+                                       ::Val{P1}) where {T,D,P1,Q}
+    j, f = @index(Global, NTuple)
+    @inbounds begin
+        b, e = list[f]
+        lo, hi = element_box(origins[b], spacings[b], e, Val(P1), Val(D))
+        J = Tuple(CartesianIndices(ntuple(_ -> Q, Val(D)))[j])
+        x = SVector(ntuple(d -> lo[d] + (hi[d] - lo[d]) * (1 + g.nodes[J[d]]) / 2, Val(D)))
+        scratch[J..., f] = S(x)
+    end
+end
+
+@kernel function graded_contract_kernel!(du, scratch, @Const(list), g::GaussRule, factor,
+                                         var, ::Val{D}, ::Val{P1}) where {D,P1}
+    f = @index(Global, Linear)
+    @inbounds b, e = list[f]
+    contract_points!(du, scratch, f, ntuple(_ -> 0, Val(D)), b, e, g.contract, factor, var,
+                     Val(D), Val(P1))
 end
 
 """
@@ -771,6 +806,8 @@ function projection_plan(p::WaveProblem{T,D}, t::TransferTables{T,P1}, particles
             dev_origins=to_backend(backend, origins),
             dev_spacings=to_backend(backend, spacings),
             active=to_backend(backend, Int32.(findall(mask))), near, graded,
+            dev_graded=map(list -> to_backend(backend, map(x -> (Int32(x[1]), Int32.(x[2])),
+                                                           list)), graded),
             far=to_backend(backend, far))
 end
 
@@ -822,11 +859,35 @@ function project_far_list!(dua, plan, t::TransferTables{T,P1,Q}, S, scratch, fac
     return nothing
 end
 
-# The graded elements, on the host, one band at a time, threaded over
-# elements. `S` is the host's source.
+# The graded elements, one band at a time: on the CPU threaded over
+# elements, on a device as the far rule runs there, in two kernels per
+# band. `S` is the host's source.
 function project_graded!(dua, plan, t::TransferTables, S, factor, var)
-    foreach((g, list) -> project_tensor!(dua, plan, t, g, list, S, factor, var), t.graded,
-            plan.graded)
+    if plan.backend isa CPU
+        foreach((g, list) -> project_tensor!(dua, plan, t, g, list, S, factor, var),
+                t.graded, plan.graded)
+    else
+        Sd = S isa ParticleSource ? device_source(S, plan.backend) : S
+        foreach((g, list) -> project_graded_list!(dua, plan, g, list, Sd, factor, var),
+                t.graded, plan.dev_graded)
+    end
+    return nothing
+end
+
+# One band of the graded rule in kernels, on any backend, over `list`, the
+# band's elements as `(block, element)` in `Int32` on the backend. It does
+# not wait for a device.
+function project_graded_list!(dua, plan, g::GaussRule{T,P1,Q}, list, S, factor,
+                              var) where {T,P1,Q}
+    n = length(list)
+    n == 0 && return nothing
+    D = ndims(dua) - 2
+    backend = plan.backend
+    scratch = allocate(backend, T, ntuple(_ -> Q, D)..., n)
+    graded_points_kernel!(backend)(scratch, S, plan.dev_origins, plan.dev_spacings, list, g,
+                                   Val(D), Val(P1); ndrange=(Q^D, n))
+    graded_contract_kernel!(backend)(dua, scratch, list, g, factor, var, Val(D), Val(P1);
+                                     ndrange=n)
     return nothing
 end
 

@@ -654,6 +654,14 @@ patches.
   bit; on an H200 a `d/8` right-hand side takes 2.04 s against 5.19 s
   on eight host threads, nearly all of it the host's two rules, and the
   plan per call 1.4 ms, which leaves B2 little to do.
+- 2026-11-11: Erik Schnetter asked for B3. On a device the graded rule
+  now runs as the far rule does, per band over its list of elements, the
+  source at every point and then the contraction; since the host's
+  recursive `tensor_rule` takes the same points, products and order, the
+  kernels give its result to the bit on the CPU, which keeps
+  `tensor_rule`. On an H200 at `d/8` the graded rule takes 20 ms instead
+  of 1.11 s on eight host threads, and a right-hand side 0.93 s instead
+  of 2.04, nearly all of it the nested rule on the host.
 
 ## Particles
 

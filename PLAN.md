@@ -166,17 +166,23 @@ plenty of in `Float64`.
   rule's 55 ms, with the jets uploaded per call (`device_source`). The
   classification stays a host loop unless a larger box shows it
   growing.
-- **B3, the graded rule.** The far rule's two kernels with the number
-  of points per dimension a `Val`, one launch per band. Done when the
-  graded rule matches the host's to rounding on CUDA, and costs about
-  what the far rule does (1.11 s on eight host threads at `d/8` now).
+- **B3, the graded rule. Done** (2026-11-11; `CODE.md`, "On a device").
+  Each band runs over its list of elements in two kernels of the far
+  rule's kind, the source at the band's points and the contraction; on
+  the CPU they give the host's `tensor_rule` to the bit, and on an H200
+  its result to `6·10⁻¹⁴` in a whole right-hand side. At `d/8` the
+  graded rule takes 20 ms there against the far rule's 55 ms (1.11 s on
+  eight host threads, 0.115 s on 64 cores), and a right-hand side
+  0.93 s, of which the nested rule on the host is 0.92 s. The CPU keeps
+  `tensor_rule`.
 - **B4, the nested rule.** The host plans the segments of each nested
   element's lines (`line_fold`, `support_breaks`) into preallocated flat
   arrays, without the allocations of today's plan; one kernel evaluates
   all nested points; each element's sums are taken in a fixed order and
   written to its nodes. Done when the nested rule matches the host's to
   rounding on and off the grid, and the projection's three rules are
-  timed on an H200 (0.92 s on eight host threads at `d/8` now).
+  timed on an H200 (0.92 s on eight host threads at `d/8` now, nearly
+  all of a right-hand side there).
 - **B5, the forces.** The pairing stays on the host: it reads the
   density, not the source, over at most a few dozen elements, whose
   nodal values (the support's elements and their sharers') are copied

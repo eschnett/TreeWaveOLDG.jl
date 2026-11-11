@@ -1581,12 +1581,12 @@ no partition).
 - **Host-only:** the blast wave's exact solution (host tables) and the
   annulus's (Bessel functions), whose drivers keep the CPU; and of the
   particles the pairing, so that `particle_forces` refuses a device.
-- **The inspiral's right-hand side runs on a device,** with two of its
-  parts still on the host (`PLAN.md`, "Particles on a device", B1): the
-  wave equation, the far rule, the passes over the ball's blocks and
-  the averaging over shared nodes are kernels there; the graded and
-  nested rules evaluate the source on the host, while the device works
-  on the far rule, and one kernel adds their elements' values
+- **The inspiral's right-hand side runs on a device,** with one of its
+  parts still on the host (`PLAN.md`, "Particles on a device", B1 and
+  B3): the wave equation, the far and graded rules, the passes over the
+  ball's blocks and the averaging over shared nodes are kernels there;
+  the nested rule evaluates the source on the host, while the device
+  works on the others, and one kernel adds its elements' values
   (`add_elements!`); the particles' six numbers each are copied to and
   from the host in one piece. `inspiral_initial_state` fills the field
   on a host field set of the same layout and copies it. The result is
@@ -1609,6 +1609,13 @@ no partition).
   gave a work item to every point of them, a fifth idle, each
   classifying its element again; the list saves 46 of the far rule's
   168 ms on an H200. On the CPU the two give the same `du` bit for bit (a test).
+- **On a device the graded rule runs as the far rule does,** each band
+  over its list of elements in two kernels (`project_graded_list!`): the
+  source at every point into a scratch array of its own, then the
+  contraction one dimension at a time. The host visits the same points
+  recursively (`tensor_rule`) and takes the same products in the same
+  order, so the kernels on the CPU give its result to the bit (a test);
+  a device fuses some multiply-adds.
 - **The generated lab slice makes no calls on the nested dual numbers**
   ([The near field](#the-near-field), "No calls inside them"). Its
   order-3 term called `evalpoly` 46 times and a four-factor product 32
@@ -2121,7 +2128,8 @@ discontinuous across faces. It is element-local and needs no exchange.
   block evaluates `S` into a scratch array (`projection_scratch`), and
   one per element contracts its `q^D` values one dimension at a time, in
   place, into `P S` at its nodes. On a device the far rule runs over a
-  list of its elements instead ([On a device](#on-a-device)). The
+  list of its elements instead, and so does the graded rule, in kernels
+  of the same kind ([On a device](#on-a-device)). The
   others run on the host: those at
   least `rnear·hₑ` from every particle take the graded rule, `q` points
   per dimension by their distance from the nearest particle, evaluated
@@ -2132,7 +2140,8 @@ discontinuous across faces. It is element-local and needs no exchange.
   afterwards in the rule's order, since the element that holds a
   particle can be a third of the nested work. Both keep each element's
   values on the host, and one kernel adds them to its nodes on the
-  state's backend (`add_elements!`). Each element writes only
+  state's backend (`add_elements!`); on a device that is the nested
+  rule's alone. Each element writes only
   its own nodes, and every sum is
   in a fixed order, so the result does not depend on the thread count. An
   element near two particles takes its rule from the nearer one, since
@@ -2164,7 +2173,8 @@ every particle's support must lie inside the box, and `support_elements`
 refuses a support that reaches a face. On a refined forest every block
 the source's ball meets, and every block that holds part of a particle's
 support, must be on the finest level ([Nested boxes](#nested-boxes)).
-The graded and nested rules and the pairing run on the host.
+The nested rule and the pairing run on the host, and the graded rule
+too on the CPU.
 
 ### The averaging
 
@@ -3145,7 +3155,9 @@ one thread on CI, is otherwise silent until its summary.
   the CPU standing in, as on CI, where it checks the plumbing: the state
   and the spacings come back on the device; the far rule over its list of
   elements is the one over the ball's blocks, bit for bit on the CPU and
-  to `sqrt(eps)` on a device with `Float64`; an inspiral right-hand side
+  to `sqrt(eps)` on a device with `Float64`; the graded rule's kernels
+  are the host's tensor rule, bit for bit on the CPU and to `sqrt(eps)`
+  on a device; an inspiral right-hand side
   and initial state of a particle on a circle, with and without the
   averaging, are the host's to `sqrt(eps)` in the field, the source
   alone too, and exactly in the particles, on a device with `Float64`; a periodic and a refined
@@ -4101,8 +4113,11 @@ are within 2 %), the ball the benchmark ball.
   job's eight host threads, equal to `6·10⁻¹⁴` relative and the
   particles' rates exactly. On the device the wave equation takes
   1.6 ms, the far rule 55 ms, the averaging 0.06 ms and the plan 1.4 ms;
-  the graded and nested rules, still on the eight host threads, take
-  1.11 and 0.92 s, nearly all of it (`PLAN.md`, B3 and B4).
+  the graded and nested rules, then on the eight host threads, took
+  1.11 and 0.92 s. With the graded rule on the device (job 595837) it
+  takes 20 ms there, 2.5 M points against the far rule's 6.8 M, and the
+  right-hand side 0.93 s, equal to the host's as before; the nested
+  rule's 0.92 s on the host is nearly all of it (`PLAN.md`, B4).
 
 **The source on an H200** (`bin/source_probe.jl`, jobs 595363 and
 595800, the last two rows), ns per
