@@ -1624,6 +1624,13 @@ no partition).
   multi-dimensional index KernelAbstractions forms takes run-time
   divisions, which cost the far rule's source pass a tenth of its time
   on an H200, as TreeAMR found for its copy kernels.
+- **On CUDA those passes run with a register cap** of 128, through the
+  package extension `ext/TreeWaveOLDGCUDAExt.jl`, which loads with CUDA
+  and launches them with `@cuda maxregs=128` and 128 threads a block:
+  KernelAbstractions' CUDA back end passes no cap. The source at order 3
+  takes all 255 registers a thread may have and spills; capped it
+  spills more, but twice as many threads fit, and a right-hand side at
+  `d/8` takes a tenth less. Every other kernel launches as before.
 - **On a device the nested rule runs over a list of its points**
   (`project_near_points!`). The host lists them with their weights, the
   products of their lines' weights (`nested_points`), in two passes
@@ -4153,7 +4160,12 @@ are within 2 %), the ball the benchmark ball.
   32 ms on the host. Launched over one linear index (`launch_points!`),
   the three source passes save 7 % of that (job 595944): the far rule
   50 ms, the graded rule 18 ms, a right-hand side 0.0955 s and a step
-  0.383 s.
+  0.383 s. With the register cap another tenth (job 595948): the far
+  rule 44 ms, the graded rule 17 ms, a right-hand side 0.0858 s and a
+  step 0.339 s, 61 times the eight host threads, equal to the host's as
+  before. A prototype of the far rule's pass found 128 the best cap:
+  43.5 ms against 45.8 at 168, 46.1 at 112 and 52.1 at 96, and 48.8 ms
+  uncapped.
 
 **The source on an H200** (`bin/source_probe.jl`, jobs 595363 and
 595800, the last two rows), ns per

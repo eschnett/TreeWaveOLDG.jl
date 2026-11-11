@@ -137,10 +137,8 @@ plenty of in `Float64`.
   baseline moved: on one EPYC 7543 node the far rule takes 0.506 s on 64
   cores, and the H200 is 9.3 times that, 12.4 times the code before.
   About at the gate. What is left, should more be wanted:
-  - **A register cap** of 128 saves a fifth of the source on a device
-    (`bin/source_probe.jl`), which KernelAbstractions' CUDA back end
-    cannot pass; the far rule's source kernel would need a launch of its
-    own through CUDA.
+  - **A register cap**, done since (`CODE.md`, "On a device"): 128,
+    through a CUDA package extension, a tenth off a right-hand side.
   - **Truncate the order-3 polynomials far from the particles**, which
     `CODE.md` leaves open for want of a bound; the transition is far from
     them.
@@ -182,8 +180,10 @@ plenty of in `Float64`.
   grid, and on an H200 to `6·10⁻¹⁴` in a whole right-hand side. At
   `d/8` the three rules take 55, 20 and 36 to 53 ms there, and a
   right-hand side 0.102 s, about 7.4 times 64 cores and 50 times the
-  job's eight host threads. The far rule is the largest part again; a
-  register cap (B0) would be the next thing to try.
+  job's eight host threads. The far rule is the largest part again.
+  Since then the source passes launch over one linear index and, on
+  CUDA, with a register cap of 128 (a package extension): a right-hand
+  side takes 0.0858 s, a step 0.339 s.
 - **B5, the forces. Done** (2026-11-11; `CODE.md`, "On a device"). The
   pairing stays on the host and reads, from a device, copies of the
   blocks that hold the support's elements and their neighbours

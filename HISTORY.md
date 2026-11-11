@@ -681,7 +681,10 @@ patches.
   kernel showed half the gain without a cap: KernelAbstractions'
   multi-dimensional index cost a tenth of the pass. So the three source
   passes now launch over one linear index, 7 % off a right-hand side
-  and a step.
+  and a step. The cap itself went into a package extension on CUDA,
+  `@cuda maxregs=128`, another tenth, as its own commit so that it can
+  be dropped: whether its gain is worth the extension is the owner's
+  call.
 
 ## Particles
 

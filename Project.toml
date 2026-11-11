@@ -14,11 +14,18 @@ SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 TreeAMR = "91bc416d-811c-44c1-9bc4-b9c8bbdbbd08"
 
+[weakdeps]
+CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+
+[extensions]
+TreeWaveOLDGCUDAExt = "CUDA"
+
 [sources]
 IMEXRungeKutta = {rev = "main", url = "https://github.com/eschnett/IMEXRungeKutta.jl"}
 
 [compat]
 Adapt = "4"
+CUDA = "5, 6"
 ForwardDiff = "1"
 IMEXRungeKutta = "1.4"
 KernelAbstractions = "0.9.42"
