@@ -202,8 +202,8 @@ function annulus_forest(::Type{T}, P::Integer, E::Integer; roots=(2, 1), r0=1,
 end
 
 """
-    SevenPatchBall{T}(Lc, R1, roots)
-    SevenPatchBall(Lc, R1, roots)
+    SevenPatchBall{T}(Lc, R1, roots; grading=0)
+    SevenPatchBall(Lc, R1, roots; grading=0)
 
 The ball `|x| ≤ R1` as seven patches, as [`sevenpatch_forest`](@ref)
 builds them, with `roots = (n, m)`:
@@ -216,13 +216,21 @@ builds them, with `roots = (n, m)`:
   box maps to
 
       c_k = s,   c_j = 2ξ_j/n - 1 (j ≠ k),   f = Lc c
-      ρ = ξ_k/m (s = 1),  1 - ξ_k/m (s = -1)
+      η = ξ_k/m (s = 1),  1 - ξ_k/m (s = -1)
+      ρ = (e^{αη} - 1)/(e^α - 1)   (ρ = η for α = 0)
       x = (1 - ρ) f + ρ R1 f/|f|
 
   so that its inner face is the cube's face, flat, and its outer face the
   sphere `|x| = R1`. Each logical dimension `j` of a shell runs along
   `x_j`, and `ξ_k` increases outward for `s = 1` and inward for `s = -1`,
   so that every cube–shell glue is the identity.
+
+The radial coordinate is uniform for `grading = α = 0`. For `α > 0` the
+shells' radial elements widen outward by the one ratio from each to the
+next, the outermost `e^α` times as wide as the innermost, so that they can
+start at the cube's own element width, where a jump in radial resolution
+is what the cube–shell face reflects, and still reach the sphere in few
+elements. See "The seven-patch ball" in `CODE.md`.
 
 The shells' metric is not diagonal, and `√g` does not factorize, so this
 is a [`FullGeometry`](@ref). `R1 > √3 Lc`, so that the cube's corners lie
@@ -232,8 +240,9 @@ struct SevenPatchBall{T} <: FullGeometry
     Lc::T
     R1::T
     roots::NTuple{2,Int}
+    grading::T                   # α
 
-    function SevenPatchBall{T}(Lc, R1, roots::NTuple{2,Integer}) where {T}
+    function SevenPatchBall{T}(Lc, R1, roots::NTuple{2,Integer}; grading=0) where {T}
         0 < Lc || throw(ArgumentError(
             "the cube's half-width Lc must be positive, got $Lc"))
         R1 > sqrt(3) * Lc || throw(ArgumentError(
@@ -242,12 +251,23 @@ struct SevenPatchBall{T} <: FullGeometry
         all(>(0), roots) || throw(ArgumentError(
             "every patch of the ball needs a positive number of roots along each " *
             "dimension, got $roots"))
-        return new{T}(T(Lc), T(R1), Int.(Tuple(roots)))
+        isfinite(grading) || throw(ArgumentError(
+            "the shells' radial grading must be finite, got $grading"))
+        return new{T}(T(Lc), T(R1), Int.(Tuple(roots)), T(grading))
     end
 end
 
-SevenPatchBall(Lc, R1, roots) =
-    SevenPatchBall{float(promote_type(typeof(Lc), typeof(R1)))}(Lc, R1, roots)
+SevenPatchBall(Lc, R1, roots; grading=0) =
+    SevenPatchBall{float(promote_type(typeof(Lc), typeof(R1)))}(Lc, R1, roots;
+                                                                grading=grading)
+
+# The fraction `ρ` of the way from the cube's face to the sphere at the
+# fraction `η` of a shell's radial roots, in `η`'s number type.
+@inline function shell_fraction(geo::SevenPatchBall, η)
+    iszero(geo.grading) && return η
+    α = geo.grading * one(η)
+    return (exp(α * η) - 1) / (exp(α) - 1)
+end
 
 # The shells' cube faces `(k, s)`, in patch order 2–7.
 const SEVENPATCH_SHELLS = ((1, -1), (1, 1), (2, -1), (2, 1), (3, -1), (3, 1))
@@ -265,7 +285,7 @@ sevenpatch_index(k, s) = 1 + 2(k - 1) + (s == 1 ? 2 : 1)
     end
     k, s = SEVENPATCH_SHELLS[p - 1]
     f = SVector(ntuple(j -> j == k ? s * Lc : Lc * (2 * ξ[j] / n - 1), Val(3)))
-    ρ = s == 1 ? ξ[k] / m : 1 - ξ[k] / m
+    ρ = shell_fraction(geo, s == 1 ? ξ[k] / m : 1 - ξ[k] / m)
     return (1 - ρ) .* f .+ (ρ * geo.R1 / sqrt(f[1]^2 + f[2]^2 + f[3]^2)) .* f
 end
 
@@ -342,7 +362,7 @@ function check_geometry(geo::SevenPatchBall, forest::Forest{D}) where {D}
 end
 
 """
-    sevenpatch_forest(T, P, E; roots=(2, 2), Lc=1, R1=3, refined=false)
+    sevenpatch_forest(T, P, E; roots=(2, 2), Lc=1, R1=3, refined=false, grading=0)
         -> (forest, geometry)
 
 The ball `|x| ≤ R1` as TreeAMR's forest of seven patches, a cube of
@@ -366,16 +386,20 @@ refines a block on the cube's face would refine the shells across it, and
 is refused: a geometry takes refinement only where its map is affine
 ([`affine_patch`](@ref TreeWaveOLDG.affine_patch)).
 
+`grading` widens the shells' radial elements outward, the outermost
+`e^grading` times the innermost ([`SevenPatchBall`](@ref)); `0`, the
+default, keeps them uniform.
+
 Hand both to [`WaveProblem`](@ref): `WaveProblem(forest, el; geometry, boundary)`.
 """
 function sevenpatch_forest(::Type{T}, P::Integer, E::Integer; roots=(2, 2), Lc=1,
-                           R1=3, refined=false) where {T}
+                           R1=3, refined=false, grading=0) where {T}
     N = E * (P + 1)
     iseven(E) || throw(ArgumentError(
         "E = $E elements of order P = $P per block is odd, and E must be even: " *
         "TreeAMR's element centering needs N = $N to be a multiple of " *
         "2(P+1) = $(2(P + 1))"))
-    geo = SevenPatchBall{T}(Lc, R1, Tuple(roots))
+    geo = SevenPatchBall{T}(Lc, R1, Tuple(roots); grading=grading)
     forest = Forest{T}([(roots=sevenpatch_roots(geo, p),) for p in 1:7]; N=N,
                        glue=sevenpatch_glue())
     refined === false && return forest, geo

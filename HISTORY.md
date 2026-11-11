@@ -301,7 +301,21 @@ patches.
   2:1 the face sends back what the boxes' flat 2:1 face does, and at 1:1
   below `1e-6`, so the cause is the jump in radial resolution, not the
   bend of the shells' radial lines or the glue. Graded radial spacing in
-  the shells is proposed in `CODE.md` ("Possible extensions").
+  the shells was proposed in `CODE.md` ("Possible extensions").
+- 2026-11-11: graded shells, at Erik Schnetter's request after the face
+  study: `sevenpatch_forest(…; grading)` takes the shells' radial
+  coordinate through `s(η) = (e^{αη} − 1)/(e^α − 1)`, each element a fixed
+  ratio wider than the one inside it, and `bin/nested_ball.jl --hface`
+  grades from the cube's width to `--hshell` at the sphere. The proposal
+  had expected 1:1 at the face for about a third more shell nodes. The
+  same study on four graded layouts (Symmetry jobs 595921–595924) showed
+  that grading does remove the face's jump, and the widening itself
+  sends back little, but that what stays behind afterwards is set by the
+  outermost elements, which need about 16 per wavelength; so at equal
+  nodes uniform shells at 2:1 do as well or better, and grading to 1:1
+  saves about a fifth of the nodes of uniform 1:1 shells. The map stays,
+  uniform by default; the proposal was replaced by the measurement in
+  "What the cube–shell face sends back".
 
 ## Refined forests
 

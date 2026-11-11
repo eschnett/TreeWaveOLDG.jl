@@ -4,8 +4,8 @@
 #
 #     julia -t N,0 --project=. bin/nested_ball.jl [--levels=4] [--w0=4] \
 #         [--hdiv=8] [--lambda=16] [--sigma=lambda/2] [--R1=3Lc] \
-#         [--hshell=hroot] [--tend=2R1] [--every=0.5] [--cfl=0.5] [--cost=no] \
-#         [--radii=w0,2w0,…]
+#         [--hshell=hroot] [--hface=hshell] [--tend=2R1] [--every=0.5] \
+#         [--cfl=0.5] [--cost=no] [--radii=w0,2w0,…]
 #
 # Like `bin/nested_waves.jl`, which it mirrors, this runs against the
 # package environment; `bin/symmetry/nested_ball.sh` runs it on a Symmetry
@@ -19,8 +19,13 @@
 # `Lc = 2^(levels-1) w0`, is `nested_waves.jl`'s periodic box with the same
 # options. Six shells continue it to the sphere `R1` (default `3Lc`), with
 # radial elements about `hshell` wide at the cube's face centres (default
-# the cube's root level's element width `hroot`), and a
-# `RadiativeBoundary()` there (Sommerfeld's condition with its `u/R` term,
+# the cube's root level's element width `hroot`). With `--hface` below
+# `hshell` the shells are graded instead (`sevenpatch_forest`'s
+# `grading`): their radial elements start about `hface` wide at the cube
+# and widen by one ratio each to about `hshell` at the sphere, so that the
+# cube–shell face need not jump in radial resolution, which is what it
+# reflects (CODE.md, "The seven-patch ball" under "Measured results"). A
+# `RadiativeBoundary()` at the sphere (Sommerfeld's condition with its `u/R` term,
 # exact for this monopole). Beside the cube's corners a shell's radial
 # line runs from `√3 Lc` to `R1` only, and its elements there are thinner
 # and sheared: at `R1 = 3Lc` the shells' own step is about 0.32 of the
@@ -42,7 +47,7 @@
 #     threads levels w0 hdiv lambda sigma R1 t quantity value
 #
 # At `t = 0`: `nodes`, `nodes_level<k>` per level `k` (0 the root),
-# `nodes_shells`, `shell_radial_elements`, `steps`, `dt`. Every `every` in time, for each level's
+# `nodes_shells`, `shell_radial_elements`, `shell_grading`, `steps`, `dt`. Every `every` in time, for each level's
 # cube, the ball of radius `w_k = 2^k w0` about the origin (`k = 0` the
 # finest), or for each of `--radii` instead, and for the whole ball (`w = R1`): the error against the exact
 # solution, `u` and `v` together, `√g`-weighted L2 (`err_w<w>`) and L∞
@@ -158,8 +163,12 @@ function ball_errors(p, geo, u, radius; norm=2)
 end
 
 # The ball, its cubes and its shells: `n` roots across the cube, `m`
-# radially in each shell, `E` elements per block along each dimension.
-function layout(levels, w0, hdiv, R1, hshell)
+# radially in each shell, `E` elements per block along each dimension, and
+# the shells' grading `α`. Graded from `hface` to `hshell`, the widths
+# `(R1 - Lc) s′(η)/(mE)` of `s(η) = (e^{αη} - 1)/(e^α - 1)` run from
+# `hface` to `hshell` for `α = log(hshell/hface)` and
+# `mE = (R1 - Lc) α/(hshell - hface)`, rounded up.
+function layout(levels, w0, hdiv, R1, hshell, hface=nothing)
     across = 2w0 * hdiv
     isinteger(across) || error("2 w0 hdiv = $across elements across a level is not whole")
     fits = [e for e in (4, 2) if round(Int, across) % (4e) == 0]
@@ -172,14 +181,21 @@ function layout(levels, w0, hdiv, R1, hshell)
     Lc = 2^(levels - 1) * w0
     hroot = 2Lc / across                       # the cube's root element width
     h = hshell === nothing ? hroot : hshell
-    m = max(1, ceil(Int, (R1 - Lc) / h / E))
-    return (; E, n, m, Lc)
+    if hface === nothing || hface >= h
+        m = max(1, ceil(Int, (R1 - Lc) / h / E))
+        α = 0.0
+    else
+        α = log(h / hface)
+        m = max(1, ceil(Int, (R1 - Lc) * α / (h - hface) / E))
+    end
+    return (; E, n, m, Lc, α)
 end
 
-function ball_problem(levels, w0, hdiv, R1, hshell)
-    (; E, n, m, Lc) = layout(levels, w0, hdiv, R1, hshell)
+function ball_problem(levels, w0, hdiv, R1, hshell, hface=nothing)
+    (; E, n, m, Lc, α) = layout(levels, w0, hdiv, R1, hshell, hface)
     forest, geo = sevenpatch_forest(Float64, 3, E; roots=(n, m), Lc=Lc, R1=R1,
-                                    refined=nested_cubes(Val(3), n / 2^levels, levels))
+                                    refined=nested_cubes(Val(3), n / 2^levels, levels),
+                                    grading=α)
     p = WaveProblem(forest, Element(Float64, 3); geometry=geo,
                     boundary=RadiativeBoundary())
     return p, geo
@@ -241,6 +257,8 @@ function main()
     R1 = parse(Float64, option("R1", string(3Lc)))
     hs = option("hshell", "")
     hshell = isempty(hs) ? nothing : parse(Float64, hs)
+    hf = option("hface", "")
+    hface = isempty(hf) ? nothing : parse(Float64, hf)
     tend = parse(Float64, option("tend", string(2R1)))
     every = parse(Float64, option("every", "0.5"))
     rs = option("radii", "")
@@ -252,7 +270,7 @@ function main()
     println(join(("threads", "levels", "w0", "hdiv", "lambda", "sigma", "R1", "t",
                   "quantity", "value"), '\t'))
 
-    build = @elapsed (p, geo) = ball_problem(levels, w0, hdiv, R1, hshell)
+    build = @elapsed (p, geo) = ball_problem(levels, w0, hdiv, R1, hshell, hface)
     forest = p.fs.forest
     emit(tag..., 0.0, "build_s", build)
     if withcost
@@ -273,8 +291,9 @@ function main()
     end
     emit(tag..., 0.0, "nodes_shells", count(key -> patch(forest, key) > 1, forest.leaves) *
                                       forest.N^3)
-    emit(tag..., 0.0, "shell_radial_elements",
-         layout(levels, w0, hdiv, R1, hshell).m * layout(levels, w0, hdiv, R1, hshell).E)
+    shells = layout(levels, w0, hdiv, R1, hshell, hface)
+    emit(tag..., 0.0, "shell_radial_elements", shells.m * shells.E)
+    emit(tag..., 0.0, "shell_grading", shells.α)
     emit(tag..., 0.0, "steps", integ.nsteps)
     emit(tag..., 0.0, "dt", integ.dt)
     n = max(1, round(Int, every / integ.dt))

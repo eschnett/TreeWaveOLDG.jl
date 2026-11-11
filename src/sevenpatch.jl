@@ -61,7 +61,7 @@ sevenpatch_exact(geo::Geometry, wave::PlaneWave{T}, t) where {T} =
 """
     sevenpatch_errors(T=Float64; P, E, roots=(2, 2), Lc=1, R1=3,
                       k=(1.1, -0.7, 0.5), φ=0.3, cfl=1/2, tend=1, alg=RK4(),
-                      truncate=true, refined=false)
+                      truncate=true, refined=false, grading=0)
 
 Evolve a plane wave ([`PlaneWave`](@ref)) on the seven-patch ball of
 [`sevenpatch_forest`](@ref) to `tend`, with the wave itself as the
@@ -72,12 +72,15 @@ number of blocks and the initial and final energies.
 
 The time step is [`oldg_timestep`](@ref), which on the ball divides each
 block's spacing by its largest logical wave speed. `refined` refines the
-cube ([`sevenpatch_forest`](@ref)), and `h` is then its finest level's.
+cube ([`sevenpatch_forest`](@ref)), and `h` is then its finest level's;
+`grading` grades the shells' radial elements ([`SevenPatchBall`](@ref)).
 """
 function sevenpatch_errors(::Type{T}=Float64; P::Integer, E::Integer, roots=(2, 2),
                            Lc=1, R1=3, k=(1.1, -0.7, 0.5), φ=0.3, cfl=T(1//2), tend=1,
-                           alg=RK4(), truncate::Bool=true, refined=false) where {T}
-    forest, geo = sevenpatch_forest(T, P, E; roots=roots, Lc=Lc, R1=R1, refined=refined)
+                           alg=RK4(), truncate::Bool=true, refined=false,
+                           grading=0) where {T}
+    forest, geo = sevenpatch_forest(T, P, E; roots=roots, Lc=Lc, R1=R1, refined=refined,
+                                    grading=grading)
     el = Element(T, P)
     wave = PlaneWave{T}(k, φ)
     problem = WaveProblem(forest, el; truncate=truncate, geometry=geo, boundary=wave)
@@ -162,7 +165,7 @@ end
 """
     radiative_errors(T=Float64; P, E, roots=(2, 2), Lc=1, R1=3, w=1/2,
                      κ=1, inverse_r=true, cfl=1/2, tend=2, alg=RK4(),
-                     truncate=true, refined=false)
+                     truncate=true, refined=false, grading=0)
 
 Evolve an [`OutgoingPulse`](@ref) of width `w` on the seven-patch ball of
 [`sevenpatch_forest`](@ref) to `tend`, with a [`RadiativeBoundary`](@ref)
@@ -175,13 +178,15 @@ included ([`wave_energy`](@ref)).
 The pulse reaches the sphere `r = R1` at `t ≈ R1 - 2w` and has left it
 by `t ≈ R1 + 2w`; what it leaves behind is the reflection. `refined`
 refines the cube ([`sevenpatch_forest`](@ref)), and `h` is then its finest
-level's.
+level's; `grading` grades the shells' radial elements
+([`SevenPatchBall`](@ref)).
 """
 function radiative_errors(::Type{T}=Float64; P::Integer, E::Integer, roots=(2, 2),
                           Lc=1, R1=3, w=T(1//2), κ=1, inverse_r::Bool=true,
                           cfl=T(1//2), tend=2, alg=RK4(), truncate::Bool=true,
-                          refined=false) where {T}
-    forest, geo = sevenpatch_forest(T, P, E; roots=roots, Lc=Lc, R1=R1, refined=refined)
+                          refined=false, grading=0) where {T}
+    forest, geo = sevenpatch_forest(T, P, E; roots=roots, Lc=Lc, R1=R1, refined=refined,
+                                    grading=grading)
     el = Element(T, P)
     pulse = OutgoingPulse{T}(w)
     problem = WaveProblem(forest, el; truncate=truncate, geometry=geo,

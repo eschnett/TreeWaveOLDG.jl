@@ -66,29 +66,36 @@ end
     # `√g`, differs from the finite differences of the map by `O(1)`. The
     # cube is affine, so there it is exact. Every shell's inner face is the
     # cube's face, and its outer face the sphere.
-    forest, geo = sevenpatch_forest(Float64, 2, 2; roots=(2, 2), Lc=1, R1=3)
+    # The graded radial coordinate changes neither.
     x = (0.3, 1.7, 0.9)
     ε = 1e-6
-    for q in 1:7
-        J, S = geometry_frame(geo, x, q)
-        Jm = hcat([collect((physical_coordinates(geo, ntuple(j -> x[j] + (j == e) * ε, 3),
-                                                 q) .-
-                            physical_coordinates(geo, ntuple(j -> x[j] - (j == e) * ε, 3),
-                                                 q)) ./ (2ε)) for e in 1:3]...)
-        Sfd = abs(det(Jm)) .* inv(Jm)
-        @test all(abs(S[d][i] - Sfd[d, i]) < 1e-8 * max(1, J) for d in 1:3, i in 1:3)
-        @test J > 0
+    for grading in (0, 1.5)
+        forest, geo = sevenpatch_forest(Float64, 2, 2; roots=(2, 2), Lc=1, R1=3,
+                                        grading=grading)
+        for q in 1:7
+            J, S = geometry_frame(geo, x, q)
+            Jm = hcat([collect((physical_coordinates(geo,
+                                                     ntuple(j -> x[j] + (j == e) * ε, 3),
+                                                     q) .-
+                                physical_coordinates(geo,
+                                                     ntuple(j -> x[j] - (j == e) * ε, 3),
+                                                     q)) ./ (2ε)) for e in 1:3]...)
+            Sfd = abs(det(Jm)) .* inv(Jm)
+            @test all(abs(S[d][i] - Sfd[d, i]) < 1e-8 * max(1, J) for d in 1:3, i in 1:3)
+            @test J > 0
+        end
+        @test geometry_frame(geo, x, 1) == (1.0, ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0),
+                                                  (0.0, 0.0, 1.0)))
+        for (k, s) in TreeWaveOLDG.SEVENPATCH_SHELLS
+            q = TreeWaveOLDG.sevenpatch_index(k, s)
+            inner = ntuple(j -> j == k ? (s == 1 ? 0.0 : 2.0) : 0.6, 3)
+            outer = ntuple(j -> j == k ? (s == 1 ? 2.0 : 0.0) : 0.6, 3)
+            @test physical_coordinates(geo, inner, q) ==
+                  ntuple(j -> j == k ? Float64(s) : -0.4, 3)
+            @test sqrt(sum(abs2, physical_coordinates(geo, outer, q))) ≈ 3 rtol = 1e-15
+        end
     end
-    @test geometry_frame(geo, x, 1) == (1.0, ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0),
-                                              (0.0, 0.0, 1.0)))
-    for (k, s) in TreeWaveOLDG.SEVENPATCH_SHELLS
-        q = TreeWaveOLDG.sevenpatch_index(k, s)
-        inner = ntuple(j -> j == k ? (s == 1 ? 0.0 : 2.0) : 0.6, 3)
-        outer = ntuple(j -> j == k ? (s == 1 ? 2.0 : 0.0) : 0.6, 3)
-        @test physical_coordinates(geo, inner, q) ==
-              ntuple(j -> j == k ? Float64(s) : -0.4, 3)
-        @test sqrt(sum(abs2, physical_coordinates(geo, outer, q))) ≈ 3 rtol = 1e-15
-    end
+    forest, geo = sevenpatch_forest(Float64, 2, 2; roots=(2, 2), Lc=1, R1=3)
     el = Element(Float64, 2)
     wave = PlaneWave((1.0, 0.0, 0.0), 0.0)
     brick = wave_forest(Float64, Val(3), 2, 2; roots=2)
@@ -158,9 +165,10 @@ end
     # build.
     @test TreeWaveOLDG.table_type(Float64) === TreeWaveOLDG.Float64x2
     @test TreeWaveOLDG.table_type(BigFloat) === BigFloat
-    for P in (2, 3)
+    for P in (2, 3), grading in (0, 1.5)
         el = Element(Float64, P)
-        forest, geo = sevenpatch_forest(Float64, P, 2; roots=(2, 1), Lc=1, R1=3)
+        forest, geo = sevenpatch_forest(Float64, P, 2; roots=(2, 1), Lc=1, R1=3,
+                                        grading=grading)
         fast = TreeWaveOLDG.element_truncation(geo, forest, el, TreeWaveOLDG.CPU())
         slow = TreeWaveOLDG.element_truncation(geo, forest, el, TreeWaveOLDG.CPU(),
                                                BigFloat)
@@ -180,10 +188,11 @@ end
     # node, a component permuted by a quarter turn, or a divergence not
     # divided by `√g` leaves a rate of the size of its terms. The state
     # vanishes in the shells' outermost elements and the Dirichlet data are
-    # zero, so nothing crosses the outer sphere.
-    for P in (2, 3), truncate in (false, true)
+    # zero, so nothing crosses the outer sphere. The graded shells change
+    # the frame and nothing else.
+    for P in (2, 3), truncate in (false, true), grading in (0, 1.5)
         el = Element(Float64, P)
-        forest, geo = sevenpatch_forest(Float64, P, 2; roots=(2, 2))
+        forest, geo = sevenpatch_forest(Float64, P, 2; roots=(2, 2), grading=grading)
         p = WaveProblem(forest, el; geometry=geo, boundary=ZeroData(), truncate=truncate)
         u = statevector(p.fs)
         u .= scrambled(length(u), 0.2)
@@ -239,6 +248,30 @@ end
         rate = convergence_rate([r.h for r in rs], [r.l2 for r in rs])
         @test P - 0.3 < rate < P + 0.4
     end
+end
+
+@testset "The graded shells widen by one ratio and keep the plane wave's rate" begin
+    # Along a shell's axis the radial elements of `grading = α` widen by
+    # `e^{α/M}` from each to the next, `M` elements across the shell; a
+    # fraction taken from the wrong end of the shell, or graded per root
+    # instead of across the shell, breaks the ratio. The plane wave crosses
+    # the graded shells at the uniform shells' rate.
+    α, m, E, P = 1.5, 2, 2, 2
+    forest, geo = sevenpatch_forest(Float64, P, E; roots=(2, m), Lc=1, R1=3, grading=α)
+    M = m * E
+    for (k, s) in TreeWaveOLDG.SEVENPATCH_SHELLS
+        q = TreeWaveOLDG.sevenpatch_index(k, s)
+        r(i) = abs(physical_coordinates(geo, ntuple(j -> j == k ? i * m / M : 1.0, 3),
+                                        q)[k])
+        radii = s == 1 ? r.(0:M) : r.(M:-1:0)
+        widths = diff(radii)
+        @test radii[1] ≈ 1 && radii[end] ≈ 3
+        @test all(w -> w ≈ exp(α / M), widths[2:end] ./ widths[1:(end - 1)])
+    end
+    rs = [sevenpatch_errors(; P=3, E=2, roots=(2s, 2s), tend=1/4, grading=α)
+          for s in (1, 2)]
+    rate = convergence_rate([r.h for r in rs], [r.l2 for r in rs])
+    @test 3 - 0.3 < rate < 3 + 0.4
 end
 
 # The rate `Σ w √g v v̇ + Σ w √g ∇u ⋅ ∇v` of the energy of state `u`, and
