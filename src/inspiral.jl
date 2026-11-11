@@ -10,7 +10,9 @@
 # `v` of each particle, six numbers per particle. IMEXRungeKutta's stage
 # arithmetic by block owner takes a plain `Array` only, so the particles
 # go at the end, owned by thread 1 in the partition, rather than into an
-# `ArrayPartition` (`HISTORY.md`, "Particles").
+# `ArrayPartition` (`HISTORY.md`, "Particles"). On a device the whole
+# vector is there, and the particles' tail is copied to and from the host
+# in one piece.
 
 """
     Prescribed(path)
@@ -63,6 +65,11 @@ are read through it ([`average_shared!`](@ref)); `false` is the transfer
 and its adjoint alone, as before M4's decision ("The averaging" in
 `CODE.md`).
 
+The wave problem may be on a device. The far rule then runs there, the
+graded and nested rules on the host, whose results are added on the
+device; the forces ([`particle_forces`](@ref)) are read on the host only
+("Particles on a device" in `PLAN.md`).
+
 The window has to hold the particles: its ball and every particle's
 support lie inside the box, which the transfer checks when it runs. The
 forest may be refined, as the nested boxes of [`nested_cubes`](@ref) are,
@@ -73,7 +80,7 @@ and the particles' supports at `t = 0` are checked here, and every
 projection and pairing checks again, since the particles move ("Nested
 boxes" in `CODE.md`).
 """
-struct InspiralProblem{T,K,WP<:WaveProblem{T,3},TT,MO,S}
+struct InspiralProblem{T,K,WP<:WaveProblem{T,3},TT,MO,S,SN<:SharedNodes{3}}
     wave::WP
     models::NTuple{K,ParticleModel{T}}
     window::Window{T}
@@ -83,7 +90,7 @@ struct InspiralProblem{T,K,WP<:WaveProblem{T,3},TT,MO,S}
     rnear::T
     scratch::S
     continuous::Bool
-    shared::SharedNodes{3}
+    shared::SN
 end
 
 function InspiralProblem(wave::WaveProblem{T,3}, models::Tuple, window::Window,
@@ -95,11 +102,6 @@ function InspiralProblem(wave::WaveProblem{T,3}, models::Tuple, window::Window,
         "$(wave.metric === nothing ? "a forest of patches" : "a geometry"): the " *
         "transfer measures distances in the logical coordinates and locates points " *
         "in one brick (\"Multi-patch forests\" in CODE.md)"))
-    get_backend(wave.fs.work) isa CPU || throw(ArgumentError(
-        "the particles run on the CPU only, and the wave problem is on " *
-        "$(get_backend(wave.fs.work)): the transfer's graded and nested rules, the " *
-        "averaging over shared nodes and the pairing are host code (\"Particles on a " *
-        "device\" in PLAN.md)"))
     tables === nothing && (tables = TransferTables(T, TreeWaveOLDG.order(wave.element)))
     check_tables(wave, tables)
     K = length(models)
@@ -113,8 +115,9 @@ function InspiralProblem(wave::WaveProblem{T,3}, models::Tuple, window::Window,
             models, trajs)
     scratch = projection_scratch(wave, tables)
     shared = SharedNodes(wave.fs, (window.centre, window.R₂))
-    return InspiralProblem{T,K,typeof(wave),typeof(tables),typeof(motion),typeof(scratch)}(
-        wave, models, window, tables, order, motion, T(rnear), scratch, continuous, shared)
+    return InspiralProblem{T,K,typeof(wave),typeof(tables),typeof(motion),typeof(scratch),
+                           typeof(shared)}(wave, models, window, tables, order, motion,
+                                           T(rnear), scratch, continuous, shared)
 end
 
 nparticles(::InspiralProblem{T,K}) where {T,K} = K
@@ -136,22 +139,29 @@ field_state(u::AbstractVector, p::InspiralProblem) = view(u, 1:fieldlength(p))
     particle_state(u, p::InspiralProblem)
 
 The particles' part of the state vector `u`: a tuple of `(z, v)` pairs of
-3-vectors, one per particle.
+3-vectors, one per particle, on the host, read from `u` in one copy.
 """
 function particle_state(u::AbstractVector, p::InspiralProblem{T,K}) where {T,K}
     L = fieldlength(p)
+    tail = Array(view(u, (L + 1):(L + 6K)))
     return ntuple(Val(K)) do k
-        o = L + 6(k - 1)
-        (SVector{3,T}(u[o + 1], u[o + 2], u[o + 3]),
-         SVector{3,T}(u[o + 4], u[o + 5], u[o + 6]))
+        o = 6(k - 1)
+        (SVector{3,T}(tail[o + 1], tail[o + 2], tail[o + 3]),
+         SVector{3,T}(tail[o + 4], tail[o + 5], tail[o + 6]))
     end
 end
 
-function set_particle_state!(u::AbstractVector, p::InspiralProblem{T,K}, k, z,
-                             v) where {T,K}
-    o = fieldlength(p) + 6(k - 1)
-    u[(o + 1):(o + 3)] = z
-    u[(o + 4):(o + 6)] = v
+# Writes each particle's `z = zs[k]` and `v = vs[k]` into `u`, in one copy.
+function set_particle_states!(u::AbstractVector, p::InspiralProblem{T,K}, zs,
+                              vs) where {T,K}
+    tail = Vector{T}(undef, 6K)
+    for k in 1:K
+        o = 6(k - 1)
+        tail[(o + 1):(o + 3)] = zs[k]
+        tail[(o + 4):(o + 6)] = vs[k]
+    end
+    L = fieldlength(p)
+    copyto!(view(u, (L + 1):(L + 6K)), tail)
     return u
 end
 
@@ -255,18 +265,31 @@ function inspiral_initial_state(p::InspiralProblem{T,K}; t::Real=0,
     fs = p.wave.fs
     retarded === nothing || (retarded = Window{T}(retarded.centre, retarded.R₁,
                                                   retarded.R₂, retarded.m))
-    fill_at_nodes!(RemainderData(p, trajs, t; retarded), fs, p.wave.element)
+    data = RemainderData(p, trajs, t; retarded)
     L = fieldlength(p)
-    u = Vector{T}(undef, L + 6K)
-    field = field_state(u, p)
-    # The field's pages are first written by their blocks' owners, as
-    # `statevector` writes them.
-    TreeAMR.zerofill!(statearray(field, fs), get_backend(fs.work))
-    gather!(field, fs)
-    truncate_state!(field, p.wave)
-    for k in 1:K
-        set_particle_state!(u, p, k, trajs[k].z, trajs[k].v)
+    backend = get_backend(fs.work)
+    if backend isa CPU
+        fill_at_nodes!(data, fs, p.wave.element)
+        u = Vector{T}(undef, L + 6K)
+        field = field_state(u, p)
+        # The field's pages are first written by their blocks' owners, as
+        # `statevector` writes them.
+        TreeAMR.zerofill!(statearray(field, fs), backend)
+        gather!(field, fs)
+    else
+        # The particle field is host code: filled on a field set of the
+        # same layout on the host, and copied.
+        hfs = wave_fieldset(T, fs.forest, 2, (0, 0, 0), state_statesparity(Val(3)),
+                            TreeWaveOLDG.order(p.wave.element), CPU())
+        fill_at_nodes!(data, hfs, p.wave.element)
+        hfield = statevector(hfs)
+        gather!(hfield, hfs)
+        u = allocate(backend, T, (L + 6K,))
+        field = field_state(u, p)
+        copyto!(field, hfield)
     end
+    truncate_state!(field, p.wave)
+    set_particle_states!(u, p, map(tr -> tr.z, trajs), map(tr -> tr.v, trajs))
     return u
 end
 
@@ -296,28 +319,42 @@ function inspiral_rhs!(du, u, p::InspiralProblem{T,K}, t) where {T,K}
     supports = map(ParticleSupport, p.models, trajs)
     ball = (p.window.centre, p.window.R₂)
     if p.continuous
-        ua, dua = statearray(fu, p.wave.fs), statearray(fdu, p.wave.fs)
-        blocks = p.shared.blocks
-        Threads.@threads :static for b in blocks
-            fill!(selectdim(selectdim(dua, 5, b), 4, 1), zero(T))
-        end
+        fs = p.wave.fs
+        ua, dua = statearray(fu, fs), statearray(fdu, fs)
+        backend = get_backend(fs.work)
+        range = (ntuple(_ -> fs.forest.N, Val(3))..., length(p.shared.blocks))
+        TreeAMR.launch_by_owner!(ball_zero_kernel!, backend, dua, p.shared.dev_blocks;
+                                 ndrange=range)
         project_source!(fdu, p.wave, p.tables, S, supports; ball, rnear=p.rnear,
                         scratch=p.scratch, var=1)
         average_shared!(dua, p.shared, 1, Val(TreeWaveOLDG.order(p.wave.element) + 1))
-        Threads.@threads :static for b in blocks
-            s = selectdim(selectdim(dua, 5, b), 4, 1)
-            selectdim(selectdim(dua, 5, b), 4, 2) .+= s
-            s .= selectdim(selectdim(ua, 5, b), 4, 2)
-        end
+        TreeAMR.launch_by_owner!(ball_add_kernel!, backend, dua, ua, p.shared.dev_blocks;
+                                 ndrange=range)
+        synchronize(backend)
     else
         project_source!(fdu, p.wave, p.tables, S, supports; ball, rnear=p.rnear,
                         scratch=p.scratch)
     end
     particles = particle_state(u, p)
-    for k in 1:K
-        set_particle_state!(du, p, k, particles[k][2], trajs[k].a)
-    end
+    set_particle_states!(du, p, map(last, particles), map(tr -> tr.a, trajs))
     return nothing
+end
+
+# The ball's blocks' `du = v`, which serves as the source's scratch: zeroed
+# before the projection, and after it the averaged source added to `dv`
+# and `du = v` written again. One work item per node of a ball's block.
+@kernel function ball_zero_kernel!(dua, @Const(blocks))
+    I = @index(Global, NTuple)
+    @inbounds b = Int(blocks[I[end]])
+    @inbounds dua[Base.front(I)..., 1, b] = zero(eltype(dua))
+end
+
+@kernel function ball_add_kernel!(dua, @Const(ua), @Const(blocks))
+    I = @index(Global, NTuple)
+    J = Base.front(I)
+    @inbounds b = Int(blocks[I[end]])
+    @inbounds dua[J..., 2, b] += dua[J..., 1, b]
+    @inbounds dua[J..., 1, b] = ua[J..., 2, b]
 end
 
 """
@@ -389,6 +426,10 @@ read it the other way, for comparison.
 """
 function particle_forces(p::InspiralProblem{T,K}, u, t;
                          continuous::Bool=p.continuous) where {T,K}
+    get_backend(p.wave.fs.work) isa CPU || throw(ArgumentError(
+        "the forces are read on the host only, and the wave problem is on " *
+        "$(get_backend(p.wave.fs.work)): the pairing reads the field at the nodes " *
+        "(\"Particles on a device\" in PLAN.md, B5)"))
     fu = field_state(u, p)
     trajs = trajectories(p, u, t)
     return ntuple(Val(K)) do k

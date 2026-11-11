@@ -643,6 +643,17 @@ patches.
   0.506 s, so the H200 is 9.3 times 64 cores of the same code. A
   register cap of 128 now saves a fifth on the device, where before it
   saved at most 7 %.
+- 2026-11-11: Erik Schnetter asked for B1. The particles' tail is copied
+  in one piece, the ball's passes and the averaging over shared nodes
+  are kernels (the averaging brought forward from B5, since without it
+  only `continuous = false` would have run), and, rather than a switch
+  that ran the far rule alone, the graded and nested rules keep their
+  elements' values on the host for one kernel to add on the device, so
+  that the whole right-hand side runs there and `InspiralProblem`
+  accepts a device. The host's results are the same as before to the
+  bit; on an H200 a `d/8` right-hand side takes 2.04 s against 5.19 s
+  on eight host threads, nearly all of it the host's two rules, and the
+  plan per call 1.4 ms, which leaves B2 little to do.
 
 ## Particles
 

@@ -122,6 +122,46 @@ device_close_arrays(dev, host, ::Type{T}) where {T} =
         end
     end
 
+    @testset "an inspiral right-hand side on the device is the host's" begin
+        # Guards the inspiral's plumbing on a device (PLAN.md, B1): the
+        # particles' tail copied in one piece, the passes over the ball's
+        # blocks and the averaging over shared nodes as kernels, the far
+        # rule on the device with the host's rules' results added there,
+        # and the initial state filled on the host and copied. A particle
+        # on a circle, so that the lab slice's terms are not zero. On the
+        # CPU stand-in the same code twice; the particles need `Float64`.
+        SV = TreeWaveOLDG.SVector
+        function inspiral(backend, continuous)
+            forest = wave_forest(Float64, Val(3), 3, 2; roots=4, L=4.0)
+            wave = WaveProblem(forest, Element(Float64, 3); backend=backend)
+            c = SV(2.0, 2.0, 2.0)
+            motion = circular_motion(c + SV(0.03, 0.02, 0.01), 0.3, 0.2)
+            p = InspiralProblem(wave, (ParticleModel(; Q=0.1, ℓ=0.02, M=1.0),),
+                                Window(c, 1.0, 1.75; continuity=4), motion; continuous)
+            u = inspiral_initial_state(p)
+            du = similar(u)
+            inspiral_rhs!(du, u, p, 0.1)
+            wave_only = similar(field_state(u, p))
+            wave_rhs!(wave_only, field_state(u, p), p.wave, 0.1)
+            source = Array(field_state(du, p)) .- Array(wave_only)
+            return p, Array(u), Array(du), source
+        end
+        if supports_float64(DEVICE)
+            for continuous in (true, false)
+                _, uh, duh, sh = inspiral(CPU(), continuous)
+                pd, ud, dud, sd = inspiral(DEVICE, continuous)
+                L = TreeWaveOLDG.fieldlength(pd)
+                @test norm(sh) > 1e-3
+                @test device_close_arrays(ud, uh, Float64)
+                @test device_close_arrays(dud, duh, Float64)
+                @test device_close_arrays(sd, sh, Float64)
+                @test dud[(L + 1):end] == duh[(L + 1):end]
+                DEVICE isa CPU ||
+                    @test_throws ArgumentError particle_forces(pd, ud, 0.1)
+            end
+        end
+    end
+
     for T in DEVICE_TYPES
         @testset "a periodic box's run on the device gives the host's ($T)" begin
             # Guards against a kernel or the integrator's broadcast path

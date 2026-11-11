@@ -738,6 +738,7 @@ function project_source!(du, p::WaveProblem{T,D}, t::TransferTables, S, particle
     project_far!(dua, plan, t, S, scratch, T(factor), var)
     project_graded!(dua, plan, t, S, T(factor), var)
     project_near!(dua, plan, t, S, T(factor), var)
+    synchronize(plan.backend)
     return du
 end
 
@@ -806,7 +807,8 @@ end
 # The far rule over the plan's list of far elements, as a device runs it:
 # the same points and the same contraction as `project_far!`'s launch over
 # the ball's blocks, so on any backend the same `du` (a test runs both on
-# the CPU).
+# the CPU). It does not wait for the device: the host's rules run while
+# it works, and what they add is launched after it on the same stream.
 function project_far_list!(dua, plan, t::TransferTables{T,P1,Q}, S, scratch, factor,
                            var) where {T,P1,Q}
     backend = plan.backend
@@ -817,12 +819,11 @@ function project_far_list!(dua, plan, t::TransferTables{T,P1,Q}, S, scratch, fac
                                 t, Val(D), Val(P1); ndrange=(Q^D, nf))
     far_contract_kernel!(backend)(dua, scratch, plan.far, t, factor, var, Val(D), Val(P1);
                                   ndrange=nf)
-    synchronize(backend)
     return nothing
 end
 
 # The graded elements, on the host, one band at a time, threaded over
-# elements.
+# elements. `S` is the host's source.
 function project_graded!(dua, plan, t::TransferTables, S, factor, var)
     foreach((g, list) -> project_tensor!(dua, plan, t, g, list, S, factor, var), t.graded,
             plan.graded)
@@ -832,17 +833,38 @@ end
 function project_tensor!(dua, plan, t::TransferTables{T,P1}, g::GaussRule, list, S, factor,
                          var) where {T,P1}
     isempty(list) && return nothing    # and the loop is not compiled
+    D = ndims(dua) - 2                 # from the type, so that `Val(D)` is static
+    values = Vector{SVector{P1^D,T}}(undef, length(list))
     Threads.@threads :dynamic for i in eachindex(list)
-        D = length(plan.region[1])     # here, so that the closure knows it
         b, e = list[i]
         lo, hi = element_box(plan.origins[b], plan.spacings[b], e, Val(P1), Val(D))
-        vals = tensor_rule(S, g, lo, hi, lo, Val(D))
-        for (n, K) in enumerate(CartesianIndices(ntuple(_ -> P1, D)))
-            node = ntuple(d -> e[d] * P1 + K[d], D)
-            dua[node..., var, b] += factor * vals[n]
-        end
+        values[i] = factor * tensor_rule(S, g, lo, hi, lo, Val(D))
     end
+    add_elements!(dua, plan.backend, list, values, var)
     return nothing
+end
+
+# What the host's rules found, added to `dua` on its backend: element
+# `list[i] = (b, e, …)` gets `values[i]`, its nodes in the order of
+# `CartesianIndices`, in one launch. No two items write one node, since
+# no element is on two of the host's lists and its nodes are its own.
+function add_elements!(dua, backend, list, values::Vector{SVector{M,T}}, var) where {M,T}
+    isempty(list) && return nothing
+    D = ndims(dua) - 2
+    P1 = round(Int, M^(1 / D))
+    elements = to_backend(backend, [(Int32(x[1]), Int32.(x[2])) for x in list])
+    element_add_kernel!(backend)(dua, elements, to_backend(backend, values), var, Val(D),
+                                 Val(P1); ndrange=(M, length(list)))
+    return nothing
+end
+
+@kernel function element_add_kernel!(dua, @Const(elements), @Const(values), var,
+                                     ::Val{D}, ::Val{P1}) where {D,P1}
+    m, i = @index(Global, NTuple)
+    @inbounds b, e = elements[i]
+    K = CartesianIndices(ntuple(_ -> P1, Val(D)))[m]
+    node = ntuple(d -> e[d] * P1 + K[d], Val(D))
+    @inbounds dua[node..., var, b] += values[i][m]
 end
 
 # The near elements, on the host. One element, the one holding the
@@ -894,12 +916,7 @@ function project_near!(dua, plan, t::TransferTables{T,P1}, S, factor, var) where
         end
         sums[i] += acc
     end
-    for (i, (b, e, _)) in enumerate(near)
-        for (m, K) in enumerate(CartesianIndices(ntuple(_ -> P1, D)))
-            node = ntuple(d -> e[d] * P1 + K[d], D)
-            dua[node..., var, b] += factor * sums[i][m] / wₙ[m]
-        end
-    end
+    add_elements!(dua, plan.backend, near, map(s -> factor .* s ./ wₙ, sums), var)
     return nothing
 end
 
@@ -1021,11 +1038,14 @@ and for each of them and each dimension the block across its upper face,
 or 0 where that block is not among them or not on the same level (the
 ball's blocks are all on the finest level, [`check_finest`](@ref)). No
 periodic images are looked for. Built once, since the ball does not
-move.
+move, and held on the host and, for the kernels, on the field set's
+backend.
 """
-struct SharedNodes{D}
+struct SharedNodes{D,B,U}
     blocks::Vector{Int}
     upper::Vector{NTuple{D,Int}}
+    dev_blocks::B                   # `blocks` as `Int32`, on the backend
+    dev_upper::U                    # `upper` likewise
 end
 
 function SharedNodes(fs::FieldSet{T,D}, ball) where {T,D}
@@ -1049,7 +1069,11 @@ function SharedNodes(fs::FieldSet{T,D}, ball) where {T,D}
             (bn !== nothing && member[bn] && spacings[bn] == h) ? bn : 0
         end
     end
-    return SharedNodes{D}(blocks, upper)
+    backend = get_backend(fs.work)
+    dev_blocks = to_backend(backend, Int32.(blocks))
+    dev_upper = to_backend(backend, map(u -> Int32.(u), upper))
+    return SharedNodes{D,typeof(dev_blocks),typeof(dev_upper)}(blocks, upper, dev_blocks,
+                                                                dev_upper)
 end
 
 """
@@ -1067,36 +1091,52 @@ through. A face to a block outside `sn` is left alone, so at the ball's
 outermost blocks a node some of whose sharers are outside gets no exact
 mean; the ball's source has fallen to zero there with the window.
 
-Each pass is threaded over blocks: a block averages its own inner faces
-and its upper face with the block across it, whose lower face no other
-block writes in that pass.
+Each pass is one launch, on `ua`'s backend, of a work item per pair of
+coincident nodes: a block's inner faces along the dimension, and its
+upper face with the block across it, whose lower face no other block
+writes in that pass. No two items write one node, so the result does
+not depend on the order.
 """
 function average_shared!(ua, sn::SharedNodes{D}, var, ::Val{P1}) where {D,P1}
     N = size(ua, 1)
     E = N ÷ P1
+    backend = get_backend(ua)
+    nb = length(sn.blocks)
+    nb == 0 && return ua
     for d in 1:D
-        Threads.@threads :static for i in eachindex(sn.blocks)
-            b = sn.blocks[i]
-            rest = CartesianIndices(ntuple(k -> k == d ? 1 : N, Val(D)))
-            for k in 1:(E - 1), J in rest
-                I₁ = ntuple(m -> m == d ? k * P1 : J[m], Val(D))
-                I₂ = ntuple(m -> m == d ? k * P1 + 1 : J[m], Val(D))
-                @inbounds mean = (ua[I₁..., var, b] + ua[I₂..., var, b]) / 2
-                @inbounds ua[I₁..., var, b] = mean
-                @inbounds ua[I₂..., var, b] = mean
-            end
-            bn = sn.upper[i][d]
-            bn == 0 && continue
-            for J in rest
-                I₁ = ntuple(m -> m == d ? N : J[m], Val(D))
-                I₂ = ntuple(m -> m == d ? 1 : J[m], Val(D))
-                @inbounds mean = (ua[I₁..., var, b] + ua[I₂..., var, bn]) / 2
-                @inbounds ua[I₁..., var, b] = mean
-                @inbounds ua[I₂..., var, bn] = mean
-            end
+        TreeAMR.launch_by_owner!(average_kernel!, backend, ua, sn.dev_blocks, sn.dev_upper,
+                                 var, Val(d), Val(D), Val(P1);
+                                 ndrange=(ntuple(_ -> N, D - 1)..., E, nb))
+    end
+    synchronize(backend)
+    return ua
+end
+
+# Work item `(J, k, i)` of pass `d`: in block `blocks[i]` the nodes `kP1`
+# and `kP1 + 1` along `d` for `k < E`, or for `k = E` its node `N` and node
+# 1 of the block across its upper face, with `J` the other dimensions.
+@kernel function average_kernel!(ua, @Const(blocks), @Const(upper), var, ::Val{d},
+                                 ::Val{D}, ::Val{P1}) where {d,D,P1}
+    I = @index(Global, NTuple)
+    k, i = I[D], I[D + 1]
+    N = size(ua, 1)
+    E = N ÷ P1
+    at(x) = ntuple(m -> m == d ? x : m < d ? I[m] : I[m - 1], Val(D))
+    @inbounds b = Int(blocks[i])
+    if k < E
+        I₁, I₂ = at(k * P1), at(k * P1 + 1)
+        @inbounds mean = (ua[I₁..., var, b] + ua[I₂..., var, b]) / 2
+        @inbounds ua[I₁..., var, b] = mean
+        @inbounds ua[I₂..., var, b] = mean
+    else
+        @inbounds bn = Int(upper[i][d])
+        if bn != 0
+            I₁, I₂ = at(N), at(1)
+            @inbounds mean = (ua[I₁..., var, b] + ua[I₂..., var, bn]) / 2
+            @inbounds ua[I₁..., var, b] = mean
+            @inbounds ua[I₂..., var, bn] = mean
         end
     end
-    return ua
 end
 
 """

@@ -1579,11 +1579,19 @@ no partition).
   through `BigFloat`** (`rounded`), since `Float64x2` converts to
   `Float64` only.
 - **Host-only:** the blast wave's exact solution (host tables) and the
-  annulus's (Bessel functions), whose drivers keep the CPU; and the
-  particles: `InspiralProblem` refuses a device, since the transfer's
-  graded and nested rules, the averaging over shared nodes and the
-  pairing are host code. Moving them is `PLAN.md`'s "Particles on a
-  device"; the far rule already runs on one (`bin/far_rule.jl`).
+  annulus's (Bessel functions), whose drivers keep the CPU; and of the
+  particles the pairing, so that `particle_forces` refuses a device.
+- **The inspiral's right-hand side runs on a device,** with two of its
+  parts still on the host (`PLAN.md`, "Particles on a device", B1): the
+  wave equation, the far rule, the passes over the ball's blocks and
+  the averaging over shared nodes are kernels there; the graded and
+  nested rules evaluate the source on the host, while the device works
+  on the far rule, and one kernel adds their elements' values
+  (`add_elements!`); the particles' six numbers each are copied to and
+  from the host in one piece. `inspiral_initial_state` fills the field
+  on a host field set of the same layout and copies it. The result is
+  the host's to `sqrt(eps)` (a test), and on the CPU the same as before
+  to the bit.
 - **The source's coefficient tables are an array on a device.** A
   `ParticleSource` held each particle's lab-slice coefficients as
   `SVector`s, 12.9 KB per particle at order 3, and as a kernel argument
@@ -2112,9 +2120,9 @@ discontinuous across faces. It is element-local and needs no exchange.
   paths](#prescribed-paths)): one over `E·q` points per dimension and
   block evaluates `S` into a scratch array (`projection_scratch`), and
   one per element contracts its `q^D` values one dimension at a time, in
-  place, into `P S` at its nodes. That is the one place a kernel is not
-  launched through `map_blocks!`; it is written so that it could run on
-  a device, and has not been. The others run on the host: those at
+  place, into `P S` at its nodes. On a device the far rule runs over a
+  list of its elements instead ([On a device](#on-a-device)). The
+  others run on the host: those at
   least `rnear·hₑ` from every particle take the graded rule, `q` points
   per dimension by their distance from the nearest particle, evaluated
   and contracted one dimension at a time as the points are visited
@@ -2122,7 +2130,9 @@ discontinuous across faces. It is element-local and needs no exchange.
   dozen closer ones take the nested rule, threaded over the points of
   each element's outermost line, handed out one at a time, and summed
   afterwards in the rule's order, since the element that holds a
-  particle can be a third of the nested work. Each element writes only
+  particle can be a third of the nested work. Both keep each element's
+  values on the host, and one kernel adds them to its nodes on the
+  state's backend (`add_elements!`). Each element writes only
   its own nodes, and every sum is
   in a fixed order, so the result does not depend on the thread count. An
   element near two particles takes its rule from the nearer one, since
@@ -2154,7 +2164,7 @@ every particle's support must lie inside the box, and `support_elements`
 refuses a support that reaches a face. On a refined forest every block
 the source's ball meets, and every block that holds part of a particle's
 support, must be on the finest level ([Nested boxes](#nested-boxes)).
-The graded and nested rules and the pairing run on the CPU.
+The graded and nested rules and the pairing run on the host.
 
 ### The averaging
 
@@ -2186,8 +2196,9 @@ jump of `∇(AΦ_r)_h`, of size `Q[∇Φ_r,h]`, not `Q[Φ_r,h]/ℓ`.
   `InspiralProblem`, since the ball does not move.
 - `average_shared!(ua, sn, var, Val(P+1))` averages one dimension at a
   time: each pair of coincident nodes across a face along `d` takes
-  their mean, inside a block and across its upper face, threaded over
-  blocks. The passes together give the group's mean, the same values
+  their mean, inside a block and across its upper face, one kernel
+  launch per dimension with a work item per pair, on `ua`'s backend
+  (`SharedNodes` holds its lists there too). The passes together give the group's mean, the same values
   the pairing reads. A face to a block outside the ball's is left alone,
   so at the ball's outermost blocks a node some of whose sharers are
   outside gets no exact mean; the source has fallen to zero there with
@@ -2195,7 +2206,8 @@ jump of `∇(AΦ_r)_h`, of size `Q[∇Φ_r,h]`, not `Q[Φ_r,h]/ℓ`.
 - `inspiral_rhs!` averages the source alone, without the wave equation's
   part or a second array: in the ball's blocks it projects the source
   into `du`'s first variable, which `wave_rhs!` has just set to `v`,
-  averages it there, adds it to `dv`, and writes `du = v` again.
+  averages it there, adds it to `dv`, and writes `du = v` again, in
+  kernels over the ball's blocks.
 - `pairing(…; continuous = true)` averages the nodes of each element the
   support meets over all the elements that share them, which it finds
   through `locate_element`; it refuses a neighbour on another level, or
@@ -2375,7 +2387,8 @@ with `wave_rhs!` unchanged and the source subtracted after it.
   `field_state(u, p)` is the field's part as a view, which every function
   that takes a field state accepts with `p.wave`, as TreeAMR's multi-set
   state vectors are used through `stateview`; `particle_state(u, p)` reads
-  the particles. IMEXRungeKutta's stage arithmetic by block owner takes a
+  the particles, in one copy of the vector's tail, which on a device is
+  all that crosses to the host. IMEXRungeKutta's stage arithmetic by block owner takes a
   plain `Array` only, and the particles' entries are added to thread 1's
   ranges of the partition (`inspiral_partition`), so that path needs no
   change there.
@@ -2404,14 +2417,17 @@ with `wave_rhs!` unchanged and the source subtracted after it.
 - `inspiral_initial_state(p; t = 0)`: `Φ_r = (1 - W)Ψ̂` and
   `Π_r = (1 - W)𝒟Ψ̂` through `fill_at_nodes!` at the trajectories of time
   `t`, `Π_r` truncated, and the particles from the path. `Ψ̂` is not
-  evaluated where `W = 1`. For a particle in uniform motion
+  evaluated where `W = 1`. On a device the field is filled on a host
+  field set of the same layout and copied, since `Ψ̂` is host code. For
+  a particle in uniform motion
   `(1 - W)Φ_C(z + vt)` is the exact remainder at every `t`, since `Φ_C`
   solves the wave equation with the particle's source, so the same
   function at time `t` is the reference the runs are compared with.
 - `particle_forces(p, u, t)`: the remainder's force on each particle,
   `F = -(Q/γ)(∇̄Φ_r + vΠ̄_r) = ∫(∇ρ)Φ_r,h - v∫ρΠ_r,h`, through the pairing
   over the support's elements. It is a diagnostic and does not act on the
-  particles; the analytic parts of the force are M6a's.
+  particles; the analytic parts of the force are M6a's. It refuses a
+  device: the pairing reads the state at the nodes on the host.
 - `ball_norm(p, u, centre, radius; p = 2, vars = 1:2)`:
   `quadrature_norm` over the nodes within a ball, through `mesh_fold`,
   with each node's position and weight from its own block's origin and
@@ -3129,7 +3145,10 @@ one thread on CI, is otherwise silent until its summary.
   the CPU standing in, as on CI, where it checks the plumbing: the state
   and the spacings come back on the device; the far rule over its list of
   elements is the one over the ball's blocks, bit for bit on the CPU and
-  to `sqrt(eps)` on a device with `Float64`; a periodic and a refined
+  to `sqrt(eps)` on a device with `Float64`; an inspiral right-hand side
+  and initial state of a particle on a circle, with and without the
+  averaging, are the host's to `sqrt(eps)` in the field, the source
+  alone too, and exactly in the particles, on a device with `Float64`; a periodic and a refined
   box's runs, the seven-patch plane wave with Dirichlet data and a pulse
   through the thirteen-patch ball's radiative sphere give the host's
   errors and energies to `sqrt(eps)` in the step counts the host takes;
@@ -4076,6 +4095,14 @@ are within 2 %), the ball the benchmark ball.
   EPYC 7543 from 0.676 to 0.506 s (job 595813, `cn107`), so the H200 is
   9.3 times 64 cores of the same code, and 12.4 times the code it was
   first held against.
+- **An inspiral right-hand side** at `d/8` (`bin/far_rule.jl`'s box,
+  4.1 M nodes, its binary on circles, order 3, with the averaging; job
+  595833, a scratch script): 2.04 s on the H200 against 5.19 s on the
+  job's eight host threads, equal to `6·10⁻¹⁴` relative and the
+  particles' rates exactly. On the device the wave equation takes
+  1.6 ms, the far rule 55 ms, the averaging 0.06 ms and the plan 1.4 ms;
+  the graded and nested rules, still on the eight host threads, take
+  1.11 and 0.92 s, nearly all of it (`PLAN.md`, B3 and B4).
 
 **The source on an H200** (`bin/source_probe.jl`, jobs 595363 and
 595800, the last two rows), ns per

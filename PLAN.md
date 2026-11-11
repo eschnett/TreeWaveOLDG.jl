@@ -101,9 +101,10 @@ level's.
 
 ## Particles on a device
 
-The field runs on a GPU (`CODE.md`, "On a device"); the particles do
-not, and `InspiralProblem` refuses a device. They have to follow, decided
-with the owner on 2026-11-10. At `d/8` on M4's five-level forest,
+The field runs on a GPU (`CODE.md`, "On a device"); the particles did
+not, and they have to follow, decided with the owner on 2026-11-10. Since
+B1 their right-hand side runs on a device with the graded and nested
+rules on the host. At `d/8` on M4's five-level forest,
 75.5 M nodes, `project_source!` takes 0.585 s per right-hand side at
 order 3 on 64 cores against 0.073 s for the wave equation, about 85 % of
 a 2.71 s step; the binary's projection off the grid takes 1.24 s
@@ -145,35 +146,44 @@ plenty of in `Float64`.
     `CODE.md` leaves open for want of a bound; the transition is far from
     them.
   Done when the owner decides to go on to B1.
-- **B1, the right-hand side's plumbing.** The `6K` particle numbers at
-  the end of the state are copied as one tail rather than read one by
-  one; `inspiral_rhs!`'s threaded passes over the ball's blocks (zero
-  `u̇` there, add the source to `v̇`, restore `u̇ = v`) become broadcasts
-  or kernels. Done when an inspiral right-hand side with only the far
-  rule runs on CUDA and matches the host to rounding.
-- **B2, the plan per call.** The elements' classification into far,
-  graded and nested runs in a kernel over the ball's blocks instead of a
-  host loop; the jets are uploaded to a device buffer each call. Done
-  when the plan's cost per call is measured and small beside the far
-  rule's.
+- **B1, the right-hand side's plumbing. Done** (2026-11-11; `CODE.md`,
+  "On a device" and "Threads on Symmetry"). The particles' tail is copied
+  in one piece; the passes over the ball's blocks are kernels, and so,
+  brought forward from B5, is the averaging over shared nodes, so that
+  the default `continuous` problem runs. The graded and nested rules
+  stay on the host for now, and run while the device does the far rule:
+  each element's values are kept, and one kernel adds them on the
+  device. With that `InspiralProblem` accepts a device, and only
+  `particle_forces` refuses one. A test holds an inspiral right-hand
+  side and initial state on CUDA to the host's, and the host's results
+  are the same as before to the bit. At `d/8` (the far rule's box, 4.1 M
+  nodes, the binary on circles) one right-hand side takes 2.04 s on an
+  H200, against 5.19 s on its node's eight host threads, equal to
+  `6·10⁻¹⁴`: 0.055 s the far rule, 1.6 ms the wave equation, and 2.03 s
+  the graded and nested rules on the eight host threads. So they are
+  next.
+- **B2, the plan per call. Measured:** 1.4 ms at `d/8`, beside the far
+  rule's 55 ms, with the jets uploaded per call (`device_source`). The
+  classification stays a host loop unless a larger box shows it
+  growing.
 - **B3, the graded rule.** The far rule's two kernels with the number
   of points per dimension a `Val`, one launch per band. Done when the
-  graded rule matches the host's to rounding on CUDA.
+  graded rule matches the host's to rounding on CUDA, and costs about
+  what the far rule does (1.11 s on eight host threads at `d/8` now).
 - **B4, the nested rule.** The host plans the segments of each nested
   element's lines (`line_fold`, `support_breaks`) into preallocated flat
   arrays, without the allocations of today's plan; one kernel evaluates
   all nested points; each element's sums are taken in a fixed order and
   written to its nodes. Done when the nested rule matches the host's to
   rounding on and off the grid, and the projection's three rules are
-  timed on an H200.
-- **B5, the averaging and the forces.** `average_shared!` becomes a
-  kernel over `SharedNodes`, uploaded once. The pairing stays on the
-  host: it reads the density, not the source, over at most a few dozen
-  elements, whose nodal values (the support's elements and their
-  sharers') are copied down each call. `InspiralProblem` then accepts a
-  device. Done when the inspiral tests pass on CUDA in `Float64`,
-  matching the host to rounding, and a `d/8` right-hand side is timed on
-  an H200. The particles need `Float64`, so Metal cannot run them.
+  timed on an H200 (0.92 s on eight host threads at `d/8` now).
+- **B5, the forces.** The pairing stays on the host: it reads the
+  density, not the source, over at most a few dozen elements, whose
+  nodal values (the support's elements and their sharers') are copied
+  down each call; `particle_forces` then accepts a device. Done when the
+  inspiral tests pass on CUDA in `Float64`, matching the host to
+  rounding, and a `d/8` step with the forces sampled is timed on an
+  H200. The particles need `Float64`, so Metal cannot run them.
 
 Not planned here: nested boxes at `d/16`, 151 GB, exceed one H200's
 141 GB; they would need several GPUs through MPI, which TreeAMR has, or
