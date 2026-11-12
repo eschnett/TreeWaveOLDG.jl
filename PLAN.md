@@ -10,7 +10,10 @@ things go").
 first of them, is written (2026-11-09; `CODE.md`, "The seven-patch
 ball"), and what it left is the first item below. The shells' tables are
 built in `Float64x2` (2026-11-10; `CODE.md`, "Precision"), and what that
-left is in "The shells' truncation tables".
+left is in "The shells' truncation tables". The purely radial outer
+shells, the thirteen-patch ball with its factored truncation, are
+written (2026-11-10; `CODE.md`, "The thirteen-patch ball"), and what
+they left is under "Memory".
 
 **Contents**
 
@@ -148,16 +151,19 @@ are about 2.6 GB of a 256 GB node, so memory is not what binds there.
   in-shell symmetries: up to about 48 times fewer, but the kernel would
   read each element's nodes through its block's axis map (a permutation
   and reversals) and write them back the same way.
-- **Purely radial outer shells** (the 13-patch ball, `HISTORY.md`,
-  "Multi-patch forests"): with `r = r(ξ_k)` alone, `√g = r² r′ ω(ξ_j, ξ_l)`
-  factorizes into a radial and an angular part, so the truncation is a
-  one-dimensional rank-one pair along the radius times a two-dimensional
-  projection on the face: about 1600 multiply-adds per element at
-  `P = 3` against 4200, a `P⁴ = 81`-entry Gram factor against
-  `P⁶ = 729`, and one face's angular tables shared by every radial
-  element and shell. `ω` does not factorize on a cubed sphere, so it is
-  not a full tensor product. It would also remove the shear near the
-  cube's corners from all but the layer next to the cube.
+- **What the purely radial outer shells left** (the thirteen-patch
+  ball, written 2026-11-10; `CODE.md`, "The thirteen-patch ball"). Its
+  outer shells take the factored truncation, a radial pair times an
+  angular projection whose tables all six shells share, but its inner
+  shells keep the per-element tables, and so does the seven-patch ball.
+  Most of the shells' nodes can be in the outer layer, where the tables
+  are nearly free, but the inner layer cannot be thin: its step is 0.15
+  of the cube's at `Rm = 2Lc` and 0.32 at `3Lc`, the seven-patch ball's,
+  so `Rm ≈ 3Lc` (measured 2026-11-10; `CODE.md`, "The thirteen-patch
+  ball" under "Measured results"). The radiative pulse leaves 1.4 times
+  more energy behind than on the seven-patch ball at `R1 = 3`; the
+  dipole and a larger `R1` are not measured. Equiangular angles would even the outer layer's tangential
+  spacing; they need the inner layer to blend to an equiangular sphere.
 
 ## Not worth it now
 

@@ -284,6 +284,47 @@ patches.
   in below this, its "the setup is serial" and its proposed threaded
   build in `CODE.md` became "was serial" and were dropped: M8b builds
   the tables by block on all threads and only for the shells.
+- 2026-11-10: the thirteen-patch ball, at Erik Schnetter's request: the
+  seven-patch ball out to a middle sphere and six shells beyond it whose
+  radial coordinate is exactly radial, which the 2026-11-08 entry above
+  had named and `PLAN.md` had proposed as "Purely radial outer shells".
+  `PLAN.md`'s item read: with `r = r(ξ_k)` alone `√g = r² r′ ω(ξ_j, ξ_l)`
+  factorizes into a radial and an angular part, so the truncation is a
+  one-dimensional rank-one pair along the radius times a
+  two-dimensional projection on the face, about 1600 multiply-adds per
+  element at `P = 3` against 4200, a `P⁴ = 81`-entry Gram factor against
+  `P⁶ = 729`, and one face's angular tables shared by every radial
+  element and shell; it would also remove the shear near the cube's
+  corners from all but the layer next to the cube. Two choices were his:
+  - **The factored truncation now,** not the per-element tables on all
+    twelve shells with the factorization left for later. A full geometry
+    may declare that a patch's `√g` factorizes (`factored_volume`,
+    `radial_volume`, `angular_volume`, `angular_class`), and
+    `ElementTruncation` holds a `FactoredTruncation` for those blocks.
+  - **Equidistant angles,** the seven-patch ball's `c_j = 2ξ_j/n − 1`,
+    over equiangular ones: the inner shells stay the seven-patch ball's
+    bit for bit, and the inner–outer glue is the identity. Equiangular
+    angles would even the outer layer's tangential spacing, but the inner
+    layer would have to blend to an equiangular sphere.
+
+  The seven-patch ball's shell map, glue and cube refinement were
+  factored into helpers (`blended_shell`, `radial_glue!`,
+  `quarter_turns!`, `refine_cube!`, `check_ball`) that both balls call,
+  with the seven-patch ball's arithmetic and glue order unchanged.
+  `sevenpatch_errors` and `radiative_errors` take `Rm`, and
+  `bin/sevenpatch.jl` and `bin/sphere_waves.jl` take `--Rm`.
+
+  Measured the same day on the laptop: on the outer shells the factored
+  truncation costs 3.7 ns per node against the per-element tables'
+  9.7, as `PLAN.md`'s operation count had it, with tables 80 times
+  smaller. The plane wave converges at order `P` with errors within
+  10 % of the seven-patch ball's on the same nodes. The driver's first
+  middle sphere, `Rm = 2Lc`, took 2.1 times the seven-patch ball's steps:
+  the inner shells between `√3 Lc` and `2Lc` are thin beside the cube's
+  corners, a limit the seven-patch ball has at `R1 = 2Lc` too. So
+  `Rm ≈ 3Lc` is where the outer layer costs no step, and `PLAN.md`'s
+  hope that the outer layer would remove the corners' shear holds for
+  the outer layer only.
 - 2026-11-11: M8b's runs at M3b's scale (`bin/symmetry/nested_ball.sh`,
   Symmetry jobs 594441, 594442 and 594995), the pulse at `λ = 16` and 4
   through three nested cubes in the ball to `t = 96`. The first two used

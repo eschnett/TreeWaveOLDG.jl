@@ -60,7 +60,13 @@ have. A full geometry is `isbits` and provides:
 - `check_geometry(geo, forest)`: refuse a forest the map does not fit;
 - `geometry_boundary(geo)`: whether the forest has outer faces, which
   then take Dirichlet data ([`WaveProblem`](@ref)'s `boundary`);
-- optionally `affine_patch(geo, p)`, as for a [`Geometry`](@ref).
+- optionally `affine_patch(geo, p)`, as for a [`Geometry`](@ref);
+- optionally `factored_volume(geo, p)`, with `radial_volume`,
+  `angular_volume` and `angular_class`: on a patch whose `√g` is a
+  product of a factor along one logical dimension and one over the others
+  ([`factored_volume`](@ref TreeWaveOLDG.factored_volume)), the
+  truncation is a one-dimensional projection times a `(D-1)`-dimensional
+  one.
 
 On a full geometry the gradient is carried in Cartesian components, one
 field set of `D` variables with a ghost plane on every face, because a
@@ -68,8 +74,10 @@ glue that swaps axes carries a variable onto itself, and a Cartesian
 component is the same number on both sides; the logical flux
 `F^d = S[d] ⋅ ∇u` is formed from it where the Laplacian reads it,
 ghosts included. The truncation is the `√g`-orthogonal projection onto
-`Q_{P-1}`, built per element. See "The seven-patch ball" in `CODE.md`.
-[`SevenPatchBall`](@ref) is the one implemented.
+`Q_{P-1}`, built per element, or per line and per face where `√g`
+factorizes. See "The seven-patch ball" and "The thirteen-patch ball" in
+`CODE.md`. [`SevenPatchBall`](@ref) and [`ThirteenPatchBall`](@ref) are
+the ones implemented.
 """
 abstract type FullGeometry <: Geometry end
 
@@ -88,6 +96,53 @@ element's own projector is the `√g`-orthogonal truncation. `false` unless
 a geometry says otherwise. See "The seven-patch ball" in `CODE.md`.
 """
 affine_patch(geo::Geometry, p) = false
+
+"""
+    factored_volume(geo, p) -> k
+
+The logical dimension `k` along which patch `p`'s volume element splits
+off, `√g(x) = radial_volume(geo, x_k, p) ⋅ angular_volume(geo, x_⊥, p)`
+with `x_⊥` the `D - 1` other coordinates in increasing order of
+dimension, or `0` when it does not factorize so; `0` unless a geometry
+says otherwise. On such a patch the `√g`-orthogonal projection onto
+`Q_{P-1}` is the tensor product of a rank-one projection along `k` and a
+`√g`-orthogonal projection on each plane across it, which is what the
+truncation builds there. Both factors must be generic in the number type
+of their argument, as `geometry_frame` is (`table_type`), and their
+product must be `geometry_frame`'s `J` to rounding: a patch that declares
+a factorization its `√g` does not have loses the energy invariant.
+`angular_class(geo, p)` names the patches whose `angular_volume` is one
+function of `x_⊥`, which then share their angular tables; it is `p`
+unless a geometry says otherwise. See "The thirteen-patch ball" in
+`CODE.md`.
+"""
+factored_volume(geo::Geometry, p) = 0
+
+"""
+    radial_volume(geo, x_k, p)
+
+The factor of patch `p`'s `√g` along its dimension
+[`factored_volume`](@ref TreeWaveOLDG.factored_volume)`(geo, p)`.
+"""
+function radial_volume end
+
+"""
+    angular_volume(geo, x_⊥, p)
+
+The factor of patch `p`'s `√g` over the dimensions other than
+[`factored_volume`](@ref TreeWaveOLDG.factored_volume)`(geo, p)`, a
+`(D-1)`-tuple in increasing order of dimension.
+"""
+function angular_volume end
+
+"""
+    angular_class(geo, p)
+
+Patches of one class have one [`angular_volume`](@ref
+TreeWaveOLDG.angular_volume) as a function of `x_⊥` and share their
+angular truncation tables; `p` unless a geometry says otherwise.
+"""
+angular_class(geo::Geometry, p) = p
 
 # A full geometry's gradient is Cartesian, so its folds weight by `√g`
 # alone, the potential energy's `√g |∇u|²` included (`layout.jl`).
@@ -262,11 +317,12 @@ SevenPatchBall(Lc, R1, roots; grading=0) =
                                                                 grading=grading)
 
 # The fraction `ρ` of the way from the cube's face to the sphere at the
-# fraction `η` of a shell's radial roots, in `η`'s number type.
-@inline function shell_fraction(geo::SevenPatchBall, η)
-    iszero(geo.grading) && return η
-    α = geo.grading * one(η)
-    return (exp(α * η) - 1) / (exp(α) - 1)
+# fraction `η` of a shell's radial roots, graded by `α`, in `η`'s number
+# type.
+@inline function shell_fraction(α, η)
+    iszero(α) && return η
+    a = α * one(η)
+    return (exp(a * η) - 1) / (exp(a) - 1)
 end
 
 # The shells' cube faces `(k, s)`, in patch order 2–7.
@@ -284,9 +340,21 @@ sevenpatch_index(k, s) = 1 + 2(k - 1) + (s == 1 ? 2 : 1)
         return Lc .* (2 .* ξ ./ n .- 1)
     end
     k, s = SEVENPATCH_SHELLS[p - 1]
-    f = SVector(ntuple(j -> j == k ? s * Lc : Lc * (2 * ξ[j] / n - 1), Val(3)))
-    ρ = shell_fraction(geo, s == 1 ? ξ[k] / m : 1 - ξ[k] / m)
-    return (1 - ρ) .* f .+ (ρ * geo.R1 / sqrt(f[1]^2 + f[2]^2 + f[3]^2)) .* f
+    return blended_shell(Lc, n, m, geo.R1, ξ, k, s, geo.grading)
+end
+
+# The point of the cube's face `(k, s)`, of half-width `Lc` and `n` roots
+# along each tangential dimension, over which logical `ξ` lies.
+@inline shell_face(Lc, n, ξ, k, s) =
+    SVector(ntuple(j -> j == k ? s * Lc : Lc * (2 * ξ[j] / n - 1), Val(3)))
+
+# A shell of `m` radial roots from the cube's face `(k, s)` to the sphere
+# `|x| = R`, the seven-patch ball's: `x = (1 - ρ) f + ρ R f/|f|`, with
+# its radial elements graded by `α` (`SevenPatchBall`).
+@inline function blended_shell(Lc, n, m, R, ξ, k, s, α=0)
+    f = shell_face(Lc, n, ξ, k, s)
+    ρ = shell_fraction(α, s == 1 ? ξ[k] / m : 1 - ξ[k] / m)
+    return (1 - ρ) .* f .+ (ρ * R / sqrt(f[1]^2 + f[2]^2 + f[3]^2)) .* f
 end
 
 outer_radius(geo::SevenPatchBall) = geo.R1
@@ -315,20 +383,40 @@ end
 # other's, reversed where the step out of the one is a step into the
 # other.
 function sevenpatch_glue()
-    side(s) = s == 1 ? 2 : 1
-    glue = NamedTuple{(:from, :to, :map),
-                      Tuple{NTuple{3,Int},NTuple{3,Int},NTuple{3,Int}}}[]
+    glue = glue_list()
     for (k, s) in SEVENPATCH_SHELLS
         p = sevenpatch_index(k, s)
-        push!(glue, (from=(1, k, side(s)), to=(p, k, side(-s)), map=(1, 2, 3)))
-        push!(glue, (from=(p, k, side(-s)), to=(1, k, side(s)), map=(1, 2, 3)))
-        for (l, t) in SEVENPATCH_SHELLS
-            l == k && continue
-            σ = ntuple(e -> e == k ? (s == t ? l : -l) :
-                            e == l ? (s == t ? -k : k) : e, 3)
-            push!(glue, (from=(p, l, side(t)), to=(sevenpatch_index(l, t), k, side(s)),
-                         map=σ))
-        end
+        radial_glue!(glue, 1, p, k, s)
+        quarter_turns!(glue, sevenpatch_index, k, s)
+    end
+    return glue
+end
+
+glue_list() = NamedTuple{(:from, :to, :map),
+                         Tuple{NTuple{3,Int},NTuple{3,Int},NTuple{3,Int}}}[]
+
+# The face side, 1 or 2, a step along the sign `s` leaves through.
+shell_side(s) = s == 1 ? 2 : 1
+
+# Both directions of the identity glue from patch `p`'s face `(k, s)`
+# onto patch `q`'s face `(k, -s)`, one step outward along the radial
+# dimension `k` of the shell over the cube's face `(k, s)`.
+function radial_glue!(glue, p, q, k, s)
+    push!(glue, (from=(p, k, shell_side(s)), to=(q, k, shell_side(-s)), map=(1, 2, 3)))
+    push!(glue, (from=(q, k, shell_side(-s)), to=(p, k, shell_side(s)), map=(1, 2, 3)))
+    return glue
+end
+
+# Shell `(k, s)`'s faces towards the other shells of its layer, whose
+# patch numbers are `index(l, t)`, onto each one's face towards `(k, s)`.
+function quarter_turns!(glue, index, k, s)
+    p = index(k, s)
+    for (l, t) in SEVENPATCH_SHELLS
+        l == k && continue
+        σ = ntuple(e -> e == k ? (s == t ? l : -l) :
+                        e == l ? (s == t ? -k : k) : e, 3)
+        push!(glue, (from=(p, l, shell_side(t)), to=(index(l, t), k, shell_side(s)),
+                     map=σ))
     end
     return glue
 end
@@ -337,27 +425,35 @@ sevenpatch_roots(geo::SevenPatchBall, p) =
     p == 1 ? ntuple(_ -> geo.roots[1], 3) :
     ntuple(j -> j == SEVENPATCH_SHELLS[p - 1][1] ? geo.roots[2] : geo.roots[1], 3)
 
-function check_geometry(geo::SevenPatchBall, forest::Forest{D}) where {D}
+function check_geometry(geo::SevenPatchBall, forest::Forest)
+    return check_ball(forest, 7, p -> sevenpatch_roots(geo, p), sevenpatch_glue(),
+                      "seven-patch", "sevenpatch_forest")
+end
+
+# What both balls refuse: a forest that is not three-dimensional, or whose
+# patches, their boxes or their glue are not the ball's (`name`), which
+# `builder` builds.
+function check_ball(forest::Forest{D}, np, roots_of, glue, name, builder) where {D}
     D == 3 || throw(ArgumentError(
-        "the seven-patch ball is three-dimensional, and the forest has D = $D"))
-    TreeAMR.npatches(forest) == 7 || throw(ArgumentError(
-        "the seven-patch ball has 7 patches, and the forest " *
-        "$(TreeAMR.npatches(forest)): build both with sevenpatch_forest"))
-    for p in 1:7
+        "the $name ball is three-dimensional, and the forest has D = $D"))
+    TreeAMR.npatches(forest) == np || throw(ArgumentError(
+        "the $name ball has $np patches, and the forest " *
+        "$(TreeAMR.npatches(forest)): build both with $builder"))
+    for p in 1:np
         roots = Tuple(TreeAMR.patch_roots(forest, p))
         ext = TreeAMR.patch_extents(forest, p)
-        want = sevenpatch_roots(geo, p)
+        want = roots_of(p)
         roots == want && all(d -> ext[d][1] == 0 && ext[d][2] == want[d], 1:3) ||
             throw(ArgumentError(
                 "patch $p of the forest has roots $roots and extents $ext, and the " *
-                "seven-patch ball maps the box [0, $(want[1])] × [0, $(want[2])] × " *
-                "[0, $(want[3])] there: build both with sevenpatch_forest"))
+                "$name ball maps the box [0, $(want[1])] × [0, $(want[2])] × " *
+                "[0, $(want[3])] there: build both with $builder"))
     end
     norm_entry(g) = (Int.(Tuple(g.from)), Int.(Tuple(g.to)), Int.(Tuple(g.map)))
     Set(map(norm_entry, TreeAMR.patch_keywords(forest).glue)) ==
-        Set(map(norm_entry, sevenpatch_glue())) || throw(ArgumentError(
-            "the forest's patches are not glued as the seven-patch ball's: build both " *
-            "with sevenpatch_forest"))
+        Set(map(norm_entry, glue)) || throw(ArgumentError(
+            "the forest's patches are not glued as the $name ball's: build both " *
+            "with $builder"))
     return nothing
 end
 
@@ -403,7 +499,13 @@ function sevenpatch_forest(::Type{T}, P::Integer, E::Integer; roots=(2, 2), Lc=1
     forest = Forest{T}([(roots=sevenpatch_roots(geo, p),) for p in 1:7]; N=N,
                        glue=sevenpatch_glue())
     refined === false && return forest, geo
-    n = geo.roots[1]
+    refine_cube!(forest, refined, geo.roots[1])
+    return forest, geo
+end
+
+# `refined`'s regions in the ball's cube, patch 1 of `n` roots per side,
+# refusing any that refines a shell across the cube's glued faces.
+function refine_cube!(forest, refined, n)
     refine_regions!(forest, refinement_regions(refined, Val(3), n), n; p=1)
     for key in forest.leaves
         q = patch(forest, key)
@@ -413,5 +515,201 @@ function sevenpatch_forest(::Type{T}, P::Integer, E::Integer; roots=(2, 2), Lc=1
             "map is not affine: keep the regions at least one root inside the cube " *
             "[0, $n]³"))
     end
+    return forest
+end
+
+"""
+    ThirteenPatchBall{T}(Lc, Rm, R1, roots)
+    ThirteenPatchBall(Lc, Rm, R1, roots)
+
+The ball `|x| ≤ R1` as thirteen patches, as [`thirteenpatch_forest`](@ref)
+builds them, with `roots = (n, m, m′)`: the seven-patch ball of
+[`SevenPatchBall`](@ref) out to the middle sphere `|x| = Rm`, and six
+shells around it whose radial coordinate is exactly radial.
+
+- patch 1, the cube `[-Lc, Lc]³`, of `(n, n, n)` roots, `x = Lc (2ξ/n - 1)`;
+- patches 2–7, the inner shells over the cube's faces `(k, s)` in the
+  order `(1, -1), (1, 1), (2, -1), (2, 1), (3, -1), (3, 1)`, of `m` roots
+  along `k` and `n` along the other two: [`SevenPatchBall`](@ref)'s
+  shells with `Rm` for `R1`, from the cube's flat face to the sphere
+  `|x| = Rm`;
+- patches 8–13, the outer shells over the same faces in the same order,
+  of `m′` roots along `k` and `n` along the other two:
+
+      c_k = s,   c_j = 2ξ_j/n - 1 (j ≠ k)
+      ρ = ξ_k/m′ (s = 1),  1 - ξ_k/m′ (s = -1)
+      x = (Rm + (R1 - Rm) ρ) c/|c|
+
+  so that `ξ_k` is a function of `r = |x|` alone and the angular
+  coordinates of `x/r` alone, equidistant in the face's tangent `c_j` as
+  on the inner shells' outer face.
+
+Every cube–shell and inner–outer glue is the identity, and the shells of
+each layer are glued to each other by the seven-patch ball's quarter
+turns. On an outer shell `√g = r² r′ ⋅ (2/n)² (1 + c_a² + c_b²)^{-3/2}`,
+`r′ = (R1 - Rm)/m′`, a radial factor times an angular one that is the same
+on all six ([`factored_volume`](@ref TreeWaveOLDG.factored_volume)), so
+there the truncation is a radial projection times an angular one. The
+inner shells' `√g` does not factorize, so this is a
+[`FullGeometry`](@ref). `Rm > √3 Lc`, so that the cube's corners lie
+inside the middle sphere and every inner shell maps one to one, and
+`R1 > Rm`.
+"""
+struct ThirteenPatchBall{T} <: FullGeometry
+    Lc::T
+    Rm::T
+    R1::T
+    roots::NTuple{3,Int}
+
+    function ThirteenPatchBall{T}(Lc, Rm, R1, roots::NTuple{3,Integer}) where {T}
+        0 < Lc || throw(ArgumentError(
+            "the cube's half-width Lc must be positive, got $Lc"))
+        Rm > sqrt(3) * Lc || throw(ArgumentError(
+            "the middle radius Rm = $Rm must exceed √3 Lc = $(sqrt(3) * Lc), so that " *
+            "the cube's corners lie inside the middle sphere and every inner shell " *
+            "maps one to one"))
+        R1 > Rm || throw(ArgumentError(
+            "the outer radius R1 = $R1 must exceed the middle radius Rm = $Rm"))
+        all(>(0), roots) || throw(ArgumentError(
+            "every patch of the ball needs a positive number of roots along each " *
+            "dimension, got $roots"))
+        return new{T}(T(Lc), T(Rm), T(R1), Int.(Tuple(roots)))
+    end
+end
+
+ThirteenPatchBall(Lc, Rm, R1, roots) =
+    ThirteenPatchBall{float(promote_type(typeof(Lc), typeof(Rm), typeof(R1)))}(
+        Lc, Rm, R1, roots)
+
+# The patch numbers of the inner and the outer shell over the face `(k, s)`.
+inner_shell(k, s) = sevenpatch_index(k, s)
+outer_shell(k, s) = 6 + sevenpatch_index(k, s)
+
+# The face `(k, s)` patch `p` lies over, and whether it is an outer shell.
+@inline thirteenpatch_shell(p) =
+    p <= 7 ? (SEVENPATCH_SHELLS[p - 1]..., false) : (SEVENPATCH_SHELLS[p - 7]..., true)
+
+# The radius of an outer shell over the face `(k, s)` at its radial
+# coordinate `ξk`.
+@inline function outer_radius_at(geo::ThirteenPatchBall, ξk, s)
+    m′ = geo.roots[3]
+    ρ = s == 1 ? ξk / m′ : 1 - ξk / m′
+    return geo.Rm + (geo.R1 - geo.Rm) * ρ
+end
+
+# The physical position of logical `ξ` (an `SVector{3}`) of patch `p`, in
+# `ξ`'s number type, as for the seven-patch ball.
+@inline function thirteenpatch_position(geo::ThirteenPatchBall, ξ, p)
+    n, m, _ = geo.roots
+    Lc = geo.Lc
+    if p == 1
+        return Lc .* (2 .* ξ ./ n .- 1)
+    end
+    k, s, outer = thirteenpatch_shell(p)
+    outer || return blended_shell(Lc, n, m, geo.Rm, ξ, k, s)
+    f = shell_face(Lc, n, ξ, k, s)
+    return (outer_radius_at(geo, ξ[k], s) / sqrt(f[1]^2 + f[2]^2 + f[3]^2)) .* f
+end
+
+outer_radius(geo::ThirteenPatchBall) = geo.R1
+
+# The cube's map is affine; the shells' are not.
+affine_patch(::ThirteenPatchBall, p) = p == 1
+
+@inline physical_coordinates(geo::ThirteenPatchBall, x, p) =
+    Tuple(thirteenpatch_position(geo, SVector(x[1], x[2], x[3]), p))
+
+@inline function geometry_frame(geo::ThirteenPatchBall, x, p)
+    ξ = SVector(x[1], x[2], x[3])
+    Jm = ForwardDiff.jacobian(y -> thirteenpatch_position(geo, y, p), ξ)
+    J = abs(det(Jm))
+    Ji = inv(Jm)
+    S = ntuple(d -> ntuple(i -> J * Ji[d, i], Val(3)), Val(3))
+    return J, S
+end
+
+# On an outer shell over the face `(k, s)`, `x = r(ξ_k) c/|c|`: the
+# Jacobian's columns are `r′ c/|c|` along `k` and `r ∂(c/|c|)/∂ξ_j` across
+# it, and `|c/|c| ⋅ (∂_a(c/|c|) × ∂_b(c/|c|))| = (2/n)² |c_k|/|c|³`, the
+# gnomonic projection's area element, with `|c_k| = 1`. So
+# `√g = r² r′ ⋅ (2/n)² (1 + c_a² + c_b²)^{-3/2}`, the angular factor the
+# same on every outer shell, since `c_a`, `c_b` are the same functions of
+# `ξ_a`, `ξ_b` there.
+factored_volume(geo::ThirteenPatchBall, p) = p >= 8 ? SEVENPATCH_SHELLS[p - 7][1] : 0
+
+angular_class(geo::ThirteenPatchBall, p) = p >= 8 ? 8 : p
+
+@inline function radial_volume(geo::ThirteenPatchBall, ξk, p)
+    _, s = SEVENPATCH_SHELLS[p - 7]
+    r = outer_radius_at(geo, ξk, s)
+    return r^2 * ((oftype(ξk, geo.R1) - oftype(ξk, geo.Rm)) / geo.roots[3])
+end
+
+@inline function angular_volume(geo::ThirteenPatchBall, ξ⊥, p)
+    n = geo.roots[1]
+    ca = 2 * ξ⊥[1] / n - 1
+    cb = 2 * ξ⊥[2] / n - 1
+    q = 1 + ca^2 + cb^2
+    return (2 / oftype(ca, n))^2 / (q * sqrt(q))
+end
+
+# The glue of the thirteen-patch ball, both directions of every gluing:
+# the cube's face `(k, s)` onto inner shell `(k, s)`'s inner face, that
+# one's outer face onto outer shell `(k, s)`'s inner face, both by the
+# identity, and each layer's shells to each other by the seven-patch
+# ball's quarter turns.
+function thirteenpatch_glue()
+    glue = glue_list()
+    for (k, s) in SEVENPATCH_SHELLS
+        radial_glue!(glue, 1, inner_shell(k, s), k, s)
+        radial_glue!(glue, inner_shell(k, s), outer_shell(k, s), k, s)
+        quarter_turns!(glue, inner_shell, k, s)
+        quarter_turns!(glue, outer_shell, k, s)
+    end
+    return glue
+end
+
+function thirteenpatch_roots(geo::ThirteenPatchBall, p)
+    n, m, m′ = geo.roots
+    p == 1 && return (n, n, n)
+    k, _, outer = thirteenpatch_shell(p)
+    return ntuple(j -> j == k ? (outer ? m′ : m) : n, 3)
+end
+
+check_geometry(geo::ThirteenPatchBall, forest::Forest) =
+    check_ball(forest, 13, p -> thirteenpatch_roots(geo, p), thirteenpatch_glue(),
+               "thirteen-patch", "thirteenpatch_forest")
+
+"""
+    thirteenpatch_forest(T, P, E; roots=(2, 1, 1), Lc=1, Rm=2, R1=3,
+                         refined=false) -> (forest, geometry)
+
+The ball `|x| ≤ R1` as TreeAMR's forest of thirteen patches, a cube of
+half-width `Lc`, six inner shells out to the sphere `|x| = Rm` and six
+outer shells, exactly radial, out to `|x| = R1` (see
+[`ThirteenPatchBall`](@ref)), each block holding `E³` elements of order
+`P`, and its map. Every patch has the one logical spacing of a root, `1`.
+The outer sphere is the only unglued face, and takes Dirichlet data or a
+[`RadiativeBoundary`](@ref) ([`WaveProblem`](@ref)'s `boundary`). `E`
+must be even, and `refined` refines the cube, as for
+[`sevenpatch_forest`](@ref).
+
+Hand both to [`WaveProblem`](@ref): `WaveProblem(forest, el; geometry, boundary)`.
+"""
+function thirteenpatch_forest(::Type{T}, P::Integer, E::Integer; roots=(2, 1, 1), Lc=1,
+                              Rm=2, R1=3, refined=false) where {T}
+    N = E * (P + 1)
+    iseven(E) || throw(ArgumentError(
+        "E = $E elements of order P = $P per block is odd, and E must be even: " *
+        "TreeAMR's element centering needs N = $N to be a multiple of " *
+        "2(P+1) = $(2(P + 1))"))
+    length(roots) == 3 || throw(ArgumentError(
+        "the thirteen-patch ball takes roots = (n, m, m′), the cube's per side and " *
+        "the inner and outer shells' radial ones, got $(repr(roots))"))
+    geo = ThirteenPatchBall{T}(Lc, Rm, R1, Tuple(roots))
+    forest = Forest{T}([(roots=thirteenpatch_roots(geo, p),) for p in 1:13]; N=N,
+                       glue=thirteenpatch_glue())
+    refined === false && return forest, geo
+    refine_cube!(forest, refined, geo.roots[1])
     return forest, geo
 end

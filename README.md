@@ -133,6 +133,15 @@ every glue:
 julia --project=. -t 4,0 bin/sevenpatch.jl --P=2,3 --scales=1,2
 ```
 
+The thirteen-patch ball adds six shells around a middle sphere whose
+radial coordinate is exactly radial, so that their volume element
+factorizes and their truncation is a radial projection times an angular
+one; the plane wave converges at order `P` there too:
+
+```bash
+julia --project=. -t 4,0 bin/sevenpatch.jl --P=2,3 --scales=1,2 --Rm=2
+```
+
 The mesh is TreeAMR's, with its element centering (TreeAMR 0.2.8), and
 across a coarse-fine face the coupling keeps the discrete energy an
 exact invariant. The L2 error converges at order `P` on a refined

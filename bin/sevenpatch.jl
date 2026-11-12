@@ -5,13 +5,20 @@
 #
 #     julia -t N,0 --project=. bin/sevenpatch.jl [--P=2,3] [--scales=1,2,3] \
 #         [--truncate=yes,no] [--Lc=1] [--R1=3] [--E=2] [--cfls=0.5] [--tend=1] \
-#         [--boundary=dirichlet] [--w=0.5] [--kappa=1] [--inverse_r=yes]
+#         [--boundary=dirichlet] [--w=0.5] [--kappa=1] [--inverse_r=yes] \
+#         [--Rm=2 [--m1=1] [--m2=1]]
 #
 # With `--boundary=radiative` the solution is instead an outgoing pulse
 # `(f(t - r) - f(t + r))/r` of width `w` (`OutgoingPulse`), and the outer
 # sphere has a `RadiativeBoundary` of `κ = kappa`, with the `u/R` term
 # unless `--inverse_r=no`; the pulse has left the ball of `R1 = 3` by
 # `t ≈ 4`, and what is left then is the reflection.
+#
+# With `--Rm=2` the ball is instead the thirteen-patch one
+# (`ThirteenPatchBall`): the seven-patch ball out to the middle sphere
+# `|x| = Rm`, and six exactly radial shells from there to `R1`, each patch
+# of `(2s, s m1, s m2)` roots, the cube's per side and the inner and outer
+# shells' radial ones (`--m1=1 --m2=1`).
 #
 # Runs against the package environment.
 #
@@ -57,17 +64,22 @@ function main()
     w = parse(Float64, option("w", "0.5"))
     κ = parse(Float64, option("kappa", "1"))
     inverse_r = option("inverse_r", "yes") == "yes"
+    Rm = option("Rm", nothing)
+    Rm = Rm === nothing ? nothing : parse(Float64, Rm)
+    m1 = parse(Int, option("m1", "1"))
+    m2 = parse(Int, option("m2", "1"))
+    roots(s) = Rm === nothing ? (2s, 2s) : (2s, s * m1, s * m2)
     run(; kw...) = radiative ?
-                   radiative_errors(; w=w, κ=κ, inverse_r=inverse_r, kw...) :
-                   sevenpatch_errors(; kw...)
+                   radiative_errors(; w=w, κ=κ, inverse_r=inverse_r, Rm=Rm, kw...) :
+                   sevenpatch_errors(; Rm=Rm, kw...)
     println(join(("threads", "P", "truncate", "s", "cfl", "blocks", "nodes", "steps", "h",
                   "l2", "l2u", "l2v", "linf", "energy_change", "seconds"), '\t'))
     flush(stdout)
     for P in Ps, truncate in truncs
-        run(; P=P, E=E, roots=(2, 2), Lc=Lc, R1=R1, tend=tend / 64, truncate=truncate)
+        run(; P=P, E=E, roots=roots(1), Lc=Lc, R1=R1, tend=tend / 64, truncate=truncate)
         for s in scales, cfl in cfls
             t0 = time()
-            r = run(; P=P, E=E, roots=(2s, 2s), Lc=Lc, R1=R1, cfl=cfl, tend=tend,
+            r = run(; P=P, E=E, roots=roots(s), Lc=Lc, R1=R1, cfl=cfl, tend=tend,
                     truncate=truncate)
             seconds = time() - t0
             nodes = r.nblocks * (E * (P + 1))^3

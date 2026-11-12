@@ -537,7 +537,8 @@ before continuing. The gates of the finished milestones are in
   boxes' faces send back over the same run, M8b and M8c wait. The
   fallbacks are a second-order absorbing condition (Bayliss–Turkel,
   `CODE.md`'s **(open)** item under "The seven-patch ball") or the
-  13-patch ball (`HISTORY.md`, "Multi-patch forests").
+  13-patch ball, which now exists (`CODE.md`, "The thirteen-patch
+  ball"; `bin/sphere_waves.jl --Rm --m2`).
 
 ## Left to settle later
 

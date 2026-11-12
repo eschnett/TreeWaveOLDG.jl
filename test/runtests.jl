@@ -26,6 +26,7 @@ end
     testfile("refined_tests.jl")
     testfile("annulus_tests.jl")
     testfile("sevenpatch_tests.jl")
+    testfile("thirteenpatch_tests.jl")
     testfile("adaptive_tests.jl")
     testfile("blast_tests.jl")
     testfile("particle_tests.jl")
