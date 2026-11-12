@@ -253,9 +253,25 @@ labPowerLines[groups_List, side_] := Module[{lin, ps, x = If[side === "in", "ℓ
         If[Min[ps] < 0,
             "        " <> powerName[x, -1] <> " = 1 / " <> x <> "\n" <>
                 powerLines[x, x, -Min[ps], -1], ""]]];
-labMonomialPowers[lin_List, p_Integer, x_String] := StringJoin[
-    MapThread[If[#2 == 0, "", powerName[#1, #2] <> " * "] &, {labInvNames[[;; 4]], lin}],
-    If[p == 0, "", powerName[x, p] <> " * "]];
+(* A group's monomial times its polynomial `poly`, as a product nested
+   from the left, ((vy² * ay) * ℓ⁻¹) * poly: Julia reads a * b * c * d
+   as one call of * that it folds from the left, the same products, but
+   on the nested dual numbers it does not inline the fold beyond three
+   factors. *)
+labMonomialFactors[lin_List, p_Integer, x_String] := Join[
+    MapThread[If[#2 == 0, Nothing, powerName[#1, #2]] &, {labInvNames[[;; 4]], lin}],
+    If[p == 0, {}, {powerName[x, p]}]];
+labProduct[fs_List] := Fold[
+    If[StringContainsQ[#1, " * "], "(" <> #1 <> ")", #1] <> " * " <> #2 &, First[fs], Rest[fs]];
+(* A group's polynomial in x as Horner's rule written out, each
+   coefficient read where it is used: the same muladd chain as
+   evalpoly(x, (c₁, …, cₙ)), which on the nested dual numbers Julia does
+   not inline, and which then takes all n lifted coefficients at once in
+   a tuple, through memory (CODE.md, "On a device"). *)
+labHorner[x_String, idx_List] := StringJoin[
+    "        poly = _coefficient(c, " <> ToString[Last[idx]] <> ", d)\n",
+    Table["        poly = muladd(" <> x <> ", poly, _coefficient(c, " <> ToString[i] <> ", d))\n",
+        {i, Reverse[Most[idx]]}]];
 labKindCode[kind_String, nOrder_, terms_] := Module[{groups, merged, offset = 0, exprs = {},
         lines, branch},
     branch[side_] := StringJoin[labPowerLines[groups[side], side], Table[
@@ -264,11 +280,10 @@ labKindCode[kind_String, nOrder_, terms_] := Module[{groups, merged, offset = 0,
             idx = offset + Range[Length[cs]];
             offset += Length[cs];
             exprs = Join[exprs, cs];
+            labHorner[b, idx] <>
             "        " <> If[first["k"] == 0, "s₀", "s₁"] <> " += " <>
-                labMonomialPowers[first["lin"], first["p"], If[side === "in", "ℓ", "r"]] <>
-                "evalpoly(" <> b <> ", (" <>
-                StringRiffle["_coefficient(c, " <> ToString[#] <> ", d)" & /@ idx, ", "] <>
-                If[Length[idx] == 1, ",", ""] <> "))\n"],
+                labProduct[Append[labMonomialFactors[first["lin"], first["p"],
+                    If[side === "in", "ℓ", "r"]], "poly"]] <> "\n"],
         {j, Length[groups[side]]}]];
     groups["in"] = labGroups[terms, "in"];
     groups["out"] = labGroups[terms, "out"];

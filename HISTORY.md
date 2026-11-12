@@ -564,6 +564,127 @@ patches.
   its `ArrayPartition`/OrdinaryDiffEq state in M3 is now at odds with
   the package's integrator; "Possible extensions" in `CODE.md` has the
   two ways out.
+- 2026-11-10: Erik Schnetter asked what would most improve performance on
+  Symmetry for a thirteen-patch ball, with multi-thread benchmarks and a
+  GPU in view. A first estimate sized the ball for a cube of `[−10, 10]³`
+  and `R1 = 100` with 8 elements per wavelength at `λ = 16` on the sphere,
+  which takes 96 elements across each patch, since every layer shares
+  the cube's angular grid: `2.4·10⁸` nodes and about 5 s a step on a
+  Symmetry node. It ranked the inner shells' radial width first (wider
+  elements lift the step from 0.15 to 0.44 of the cube's, five times on
+  the run), then a GPU, then the shells' kernels. He then said that the
+  physical runs keep a constant angular resolution everywhere but near
+  the centre, for example 16 elements per patch, and that the cube
+  follows from `hₑ = 1/2`, with `Rm/Rb = 3`. That ball, the benchmark
+  ball, has `1.91·10⁷` nodes and dropped the first estimate: there the
+  inner shells are 8 % of the nodes, and a GPU and the outer shells'
+  truncation and Laplacian lead (`PLAN.md`, "The benchmark ball").
+  `bin/ball_benchmark.jl` and `bin/symmetry/ball_benchmark.sh` measure
+  it; job 595219 on `cn084` gave 0.31 s a step at 64 threads, 3.8 times
+  the flat box per node (`CODE.md`, "Threads on Symmetry").
+- 2026-11-10: Erik Schnetter asked for the package to run on GPUs, and
+  what that means for the particles. A survey found the flat path nearly
+  ready (TreeAMR runs element sets, glues and folds on a device), a
+  geometry refused on one because its truncation tables were arrays in
+  structs no kernel could take, and the particles' projection mostly
+  host code: of its three rules only the far one is a kernel. At `d/8`
+  the projection is about 85 % of an inspiral step on 64 cores, and an
+  H200 job gets 12 to 16 host cores, so leaving it on the host would make
+  it about four times slower than on a CPU node. He chose the particles
+  fully on the device, and, for now, the field ported with the far rule
+  measured as a gate, the particles' port written into `PLAN.md`
+  ("Particles on a device") rather than done.
+- 2026-11-10: the field runs on a device. The tables and the coefficients
+  are built on the host and copied, the coefficients' fill so that
+  ForwardDiff's frame is never compiled for a device; the truncation
+  structs have `Adapt` rules; a full geometry's folds read `√g` from the
+  coefficient set, after the fold that evaluated the frame per point
+  crashed Metal's compiler; the shells' faces are arithmetic rather than
+  an index into a global tuple; a `Float32` geometry's tables are
+  rounded once from `Float64x2` through `BigFloat`, which before failed
+  on the CPU too, `Float64x2` converting to `Float64` only. The ball
+  drivers take a `backend`; `InspiralProblem` refuses a device.
+  `test/device_tests.jl` (after TreeHydro's) holds a device to the host,
+  passing on the laptop's GPU in `Float32` and on an H200 in `Float64`
+  and `Float32`; `bin/backend.jl` gives both benchmarks `--backend` and
+  `--type`, and `bin/symmetry/gpu.sh` runs the lot on one H200.
+- 2026-11-10: measured on one H200 (job 595237, `cn113`): the benchmark
+  ball steps in 54 ms, 5.7 times faster than 64 cores; the flat box only
+  2.6 times, its Laplacian pass no faster than on the CPU. The far rule
+  runs 2.4 times faster than on 64 cores, short of the ten times the
+  gate asked for, so the per-point evaluation comes before the rest of
+  the particles' port. Tables in `CODE.md`, "Threads on Symmetry".
+- 2026-11-10: Erik Schnetter asked to work on the particles' source
+  kernel first. A probe of the source on an H200 (`bin/source_probe.jl`)
+  found every variant at 255 registers and 35 to 52 KB of local memory
+  per thread, at order 0 too: the 12.9 KB of each particle's coefficient
+  tables, a kernel argument, copied into every work item. Inlining the
+  call changed nothing, and the source in a one-element device array was
+  worse. The tables now go into a device array of their own
+  (`device_source`, `TableRef`), read in place, which made the source 2.7
+  to 5 times faster there; register caps and block sizes moved it by at
+  most 7 %. Timing the far rule's two kernels apart showed the
+  contraction negligible and the launch over the ball's blocks costly, so
+  a device now runs it over a list of the far elements. The far rule went
+  from 2.4 to 7.0 times 64 cores, short of the gate's ten; the choice of
+  how to go on is with the owner (`PLAN.md`, B0).
+- 2026-11-11: Erik Schnetter chose to reshape the generated order-3
+  code. Julia had inlined neither `evalpoly` nor products of four or more
+  factors on the nested dual numbers: the order-3 term made 78 calls,
+  each passing a tuple through memory, on the CPU as on the device, where
+  they were most of 24 KB of local memory per work item. `generate.wl`
+  now writes each group's polynomial as a `muladd` chain and nests its
+  products, the same operations, so the host's results are the same to
+  the bit in `Float64` and `BigFloat` (checked over 120 000 points at
+  orders 1–3, and by the suite). Doing the same to the near field's
+  radial functions moved results by an ulp, so they keep `evalpoly`. On
+  an H200 the source at order 3 runs twice as fast and the far rule in
+  0.0546 s; on 64 cores the projection costs 31 % less, and the far rule
+  0.506 s, so the H200 is 9.3 times 64 cores of the same code. A
+  register cap of 128 now saves a fifth on the device, where before it
+  saved at most 7 %.
+- 2026-11-11: Erik Schnetter asked for B1. The particles' tail is copied
+  in one piece, the ball's passes and the averaging over shared nodes
+  are kernels (the averaging brought forward from B5, since without it
+  only `continuous = false` would have run), and, rather than a switch
+  that ran the far rule alone, the graded and nested rules keep their
+  elements' values on the host for one kernel to add on the device, so
+  that the whole right-hand side runs there and `InspiralProblem`
+  accepts a device. The host's results are the same as before to the
+  bit; on an H200 a `d/8` right-hand side takes 2.04 s against 5.19 s
+  on eight host threads, nearly all of it the host's two rules, and the
+  plan per call 1.4 ms, which leaves B2 little to do.
+- 2026-11-11: Erik Schnetter asked for B3. On a device the graded rule
+  now runs as the far rule does, per band over its list of elements, the
+  source at every point and then the contraction; since the host's
+  recursive `tensor_rule` takes the same points, products and order, the
+  kernels give its result to the bit on the CPU, which keeps
+  `tensor_rule`. On an H200 at `d/8` the graded rule takes 20 ms instead
+  of 1.11 s on eight host threads, and a right-hand side 0.93 s instead
+  of 2.04, nearly all of it the nested rule on the host.
+- 2026-11-11: Erik Schnetter asked for B4. On a device the host lists the
+  nested rule's points with their weights and the device evaluates and
+  sums them. Listing them first into a vector per point allocated 200 MB
+  at `d/8` and took 117 ms on an H200 node's eight threads, mostly
+  garbage collection, so it counts and then writes into preallocated
+  arrays, 18 ms; a first version that concatenated the vectors with
+  `reduce(vcat; init)` took seconds, and one that named the result like
+  the threaded loop's locals raced. A `d/8` right-hand side takes 0.102 s
+  on the H200, about 7.4 times 64 cores, equal to the host's.
+- 2026-11-11: Erik Schnetter asked for B5. The pairing stays on the host
+  and reads copies of the blocks around each particle from a device, so
+  `particle_forces` takes a device state and the inspiral runs there
+  entire. A `d/8` RK4 step takes 0.41 s on an H200, 50 times the node's
+  eight host threads; reading the forces adds 35 ms.
+- 2026-11-11: Erik Schnetter asked to try a register cap on the source
+  passes. A prototype of the far rule's source pass as a plain `@cuda`
+  kernel showed half the gain without a cap: KernelAbstractions'
+  multi-dimensional index cost a tenth of the pass. So the three source
+  passes now launch over one linear index, 7 % off a right-hand side
+  and a step. The cap itself went into a package extension on CUDA,
+  `@cuda maxregs=128`, another tenth, as its own commit so that it can
+  be dropped: whether its gain is worth the extension is the owner's
+  call.
 
 ## Particles
 

@@ -308,8 +308,13 @@ through the coefficients of its groups' polynomials
 (`_lab_coefficients`, generated), which are held here once per particle,
 with their first two time derivatives for the term and alone for its
 Laplacian, so that a point evaluates one polynomial per group.
+
+On the host the coefficients are `SVector`s (`CT`, `CL` are
+`LabTermJets{T}` and `LabLaplacianCoefficients{T}`); on a device they are
+[`TableRef`](@ref TreeWaveOLDG.TableRef)s into one array
+([`device_source`](@ref TreeWaveOLDG.device_source)).
 """
-struct ParticleJets{T}
+struct ParticleJets{T,CT,CL}
     Q::T
     ℓ::T
     z::SVector{3,T}
@@ -320,9 +325,14 @@ struct ParticleJets{T}
     L̇ᵤ::NTuple{4,T}                 # d(u·y)/dt in uniform motion
     L̈₀::NTuple{4,T}                 # δ d²(u·y)/dt² = L̈·r + L̈₀
     c::NTuple{6,NTuple{3,T}}        # the dot products and their rates
-    Ct::LabTermJets{T}              # the lab slice's coefficients and rates
-    Cl::LabLaplacianCoefficients{T} # its Laplacian's coefficients
+    Ct::CT                          # the lab slice's coefficients and rates
+    Cl::CL                          # its Laplacian's coefficients
 end
+
+Adapt.adapt_structure(to, p::ParticleJets{T}) where {T} =
+    (Ct = Adapt.adapt(to, p.Ct); Cl = Adapt.adapt(to, p.Cl);
+     ParticleJets{T,typeof(Ct),typeof(Cl)}(p.Q, p.ℓ, p.z, p.M, p.uq, p.bq, p.L, p.L̇ᵤ,
+                                           p.L̈₀, p.c, Ct, Cl))
 
 function ParticleJets(m::ParticleModel{T}, traj::Trajectory{T}) where {T}
     jet(f) = (g = t -> f(trajectory_at(traj, t));
@@ -350,7 +360,8 @@ function ParticleJets(m::ParticleModel{T}, traj::Trajectory{T}) where {T}
     # uniform motion keeps -k·v.
     L̇ᵤ = map(k -> -dot(k[1], v), L)
     L̈₀ = map(k -> -2dot(k[2], v) - dot(k[1], a), L)
-    return ParticleJets{T}(m.Q, m.ℓ, z, M, uq, bq, L, L̇ᵤ, L̈₀, c, Ct, Cl)
+    return ParticleJets{T,typeof(Ct),typeof(Cl)}(m.Q, m.ℓ, z, M, uq, bq, L, L̇ᵤ, L̈₀, c,
+                                                 Ct, Cl)
 end
 
 # Coefficient `i` of the lab slice's generated `_lab_evaluate`: as it is,
@@ -361,6 +372,37 @@ end
 @inline _coefficient(c::SVector, i, d) = c[i]
 @inline function _coefficient(jets::NTuple{3,SVector}, i, d)
     c, ċ, c̈ = jets[1][i], jets[2][i], jets[3][i]
+    return lift(c, zero(c), ċ, c̈, map(_ -> zero(c), d))
+end
+
+"""
+    TableRef{J}(data, offset, n)
+
+A coefficient table of `n` entries read in place from the array `data`,
+from `offset + 1` on: alone, or with `J = true` as three tables, the
+coefficients and their first two time derivatives, one after the other.
+It is what [`ParticleJets`](@ref) holds on a device in place of its
+`SVector`s: those, 12.9 KB per particle at order 3, made the source a
+kernel argument that every work item copied into its own local memory,
+35 KB of it per point on an H200, where a reference into an array is a
+few bytes and its reads are the same address across a warp
+([`device_source`](@ref TreeWaveOLDG.device_source)).
+"""
+struct TableRef{J,A}
+    data::A
+    offset::Int32
+    n::Int32
+end
+
+TableRef{J}(data, offset, n) where {J} = TableRef{J,typeof(data)}(data, offset, n)
+
+Adapt.adapt_structure(to, t::TableRef{J}) where {J} =
+    TableRef{J}(Adapt.adapt(to, t.data), t.offset, t.n)
+
+@inline _coefficient(t::TableRef{false}, i, d) = @inbounds t.data[t.offset + i]
+@inline function _coefficient(t::TableRef{true}, i, d)
+    o = t.offset + i
+    c, ċ, c̈ = @inbounds t.data[o], t.data[o + t.n], t.data[o + 2t.n]
     return lift(c, zero(c), ċ, c̈, map(_ -> zero(c), d))
 end
 
@@ -525,10 +567,49 @@ invariants' rates, which are formed directly. One evaluation of `Ψ` on
 nested dual numbers gives it, and in the window's transition also `Ψ`
 and `∇W·∇Ψ`.
 """
-struct ParticleSource{T,K}
-    particles::NTuple{K,ParticleJets{T}}
+struct ParticleSource{T,K,P}
+    particles::NTuple{K,P}
     window::Window{T}
     order::Int
+end
+
+Adapt.adapt_structure(to, s::ParticleSource{T,K}) where {T,K} =
+    (ps = map(p -> Adapt.adapt(to, p), s.particles);
+     ParticleSource{T,K,eltype(ps)}(ps, s.window, s.order))
+
+"""
+    device_source(S::ParticleSource, backend)
+
+`S` with each particle's lab-slice coefficients moved into one array on
+`backend`, read through [`TableRef`](@ref TreeWaveOLDG.TableRef)s: `S`
+itself on the CPU, whose evaluation it leaves bit for bit as it is.
+On a device the source is a kernel argument, and a few hundred bytes per
+particle rather than the 12.9 KB of its `SVector`s, which every work item
+copied into its local memory ("On a device" in `CODE.md`).
+"""
+device_source(S::ParticleSource, ::CPU) = S
+
+function device_source(S::ParticleSource{T,K}, backend::Backend) where {T,K}
+    host = T[]
+    function table!(jets::NTuple{3,SVector{N}}) where {N}
+        o = length(host)
+        foreach(c -> append!(host, c), jets)
+        return (o, N, true)
+    end
+    function table!(c::SVector{N}) where {N}
+        o = length(host)
+        append!(host, c)
+        return (o, N, false)
+    end
+    places = map(p -> (map(table!, p.Ct), map(table!, p.Cl)), S.particles)
+    data = to_backend(backend, host)
+    ref((o, n, j)) = TableRef{j}(data, Int32(o), Int32(n))
+    ps = map(S.particles, places) do p, (ct, cl)
+        Ct, Cl = map(ref, ct), map(ref, cl)
+        return ParticleJets{T,typeof(Ct),typeof(Cl)}(p.Q, p.ℓ, p.z, p.M, p.uq, p.bq, p.L,
+                                                     p.L̇ᵤ, p.L̈₀, p.c, Ct, Cl)
+    end
+    return ParticleSource{T,K,eltype(ps)}(ps, S.window, S.order)
 end
 
 function ParticleSource(models::Tuple, w::Window, trajs::Tuple; order::Int=3)

@@ -8,25 +8,196 @@ things go").
 
 **Status.** Every item is **(proposed)**. The cube's flat path, the
 first of them, is written (2026-11-09; `CODE.md`, "The seven-patch
-ball"), and what it left is the first item below. The shells' tables are
+ball"), and what it left is under "The full geometry's cost". The shells' tables are
 built in `Float64x2` (2026-11-10; `CODE.md`, "Precision"), and what that
 left is in "The shells' truncation tables". The purely radial outer
 shells, the thirteen-patch ball with its factored truncation, are
 written (2026-11-10; `CODE.md`, "The thirteen-patch ball"), and what
-they left is under "Memory".
+they left is under "Memory". The field on a GPU is written (2026-11-10;
+`CODE.md`, "On a device"), and what it left is under "The benchmark
+ball" and in "Particles on a device". The benchmark ball
+(2026-11-10; `CODE.md`, "Threads on Symmetry") ranks what is left by
+what it would save on the runs to come; that ranking is the first
+section below.
 
 **Contents**
 
+- [The benchmark ball](#the-benchmark-ball)
+- [Particles on a device](#particles-on-a-device)
 - [The full geometry's cost](#the-full-geometrys-cost)
 - [The shells' truncation tables](#the-shells-truncation-tables)
 - [Memory](#memory)
 - [Not worth it now](#not-worth-it-now)
 
-The measurements below are from 2026-11-09, after M8b, on the laptop
-(Apple silicon, four threads unless it says one), `P = 3`, blocks of
-`16³`. "The local ball" is `bin/nested_ball.jl --levels=2 --w0=2
+The measurements in the sections after the first are from 2026-11-09,
+after M8b, on the laptop (Apple silicon, four threads unless it says
+one), `P = 3`, blocks of `16³`. "The local ball" is `bin/nested_ball.jl --levels=2 --w0=2
 --hdiv=4 --lambda=4`: a cube of `Lc = 4` holding two nested levels and
 shells to `R1 = 12`, 2.06 M nodes, 76 % of them in the shells.
+
+## The benchmark ball
+
+The physical runs keep a constant angular resolution everywhere but near
+the centre. The benchmark ball is sized so: 16 elements across each
+patch angularly, `hₑ = 1/2` in the cube and radially in the shells, so
+`Lc = 4`, `Rm = 3Lc`, `R1 = 100`, `1.91·10⁷` nodes, nine tenths of them
+in the outer shells. On a Symmetry node at 64 threads a step takes
+0.31 s, 3.8 times the flat box per node, and a run to `t ≈ 224` about
+3.8 hours (`CODE.md`, "Threads on Symmetry"). Of a step, the
+right-hand sides are 63 %, the truncations 30 %, the stage arithmetic
+6 %. By what each would save, largest first:
+
+- **A GPU. Written** (2026-11-10; `CODE.md`, "On a device"): the field
+  runs on CUDA and Metal and holds to the host's results, and on one
+  H200 the benchmark ball steps 5.7 times faster than on 64 cores, 54 ms
+  a step, 40 minutes to `t ≈ 224` (`CODE.md`, "Threads on Symmetry").
+  What it left:
+  - **The flat kernels on a device.** The Laplacian pass costs on the
+    H200 what it costs on 64 cores, 0.23 ns per node, about a tenth of
+    the device's bandwidth, and with the gradient pass it is nearly 90 %
+    of the flat box's right-hand side, which gains only 2.6 times. Both
+    read the stencil through a run-time tuple index and form their
+    position with `@index(Global, NTuple)`; TreeAMR's flat launch with
+    precomputed inverses made its own copies and fills 1.3 to 2.4
+    times faster. It matters for the cube, and for nested boxes, which
+    are all flat path. Done when the flat Laplacian and gradient passes
+    per node fall by a measured factor on the H200 and the CPU's stay
+    where they are.
+  - **Several GPUs** through MPI, which TreeAMR has, for what does not
+    fit one H200 (nested boxes at `d/16`).
+- **The outer shells' truncation kernel.** 1.19 ns per node at 64
+  threads, 30 times the flat box's, for about 25 multiply-adds: it is
+  bound by its memory accesses. Each element's numbers in registers
+  rather than the scratch array, and compile-time indices, should bring
+  it near the right-hand side's arithmetic intensity. It would save up to
+  a quarter of a step on the CPU, and matters more on a GPU. Done when the
+  benchmark ball's truncation per node falls by a measured factor, with
+  the factored truncation still equal to the per-element one to `1e-14`.
+- **The outer shells' Laplacian.** Their metric is block-diagonal and
+  their frame separable, `S[d] = R_d(r) A_d(ξ_⊥)`: inside a block the
+  radial flux is `|S[k]|²/√g D_k u` and needs no Cartesian gradient, and
+  the coefficients could come from the angular tables the truncation
+  already shares, instead of 80 bytes per node. This is "A cheaper
+  general Laplacian" below, specialized to the shells that are now nine
+  tenths of the nodes. With the truncation, up to about 2.4 times on a
+  step. Done when the outer shells' right-hand side per node falls by a
+  measured factor and the energy tests hold to `1e-13`.
+- **A graded radial map in the outer layer.** `hₑ = 1/2` radially out to
+  100 is four times what `λ = 16` needs. A spacing growing linearly from
+  1/2 at `Rm` to 2 at `R1` takes 81 radial elements instead of 176, 2.2
+  times fewer nodes, at no cost in the step; the factored truncation
+  already takes any radial factor. Whether the physics allows it is the
+  owner's call. Done when `r(ξ)` is not linear, a test holds the frame
+  and the factors, and the plane wave still converges at order `P`.
+- **The 64-thread anomaly** of the variant with wider inner shells
+  (`CODE.md`, "Threads on Symmetry"): rerun, and find the cause if it
+  persists.
+
+Not worth it on this ball: the set-up (half a minute), the stage
+arithmetic (6 %), load balance (the blocks are nearly all alike), and
+local time stepping, since nested levels down to `hₑ = 1/8` for the
+binary would leave the shells' own step only 1.3 to 2.2 times the finest
+level's.
+
+## Particles on a device
+
+The field runs on a GPU (`CODE.md`, "On a device"); the particles did
+not, and they have to follow, decided with the owner on 2026-11-10. Since
+B5 the inspiral runs on a device, forces included. At `d/8` on M4's five-level forest,
+75.5 M nodes, `project_source!` takes 0.585 s per right-hand side at
+order 3 on 64 cores against 0.073 s for the wave equation, about 85 % of
+a 2.71 s step; the binary's projection off the grid takes 1.24 s
+(`CODE.md`, "Prescribed paths" under "Measured results"). An H200 job
+gets 12 to 16 host cores, on which the host passes would take about
+four times as long as on a CPU node. So all
+per-node and per-point work goes on the device, and only `O(particles)`
+work stays on the host.
+
+Today, per right-hand side at `d/8` with two particles, the far rule
+evaluates the source at about 6.7 M points in two KernelAbstractions
+kernels, the graded rule at 2.6 M on host threads, the nested rule at
+1.6 to 2.5 M on host threads after a serial, allocating plan; the
+averaging over shared nodes is a host loop, and the pairing, which reads
+the forces, a serial host call over 1 to 8 elements. One source
+evaluation costs about 2 µs on one CPU thread at order 3 for both
+particles (5 µs before B0), so the projection is bound by arithmetic, which a GPU has
+plenty of in `Float64`.
+
+- **B0, the gate. Measured** (2026-11-10 and 11; `CODE.md`, "On a
+  device" and "Threads on Symmetry"). As first ported the far rule ran
+  2.4 times faster on one H200 than on 64 cores. Three changes took it
+  from 0.363 s to 0.0546 s, equal to the host's to `1.7·10⁻¹¹`: the
+  source's coefficient tables in a device array (`device_source`), which
+  every work item had copied into its local memory; the far rule
+  launched over a list of its elements; and, chosen by the owner, the
+  generated lab slice with its Horner chains and products written out
+  (`derivations/generate.wl`), the same to the bit on the host, where
+  Julia had made them calls that took their arguments through memory.
+  The last also speeds up the host's projection by 31 %, so the gate's
+  baseline moved: on one EPYC 7543 node the far rule takes 0.506 s on 64
+  cores, and the H200 is 9.3 times that, 12.4 times the code before.
+  About at the gate. What is left, should more be wanted:
+  - **A register cap**, done since (`CODE.md`, "On a device"): 128,
+    through a CUDA package extension, a tenth off a right-hand side.
+  - **Truncate the order-3 polynomials far from the particles**, which
+    `CODE.md` leaves open for want of a bound; the transition is far from
+    them.
+  Done when the owner decides to go on to B1.
+- **B1, the right-hand side's plumbing. Done** (2026-11-11; `CODE.md`,
+  "On a device" and "Threads on Symmetry"). The particles' tail is copied
+  in one piece; the passes over the ball's blocks are kernels, and so,
+  brought forward from B5, is the averaging over shared nodes, so that
+  the default `continuous` problem runs. The graded and nested rules
+  stay on the host for now, and run while the device does the far rule:
+  each element's values are kept, and one kernel adds them on the
+  device. With that `InspiralProblem` accepts a device, and only
+  `particle_forces` refuses one. A test holds an inspiral right-hand
+  side and initial state on CUDA to the host's, and the host's results
+  are the same as before to the bit. At `d/8` (the far rule's box, 4.1 M
+  nodes, the binary on circles) one right-hand side takes 2.04 s on an
+  H200, against 5.19 s on its node's eight host threads, equal to
+  `6·10⁻¹⁴`: 0.055 s the far rule, 1.6 ms the wave equation, and 2.03 s
+  the graded and nested rules on the eight host threads. So they are
+  next.
+- **B2, the plan per call. Measured:** 1.4 ms at `d/8`, beside the far
+  rule's 55 ms, with the jets uploaded per call (`device_source`). The
+  classification stays a host loop unless a larger box shows it
+  growing.
+- **B3, the graded rule. Done** (2026-11-11; `CODE.md`, "On a device").
+  Each band runs over its list of elements in two kernels of the far
+  rule's kind, the source at the band's points and the contraction; on
+  the CPU they give the host's `tensor_rule` to the bit, and on an H200
+  its result to `6·10⁻¹⁴` in a whole right-hand side. At `d/8` the
+  graded rule takes 20 ms there against the far rule's 55 ms (1.11 s on
+  eight host threads, 0.115 s on 64 cores), and a right-hand side
+  0.93 s, of which the nested rule on the host is 0.92 s. The CPU keeps
+  `tensor_rule`.
+- **B4, the nested rule. Done** (2026-11-11; `CODE.md`, "On a device").
+  The host lists every point of the nested rule with its weight, in two
+  threaded passes into preallocated arrays; the device evaluates the
+  source at them and sums them per chunk and element in a fixed order.
+  It matches the host's rule to `5·10⁻¹⁶` on the CPU, on and off the
+  grid, and on an H200 to `6·10⁻¹⁴` in a whole right-hand side. At
+  `d/8` the three rules take 55, 20 and 36 to 53 ms there, and a
+  right-hand side 0.102 s, about 7.4 times 64 cores and 50 times the
+  job's eight host threads. The far rule is the largest part again.
+  Since then the source passes launch over one linear index and, on
+  CUDA, with a register cap of 128 (a package extension): a right-hand
+  side takes 0.0858 s, a step 0.339 s.
+- **B5, the forces. Done** (2026-11-11; `CODE.md`, "On a device"). The
+  pairing stays on the host and reads, from a device, copies of the
+  blocks that hold the support's elements and their neighbours
+  (`BlockCopies`); `particle_forces` accepts a device. The device test
+  holds the forces, and the state after three RK4 steps, to the host's;
+  it passes on an H200. At `d/8` a step takes 0.41 s there, against
+  20.7 s on the job's eight host threads, and both particles' forces
+  35 ms. The inspiral suite itself (`test/inspiral_tests.jl`) still
+  builds its problems on the CPU only. The particles need `Float64`, so
+  Metal cannot run them.
+
+Not planned here: nested boxes at `d/16`, 151 GB, exceed one H200's
+141 GB; they would need several GPUs through MPI, which TreeAMR has, or
+the ball's smaller layout.
 
 ## The full geometry's cost
 

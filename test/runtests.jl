@@ -34,4 +34,5 @@ end
     testfile("inspiral_tests.jl")
     testfile("nested_tests.jl")
     testfile("prescribed_tests.jl")
+    testfile("device_tests.jl")
 end

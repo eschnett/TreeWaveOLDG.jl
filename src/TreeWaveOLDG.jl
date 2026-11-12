@@ -39,6 +39,7 @@ module TreeWaveOLDG
 
 using TreeAMR
 
+import Adapt
 import ForwardDiff
 using IMEXRungeKutta: IMEXProblem, RK4, init, solve!, step!
 using KernelAbstractions: @kernel, @index, @Const, Backend, CPU, get_backend,

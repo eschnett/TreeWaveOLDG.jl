@@ -144,10 +144,6 @@ angular truncation tables; `p` unless a geometry says otherwise.
 """
 angular_class(geo::Geometry, p) = p
 
-# A full geometry's gradient is Cartesian, so its folds weight by `√g`
-# alone, the potential energy's `√g |∇u|²` included (`layout.jl`).
-@inline metric_factor(geo::FullGeometry, x, p, which) = first(geometry_frame(geo, x, p))
-
 """
     PolarAnnulus{T}(r0, r1, roots)
     PolarAnnulus(r0, r1, roots)
@@ -328,6 +324,12 @@ end
 # The shells' cube faces `(k, s)`, in patch order 2–7.
 const SEVENPATCH_SHELLS = ((1, -1), (1, 1), (2, -1), (2, 1), (3, -1), (3, 1))
 
+# The `i`-th of them by arithmetic, `SEVENPATCH_SHELLS[i]` without the
+# run-time index into a global tuple, which a device kernel (the
+# Dirichlet hook, a pulse's positions) would read from memory it may not
+# reach.
+@inline shell_of(i) = ((i - 1) ÷ 2 + 1, isodd(i) ? -1 : 1)
+
 sevenpatch_index(k, s) = 1 + 2(k - 1) + (s == 1 ? 2 : 1)
 
 # The physical position of logical `ξ` (an `SVector{3}`) of patch `p`, in
@@ -339,7 +341,7 @@ sevenpatch_index(k, s) = 1 + 2(k - 1) + (s == 1 ? 2 : 1)
     if p == 1
         return Lc .* (2 .* ξ ./ n .- 1)
     end
-    k, s = SEVENPATCH_SHELLS[p - 1]
+    k, s = shell_of(p - 1)
     return blended_shell(Lc, n, m, geo.R1, ξ, k, s, geo.grading)
 end
 
@@ -423,7 +425,7 @@ end
 
 sevenpatch_roots(geo::SevenPatchBall, p) =
     p == 1 ? ntuple(_ -> geo.roots[1], 3) :
-    ntuple(j -> j == SEVENPATCH_SHELLS[p - 1][1] ? geo.roots[2] : geo.roots[1], 3)
+    ntuple(j -> j == shell_of(p - 1)[1] ? geo.roots[2] : geo.roots[1], 3)
 
 function check_geometry(geo::SevenPatchBall, forest::Forest)
     return check_ball(forest, 7, p -> sevenpatch_roots(geo, p), sevenpatch_glue(),
@@ -587,7 +589,7 @@ outer_shell(k, s) = 6 + sevenpatch_index(k, s)
 
 # The face `(k, s)` patch `p` lies over, and whether it is an outer shell.
 @inline thirteenpatch_shell(p) =
-    p <= 7 ? (SEVENPATCH_SHELLS[p - 1]..., false) : (SEVENPATCH_SHELLS[p - 7]..., true)
+    p <= 7 ? (shell_of(p - 1)..., false) : (shell_of(p - 7)..., true)
 
 # The radius of an outer shell over the face `(k, s)` at its radial
 # coordinate `ξk`.
@@ -635,12 +637,12 @@ end
 # `√g = r² r′ ⋅ (2/n)² (1 + c_a² + c_b²)^{-3/2}`, the angular factor the
 # same on every outer shell, since `c_a`, `c_b` are the same functions of
 # `ξ_a`, `ξ_b` there.
-factored_volume(geo::ThirteenPatchBall, p) = p >= 8 ? SEVENPATCH_SHELLS[p - 7][1] : 0
+factored_volume(geo::ThirteenPatchBall, p) = p >= 8 ? shell_of(p - 7)[1] : 0
 
 angular_class(geo::ThirteenPatchBall, p) = p >= 8 ? 8 : p
 
 @inline function radial_volume(geo::ThirteenPatchBall, ξk, p)
-    _, s = SEVENPATCH_SHELLS[p - 7]
+    _, s = shell_of(p - 7)
     r = outer_radius_at(geo, ξk, s)
     return r^2 * ((oftype(ξk, geo.R1) - oftype(ξk, geo.Rm)) / geo.roots[3])
 end

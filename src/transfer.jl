@@ -529,12 +529,16 @@ end
         e = ntuple(d -> (I[d] - 1) ÷ Q, Val(D))
         lo, hi = element_box(origins[b], h, e, Val(P1), Val(D))
         if element_class(lo, hi, ball, particles, rfar) == FAR_ELEMENT
-            x = SVector(ntuple(d -> lo[d] + (hi[d] - lo[d]) *
-                                         (1 + t.gauss[(I[d] - 1) % Q + 1]) / 2, Val(D)))
+            x = gauss_point(lo, hi, t, ntuple(d -> (I[d] - 1) % Q + 1, Val(D)))
             scratch[ntuple(d -> I[d], Val(D))..., b] = S(x)
         end
     end
 end
+
+# The Gauss point `j` (one-based per dimension) of the element `[lo, hi]`.
+@inline gauss_point(lo, hi, t::TransferTables, j) =
+    SVector(ntuple(d -> lo[d] + (hi[d] - lo[d]) * (1 + t.gauss[j[d]]) / 2,
+                   Val(length(lo))))
 
 # The far rule, pass 2, one work item per far element: the values at its
 # `Q^D` points are contracted with `contract` one dimension at a time, in
@@ -552,28 +556,119 @@ end
         e = ntuple(d -> J[d] - 1, Val(D))
         lo, hi = element_box(origins[b], spacings[b], e, Val(P1), Val(D))
         if element_class(lo, hi, ball, particles, rfar) == FAR_ELEMENT
-            base = ntuple(d -> e[d] * Q, Val(D))
-            for d in 1:D
-                lines = ntuple(k -> k < d ? P1 : (k == d ? 1 : Q), Val(D))
-                for K in CartesianIndices(lines)
-                    at(j) = ntuple(k -> base[k] + (k == d ? j : K[k]), Val(D))
-                    line = ntuple(j -> scratch[at(j)..., b], Val(length(t.gauss)))
-                    for i in 1:P1
-                        acc = zero(eltype(scratch))
-                        for j in 1:Q
-                            acc += t.contract[i][j] * line[j]
-                        end
-                        scratch[at(i)..., b] = acc
-                    end
-                end
-            end
-            for K in CartesianIndices(ntuple(_ -> P1, Val(D)))
-                node = ntuple(d -> e[d] * P1 + K[d], Val(D))
-                local_ = ntuple(d -> base[d] + K[d], Val(D))
-                du[node..., var, b] += factor * scratch[local_..., b]
-            end
+            contract_element!(du, scratch, b, e, t, factor, var, Val(D), Val(P1))
         end
     end
+end
+
+# The contraction of far element `e` (zero-based) of block `b`, in place in
+# `scratch`, and its `factor` times `P S` added to variable `var` of `du`.
+@inline contract_element!(du, scratch, b, e, t::TransferTables, factor, var, ::Val{D},
+                          ::Val{P1}) where {D,P1} =
+    contract_points!(du, scratch, b, ntuple(d -> e[d] * length(t.gauss), Val(D)), b, e,
+                     t.contract, factor, var, Val(D), Val(P1))
+
+# The same for any rule whose one-dimensional factor of `P` is `contract`,
+# `Q` points per dimension: element `e` of block `b`, whose values sit in
+# `scratch[base .+ j..., slot]`.
+@inline function contract_points!(du, scratch, slot, base, b, e,
+                                  contract::NTuple{P1,NTuple{Q}}, factor, var, ::Val{D},
+                                  ::Val{P1}) where {D,P1,Q}
+    @inbounds begin
+        for d in 1:D
+            lines = ntuple(k -> k < d ? P1 : (k == d ? 1 : Q), Val(D))
+            for K in CartesianIndices(lines)
+                at(j) = ntuple(k -> base[k] + (k == d ? j : K[k]), Val(D))
+                line = ntuple(j -> scratch[at(j)..., slot], Val(Q))
+                for i in 1:P1
+                    acc = zero(eltype(scratch))
+                    for j in 1:Q
+                        acc += contract[i][j] * line[j]
+                    end
+                    scratch[at(i)..., slot] = acc
+                end
+            end
+        end
+        for K in CartesianIndices(ntuple(_ -> P1, Val(D)))
+            node = ntuple(d -> e[d] * P1 + K[d], Val(D))
+            local_ = ntuple(d -> base[d] + K[d], Val(D))
+            du[node..., var, b] += factor * scratch[local_..., slot]
+        end
+    end
+    return nothing
+end
+
+# The far rule on a device, over the far elements alone: `far[f]` is the
+# block and the zero-based element of far element `f`, which the plan
+# lists on the host. One work item per Gauss point, `(j, f)` with `j`
+# the point's linear index in its element, and then one per element. On
+# the CPU the launch runs over the ball's blocks and classifies each
+# element there (`source_points_kernel!`); on a device that launched a work
+# item for every point of those blocks, a fifth of them idle, each
+# classifying its element again, about 40 % of the far rule's time on an
+# H200 ("On a device" in `CODE.md`). Point `i` is the far rule's point
+# `j` of far element `f`, `i - 1 = (f - 1)Q^D + (j - 1)`, as
+# `launch_points!` runs it.
+@inline function far_point!(i, scratch, S, origins, spacings, far,
+                            t::TransferTables{T,P1,Q}, ::Val{D}) where {T,P1,Q,D}
+    f, j = divrem(i - 1, Q^D) .+ 1
+    @inbounds begin
+        b, e = far[f]
+        lo, hi = element_box(origins[b], spacings[b], e, Val(P1), Val(D))
+        J = Tuple(CartesianIndices(ntuple(_ -> Q, Val(D)))[j])
+        x = gauss_point(lo, hi, t, J)
+        scratch[ntuple(d -> e[d] * Q + J[d], Val(D))..., b] = S(x)
+    end
+    return nothing
+end
+
+# The passes that evaluate the source on a device, one work item per
+# point: `body(i, args...)` for `i` in `1:n`, which recovers its point
+# from `i` itself. One linear index, where KernelAbstractions forms a
+# multi-dimensional one with run-time divisions per axis, saves a tenth
+# of the far rule's source pass on an H200, as TreeAMR found for its
+# copy kernels.
+@kernel function points_kernel!(body, args)
+    i = @index(Global, Linear)
+    body(i, args...)
+end
+
+launch_points!(backend, body, n, args) =
+    n == 0 ? nothing : points_kernel!(backend)(body, args; ndrange=n)
+
+@kernel function far_contract_kernel!(du, scratch, @Const(far), t::TransferTables,
+                                      factor, var, ::Val{D}, ::Val{P1}) where {D,P1}
+    f = @index(Global, Linear)
+    @inbounds b, e = far[f]
+    contract_element!(du, scratch, b, e, t, factor, var, Val(D), Val(P1))
+end
+
+# The graded rule on a device, one band's `GaussRule` over its list of
+# elements, as the far rule runs there: the source at every point into
+# `scratch`, `Q` points per dimension and element `f` of the list, then
+# the contraction one dimension at a time. The points are `tensor_rule`'s,
+# and the contraction takes the same products in the same order, so on
+# the CPU the result is the host rule's to the bit (a test); a device
+# fuses some of the multiply-adds.
+@inline function graded_point!(i, scratch, S, origins, spacings, list,
+                               g::GaussRule{T,P1,Q}, ::Val{D}) where {T,P1,Q,D}
+    f, j = divrem(i - 1, Q^D) .+ 1
+    @inbounds begin
+        b, e = list[f]
+        lo, hi = element_box(origins[b], spacings[b], e, Val(P1), Val(D))
+        J = Tuple(CartesianIndices(ntuple(_ -> Q, Val(D)))[j])
+        x = SVector(ntuple(d -> lo[d] + (hi[d] - lo[d]) * (1 + g.nodes[J[d]]) / 2, Val(D)))
+        scratch[J..., f] = S(x)
+    end
+    return nothing
+end
+
+@kernel function graded_contract_kernel!(du, scratch, @Const(list), g::GaussRule, factor,
+                                         var, ::Val{D}, ::Val{P1}) where {D,P1}
+    f = @index(Global, Linear)
+    @inbounds b, e = list[f]
+    contract_points!(du, scratch, f, ntuple(_ -> 0, Val(D)), b, e, g.contract, factor, var,
+                     Val(D), Val(P1))
 end
 
 """
@@ -693,6 +788,7 @@ function project_source!(du, p::WaveProblem{T,D}, t::TransferTables, S, particle
     project_far!(dua, plan, t, S, scratch, T(factor), var)
     project_graded!(dua, plan, t, S, T(factor), var)
     project_near!(dua, plan, t, S, T(factor), var)
+    synchronize(plan.backend)
     return du
 end
 
@@ -719,12 +815,15 @@ function projection_plan(p::WaveProblem{T,D}, t::TransferTables{T,P1}, particles
         lo = SVector(origins[b])
         box_distance2(region[1], lo, lo .+ spacings[b] * forest.N, 1:D) < region[2]^2
     end
-    near, graded = host_elements(fs, t, origins, spacings, mask, region, particles, rn, rf,
-                                 Val(P1))
+    near, graded, far = host_elements(fs, t, origins, spacings, mask, region, particles, rn,
+                                      rf, Val(P1))
     return (; fs, backend, hₑ, rn, rf, region, particles, origins, spacings,
             dev_origins=to_backend(backend, origins),
             dev_spacings=to_backend(backend, spacings),
-            active=to_backend(backend, Int32.(findall(mask))), near, graded)
+            active=to_backend(backend, Int32.(findall(mask))), near, graded,
+            dev_graded=map(list -> to_backend(backend, map(x -> (Int32(x[1]), Int32.(x[2])),
+                                                           list)), graded),
+            far=to_backend(backend, far))
 end
 
 # The far elements: the source at their Gauss points, then the
@@ -739,6 +838,11 @@ function project_far!(dua, plan, t::TransferTables{T,P1,Q}, S, scratch, factor,
     D = length(plan.region[1])
     E = fs.forest.N ÷ P1
     n = length(plan.active)
+    # On a device the source's coefficient tables go into an array of
+    # their own, so that the kernel's argument is small; on the CPU it is
+    # `S` itself.
+    S = S isa ParticleSource ? device_source(S, backend) : S
+    backend isa CPU || return project_far_list!(dua, plan, t, S, scratch, factor, var)
     TreeAMR.launch_by_owner!(source_points_kernel!, backend, scratch, S, plan.dev_origins,
                              plan.dev_spacings, plan.active, t, plan.region,
                              plan.particles, plan.rf, Val(D), Val(P1);
@@ -752,28 +856,91 @@ function project_far!(dua, plan, t::TransferTables{T,P1,Q}, S, scratch, factor,
     return nothing
 end
 
-# The graded elements, on the host, one band at a time, threaded over
-# elements.
+# The far rule over the plan's list of far elements, as a device runs it:
+# the same points and the same contraction as `project_far!`'s launch over
+# the ball's blocks, so on any backend the same `du` (a test runs both on
+# the CPU). It does not wait for the device: the host's rules run while
+# it works, and what they add is launched after it on the same stream.
+function project_far_list!(dua, plan, t::TransferTables{T,P1,Q}, S, scratch, factor,
+                           var) where {T,P1,Q}
+    backend = plan.backend
+    D = length(plan.region[1])
+    nf = length(plan.far)
+    nf == 0 && return nothing
+    launch_points!(backend, far_point!, Q^D * nf,
+                   (scratch, S, plan.dev_origins, plan.dev_spacings, plan.far, t, Val(D)))
+    far_contract_kernel!(backend)(dua, scratch, plan.far, t, factor, var, Val(D), Val(P1);
+                                  ndrange=nf)
+    return nothing
+end
+
+# The graded elements, one band at a time: on the CPU threaded over
+# elements, on a device as the far rule runs there, in two kernels per
+# band. `S` is the host's source.
 function project_graded!(dua, plan, t::TransferTables, S, factor, var)
-    foreach((g, list) -> project_tensor!(dua, plan, t, g, list, S, factor, var), t.graded,
-            plan.graded)
+    if plan.backend isa CPU
+        foreach((g, list) -> project_tensor!(dua, plan, t, g, list, S, factor, var),
+                t.graded, plan.graded)
+    else
+        Sd = S isa ParticleSource ? device_source(S, plan.backend) : S
+        foreach((g, list) -> project_graded_list!(dua, plan, g, list, Sd, factor, var),
+                t.graded, plan.dev_graded)
+    end
+    return nothing
+end
+
+# One band of the graded rule in kernels, on any backend, over `list`, the
+# band's elements as `(block, element)` in `Int32` on the backend. It does
+# not wait for a device.
+function project_graded_list!(dua, plan, g::GaussRule{T,P1,Q}, list, S, factor,
+                              var) where {T,P1,Q}
+    n = length(list)
+    n == 0 && return nothing
+    D = ndims(dua) - 2
+    backend = plan.backend
+    scratch = allocate(backend, T, ntuple(_ -> Q, D)..., n)
+    launch_points!(backend, graded_point!, Q^D * n,
+                   (scratch, S, plan.dev_origins, plan.dev_spacings, list, g, Val(D)))
+    graded_contract_kernel!(backend)(dua, scratch, list, g, factor, var, Val(D), Val(P1);
+                                     ndrange=n)
     return nothing
 end
 
 function project_tensor!(dua, plan, t::TransferTables{T,P1}, g::GaussRule, list, S, factor,
                          var) where {T,P1}
     isempty(list) && return nothing    # and the loop is not compiled
+    D = ndims(dua) - 2                 # from the type, so that `Val(D)` is static
+    values = Vector{SVector{P1^D,T}}(undef, length(list))
     Threads.@threads :dynamic for i in eachindex(list)
-        D = length(plan.region[1])     # here, so that the closure knows it
         b, e = list[i]
         lo, hi = element_box(plan.origins[b], plan.spacings[b], e, Val(P1), Val(D))
-        vals = tensor_rule(S, g, lo, hi, lo, Val(D))
-        for (n, K) in enumerate(CartesianIndices(ntuple(_ -> P1, D)))
-            node = ntuple(d -> e[d] * P1 + K[d], D)
-            dua[node..., var, b] += factor * vals[n]
-        end
+        values[i] = factor * tensor_rule(S, g, lo, hi, lo, Val(D))
     end
+    add_elements!(dua, plan.backend, list, values, var)
     return nothing
+end
+
+# What the host's rules found, added to `dua` on its backend: element
+# `list[i] = (b, e, …)` gets `values[i]`, its nodes in the order of
+# `CartesianIndices`, in one launch. No two items write one node, since
+# no element is on two of the host's lists and its nodes are its own.
+function add_elements!(dua, backend, list, values::Vector{SVector{M,T}}, var) where {M,T}
+    isempty(list) && return nothing
+    D = ndims(dua) - 2
+    P1 = round(Int, M^(1 / D))
+    elements = to_backend(backend, [(Int32(x[1]), Int32.(x[2])) for x in list])
+    element_add_kernel!(backend)(dua, elements, to_backend(backend, values), var, Val(D),
+                                 Val(P1); ndrange=(M, length(list)))
+    return nothing
+end
+
+@kernel function element_add_kernel!(dua, @Const(elements), @Const(values), var,
+                                     ::Val{D}, ::Val{P1}) where {D,P1}
+    m, i = @index(Global, NTuple)
+    @inbounds b, e = elements[i]
+    K = CartesianIndices(ntuple(_ -> P1, Val(D)))[m]
+    node = ntuple(d -> e[d] * P1 + K[d], Val(D))
+    @inbounds dua[node..., var, b] += values[i][m]
 end
 
 # The near elements, on the host. One element, the one holding the
@@ -790,22 +957,42 @@ end
 # hundreds of times the others, and with the lab slice's source one chunk
 # held most of the work, 0.96 s where the evaluations take about 0.2 s on
 # 64 threads (CODE.md, "Prescribed paths" under "Measured results").
+#
+# On a device the host plans the nested rule's points and the device
+# evaluates and sums them (`project_near_points!`).
 function project_near!(dua, plan, t::TransferTables{T,P1}, S, factor, var) where {T,P1}
+    isempty(plan.near) && return nothing
+    plan.backend isa CPU && return project_near_host!(dua, plan, t, S, factor, var)
+    Sd = S isa ParticleSource ? device_source(S, plan.backend) : S
+    return project_near_points!(dua, plan, t, Sd, factor, var)
+end
+
+# The outermost line's segments of every near element, as `(element, xs,
+# ws)`, in the order of `plan.near`, and its points as `(segment, point)`.
+function near_segments(plan, t::TransferTables{T,P1}, ::Val{D}) where {T,P1,D}
     near = plan.near
-    isempty(near) && return nothing    # and the loops are not compiled
-    D = ndims(dua) - 2                 # from the type, so that `Val(D)` is static
-    origins, spacings, particles = plan.origins, plan.spacings, plan.particles
-    box(i) = element_box(origins[near[i][1]], spacings[near[i][1]], near[i][2], Val(P1),
-                         Val(D))
-    # The outermost line's segments of every element, as `(element, xs, ws)`.
     segments = Tuple{Int,Vector{T},Vector{T}}[]
     for i in eachindex(near)
-        lo, hi = box(i)
+        lo, hi = near_box(plan, i, Val(P1), Val(D))
         line_fold((list, xs, ws) -> push!(list, (i, collect(T, xs), collect(T, ws))),
-                  segments, particles[near[i][3]], t, lo, hi, SVector{0,T}(), D == 1, false,
-                  Val(D))
+                  segments, plan.particles[near[i][3]], t, lo, hi, SVector{0,T}(), D == 1,
+                  false, Val(D))
     end
     items = [(j, k) for j in eachindex(segments) for k in eachindex(segments[j][2])]
+    return segments, items
+end
+
+@inline near_box(plan, i, ::Val{P1}, ::Val{D}) where {P1,D} =
+    element_box(plan.origins[plan.near[i][1]], plan.spacings[plan.near[i][1]],
+                plan.near[i][2], Val(P1), Val(D))
+
+function project_near_host!(dua, plan, t::TransferTables{T,P1}, S, factor,
+                            var) where {T,P1}
+    near = plan.near
+    D = ndims(dua) - 2                 # from the type, so that `Val(D)` is static
+    particles = plan.particles
+    box(i) = near_box(plan, i, Val(P1), Val(D))
+    segments, items = near_segments(plan, t, Val(D))
     wₙ = element_weights(t, plan.hₑ, Val(D))
     values = Vector{typeof(wₙ)}(undef, length(items))
     Threads.@threads :greedy for n in eachindex(items)
@@ -825,13 +1012,172 @@ function project_near!(dua, plan, t::TransferTables{T,P1}, S, factor, var) where
         end
         sums[i] += acc
     end
-    for (i, (b, e, _)) in enumerate(near)
-        for (m, K) in enumerate(CartesianIndices(ntuple(_ -> P1, D)))
-            node = ntuple(d -> e[d] * P1 + K[d], D)
-            dua[node..., var, b] += factor * sums[i][m] / wₙ[m]
+    add_elements!(dua, plan.backend, near, map(s -> factor .* s ./ wₙ, sums), var)
+    return nothing
+end
+
+# The nested rule as a device runs it, on any backend. The host lists
+# every point of the rule with its weight, the product of its lines'
+# weights, threaded over the outermost lines' points as the host's rule
+# is; the backend evaluates the source at each point, one work item per
+# point, sums each chunk of up to `NEAR_CHUNK` of an element's points per
+# node, and each element's chunks in order, and adds the result to its
+# nodes. The points are the host rule's, and the sums are in another
+# order, so the result is the host's to rounding (a test).
+const NEAR_CHUNK = 256
+
+function project_near_points!(dua, plan, t::TransferTables{T,P1}, S, factor,
+                              var) where {T,P1}
+    near = plan.near
+    D = ndims(dua) - 2
+    xs, ws, first = nested_points(plan, t, Val(D))
+    n = length(xs)
+    n == 0 && return nothing
+    # The chunks, `(first point, last point)`, and each element's.
+    chunks = Tuple{Int32,Int32}[]
+    elements = Tuple{Int32,NTuple{D,Int32},Int32,Int32}[]
+    boxes = Tuple{SVector{D,T},SVector{D,T}}[]
+    for i in eachindex(near)
+        c₁ = length(chunks) + 1
+        for a in first[i]:NEAR_CHUNK:(first[i + 1] - 1)
+            push!(chunks, (a, min(a + NEAR_CHUNK - 1, first[i + 1] - 1)))
+            push!(boxes, near_box(plan, i, Val(P1), Val(D)))
         end
+        push!(elements, (Int32(near[i][1]), Int32.(near[i][2]), c₁, length(chunks)))
+    end
+    backend = plan.backend
+    dxs, dws = to_backend(backend, xs), to_backend(backend, ws)
+    values = allocate(backend, T, n)
+    launch_points!(backend, near_point!, n, (values, S, dxs))
+    M = P1^D
+    partials = allocate(backend, T, M, length(chunks))
+    near_partials_kernel!(backend)(partials, values, dxs, dws, to_backend(backend, chunks),
+                                   to_backend(backend, boxes), t, Val(D), Val(P1);
+                                   ndrange=(M, length(chunks)))
+    near_finish_kernel!(backend)(dua, partials, to_backend(backend, elements),
+                                 element_weights(t, plan.hₑ, Val(D)), factor, var, Val(D),
+                                 Val(P1); ndrange=(M, length(elements)))
+    return nothing
+end
+
+# Every point of the nested rule over the plan's near elements, `xs[p]`
+# with weight `ws[p]`, element `i`'s from `first[i]` to `first[i + 1] - 1`.
+# Threaded over the outermost lines' points, in two passes: one counts
+# each one's points, the other writes them at their offsets. Collecting
+# them into a vector per point allocated 200 MB at `d/8` and spent most
+# of its time in the garbage collector.
+function nested_points(plan, t::TransferTables{T,P1}, ::Val{D}) where {T,P1,D}
+    near = plan.near
+    segments, items = near_segments(plan, t, Val(D))
+    function visit(sink, n)
+        j, k = items[n]
+        i = segments[j][1]
+        lo, hi = near_box(plan, i, Val(P1), Val(D))
+        collect_points!(sink, plan.particles[near[i][3]], t, lo, hi,
+                        SVector{1,T}(segments[j][2][k]), segments[j][3][k], Val(D - 1))
+        return sink.n
+    end
+    counts = zeros(Int, length(items))
+    Threads.@threads :greedy for n in eachindex(items)
+        counts[n] = visit(PointSink{SVector{D,T},T}(nothing, nothing, 0), n)
+    end
+    offsets = cumsum(vcat(0, counts))
+    xs = Vector{SVector{D,T}}(undef, offsets[end])
+    ws = Vector{T}(undef, offsets[end])
+    Threads.@threads :greedy for n in eachindex(items)
+        visit(PointSink{SVector{D,T},T}(xs, ws, offsets[n]), n)
+    end
+    perelement = zeros(Int, length(near))
+    for n in eachindex(items)
+        perelement[segments[items[n][1]][1]] += counts[n]
+    end
+    return xs, ws, cumsum(vcat(1, perelement))
+end
+
+# Where `collect_points!` puts the points: it counts them in `n`, and
+# writes them from `n + 1` on into `xs` and `ws` unless they are `nothing`.
+mutable struct PointSink{X,W,XS<:Union{Nothing,Vector{X}},WS<:Union{Nothing,Vector{W}}}
+    xs::XS
+    ws::WS
+    n::Int
+end
+
+PointSink{X,W}(xs, ws, n) where {X,W} = PointSink{X,W,typeof(xs),typeof(ws)}(xs, ws, n)
+
+@inline function sink_point!(s::PointSink, x, w)
+    s.n += 1
+    if s.xs !== nothing
+        @inbounds s.xs[s.n] = x
+        @inbounds s.ws[s.n] = w
     end
     return nothing
+end
+
+# The points of the nested rule's remaining `n` dimensions through
+# `prefix`, each with `w` times its lines' weights, into `sink`. A method
+# per level, as `nested_rule` has.
+@inline collect_points!(sink, s, t, lo, hi, prefix, w, ::Val{0}) =
+    sink_point!(sink, prefix, w)
+
+for n in 1:4
+    @eval function collect_points!(sink::PointSink, s::ParticleSupport, t::TransferTables,
+                                   lo, hi, prefix::SVector, w, ::Val{$n})
+        op = (acc, lxs, lws) -> begin
+            for k in eachindex(lxs, lws)
+                collect_points!(sink, s, t, lo, hi, push(prefix, lxs[k]), w * lws[k],
+                                Val($(n - 1)))
+            end
+            acc
+        end
+        line_fold(op, nothing, s, t, lo, hi, prefix, $(n == 1), false, Val($n))
+        return nothing
+    end
+end
+
+@inline function near_point!(p, values, S, xs)
+    @inbounds values[p] = S(xs[p])
+    return nothing
+end
+
+# Work item `(m, c)`: chunk `c`'s points summed for node `m` of their
+# element, `Σ w S φ_m`, with `φ_m` as `element_basis` forms it.
+@kernel function near_partials_kernel!(partials, @Const(values), @Const(xs), @Const(ws),
+                                       @Const(chunks), @Const(boxes), t::TransferTables,
+                                       ::Val{D}, ::Val{P1}) where {D,P1}
+    m, c = @index(Global, NTuple)
+    @inbounds begin
+        a, b = chunks[c]
+        lo, hi = boxes[c]
+        K = CartesianIndices(ntuple(_ -> P1, Val(D)))[m]
+        acc = zero(eltype(partials))
+        for p in a:b
+            x = xs[p]
+            φ = one(eltype(partials))
+            for d in 1:D
+                ξ = (2x[d] - lo[d] - hi[d]) / (hi[d] - lo[d])
+                φ = lagrange_values(t, ξ)[K[d]] * φ
+            end
+            acc += ws[p] * (values[p] * φ)
+        end
+        partials[m, c] = acc
+    end
+end
+
+# Work item `(m, i)`: element `i`'s chunks summed in order for node `m`,
+# and `factor` times that over `wₙ[m]` added to its node.
+@kernel function near_finish_kernel!(du, @Const(partials), @Const(elements), wₙ, factor,
+                                     var, ::Val{D}, ::Val{P1}) where {D,P1}
+    m, i = @index(Global, NTuple)
+    @inbounds begin
+        b, e, c₁, c₂ = elements[i]
+        acc = zero(eltype(partials))
+        for c in c₁:c₂
+            acc += partials[m, c]
+        end
+        K = CartesianIndices(ntuple(_ -> P1, Val(D)))[m]
+        node = ntuple(d -> e[d] * P1 + K[d], Val(D))
+        du[node..., var, b] += factor * acc / wₙ[m]
+    end
 end
 
 # The host's elements of the projection, found on the host: the nested
@@ -849,12 +1195,15 @@ function host_elements(fs::FieldSet{T,D}, t::TransferTables, origins, spacings, 
     hₑ = minimum_spacing(fs.forest) * P1
     near = Tuple{Int,NTuple{D,Int},Int}[]
     graded = map(_ -> Tuple{Int,NTuple{D,Int}}[], t.graded)
+    far = Tuple{Int32,NTuple{D,Int32}}[]
     for b in 1:nblocks(fs)
         mask[b] || continue
         for J in CartesianIndices(ntuple(_ -> E, D))
             e = Tuple(J) .- 1
             lo, hi = element_box(origins[b], spacings[b], e, Val(P1), Val(D))
-            element_class(lo, hi, region, particles, rf) == HOST_ELEMENT || continue
+            class = element_class(lo, hi, region, particles, rf)
+            class == FAR_ELEMENT && push!(far, (Int32(b), Int32.(e)))
+            class == HOST_ELEMENT || continue
             dist² = map(s -> box_distance2(s.z, lo, hi, 1:D), particles)
             if minimum(dist²) >= rn^2
                 δ = sqrt(minimum(dist²)) / hₑ
@@ -870,7 +1219,7 @@ function host_elements(fs::FieldSet{T,D}, t::TransferTables, origins, spacings, 
             push!(near, (b, e, argmin(dist²)))
         end
     end
-    return near, graded
+    return near, graded, far
 end
 
 # The block and element that hold the point `x`, and the element's box.
@@ -949,11 +1298,14 @@ and for each of them and each dimension the block across its upper face,
 or 0 where that block is not among them or not on the same level (the
 ball's blocks are all on the finest level, [`check_finest`](@ref)). No
 periodic images are looked for. Built once, since the ball does not
-move.
+move, and held on the host and, for the kernels, on the field set's
+backend.
 """
-struct SharedNodes{D}
+struct SharedNodes{D,B,U}
     blocks::Vector{Int}
     upper::Vector{NTuple{D,Int}}
+    dev_blocks::B                   # `blocks` as `Int32`, on the backend
+    dev_upper::U                    # `upper` likewise
 end
 
 function SharedNodes(fs::FieldSet{T,D}, ball) where {T,D}
@@ -977,7 +1329,11 @@ function SharedNodes(fs::FieldSet{T,D}, ball) where {T,D}
             (bn !== nothing && member[bn] && spacings[bn] == h) ? bn : 0
         end
     end
-    return SharedNodes{D}(blocks, upper)
+    backend = get_backend(fs.work)
+    dev_blocks = to_backend(backend, Int32.(blocks))
+    dev_upper = to_backend(backend, map(u -> Int32.(u), upper))
+    return SharedNodes{D,typeof(dev_blocks),typeof(dev_upper)}(blocks, upper, dev_blocks,
+                                                                dev_upper)
 end
 
 """
@@ -995,36 +1351,52 @@ through. A face to a block outside `sn` is left alone, so at the ball's
 outermost blocks a node some of whose sharers are outside gets no exact
 mean; the ball's source has fallen to zero there with the window.
 
-Each pass is threaded over blocks: a block averages its own inner faces
-and its upper face with the block across it, whose lower face no other
-block writes in that pass.
+Each pass is one launch, on `ua`'s backend, of a work item per pair of
+coincident nodes: a block's inner faces along the dimension, and its
+upper face with the block across it, whose lower face no other block
+writes in that pass. No two items write one node, so the result does
+not depend on the order.
 """
 function average_shared!(ua, sn::SharedNodes{D}, var, ::Val{P1}) where {D,P1}
     N = size(ua, 1)
     E = N ÷ P1
+    backend = get_backend(ua)
+    nb = length(sn.blocks)
+    nb == 0 && return ua
     for d in 1:D
-        Threads.@threads :static for i in eachindex(sn.blocks)
-            b = sn.blocks[i]
-            rest = CartesianIndices(ntuple(k -> k == d ? 1 : N, Val(D)))
-            for k in 1:(E - 1), J in rest
-                I₁ = ntuple(m -> m == d ? k * P1 : J[m], Val(D))
-                I₂ = ntuple(m -> m == d ? k * P1 + 1 : J[m], Val(D))
-                @inbounds mean = (ua[I₁..., var, b] + ua[I₂..., var, b]) / 2
-                @inbounds ua[I₁..., var, b] = mean
-                @inbounds ua[I₂..., var, b] = mean
-            end
-            bn = sn.upper[i][d]
-            bn == 0 && continue
-            for J in rest
-                I₁ = ntuple(m -> m == d ? N : J[m], Val(D))
-                I₂ = ntuple(m -> m == d ? 1 : J[m], Val(D))
-                @inbounds mean = (ua[I₁..., var, b] + ua[I₂..., var, bn]) / 2
-                @inbounds ua[I₁..., var, b] = mean
-                @inbounds ua[I₂..., var, bn] = mean
-            end
+        TreeAMR.launch_by_owner!(average_kernel!, backend, ua, sn.dev_blocks, sn.dev_upper,
+                                 var, Val(d), Val(D), Val(P1);
+                                 ndrange=(ntuple(_ -> N, D - 1)..., E, nb))
+    end
+    synchronize(backend)
+    return ua
+end
+
+# Work item `(J, k, i)` of pass `d`: in block `blocks[i]` the nodes `kP1`
+# and `kP1 + 1` along `d` for `k < E`, or for `k = E` its node `N` and node
+# 1 of the block across its upper face, with `J` the other dimensions.
+@kernel function average_kernel!(ua, @Const(blocks), @Const(upper), var, ::Val{d},
+                                 ::Val{D}, ::Val{P1}) where {d,D,P1}
+    I = @index(Global, NTuple)
+    k, i = I[D], I[D + 1]
+    N = size(ua, 1)
+    E = N ÷ P1
+    at(x) = ntuple(m -> m == d ? x : m < d ? I[m] : I[m - 1], Val(D))
+    @inbounds b = Int(blocks[i])
+    if k < E
+        I₁, I₂ = at(k * P1), at(k * P1 + 1)
+        @inbounds mean = (ua[I₁..., var, b] + ua[I₂..., var, b]) / 2
+        @inbounds ua[I₁..., var, b] = mean
+        @inbounds ua[I₂..., var, b] = mean
+    else
+        @inbounds bn = Int(upper[i][d])
+        if bn != 0
+            I₁, I₂ = at(N), at(1)
+            @inbounds mean = (ua[I₁..., var, b] + ua[I₂..., var, bn]) / 2
+            @inbounds ua[I₁..., var, b] = mean
+            @inbounds ua[I₂..., var, bn] = mean
         end
     end
-    return ua
 end
 
 """
@@ -1071,8 +1443,11 @@ operator"), over the elements that meet the particle's support
 return a number or a static vector, for `K = ρ` and `K = ∇ρ`.
 
 Each element is integrated by the nested rule split at the support, which
-is exact up to the inner Gauss rule's order inside it, and the state is
-read directly on the host. A `mesh_fold` of `wₙ (P K)ₙ gₙ` over every
+is exact up to the inner Gauss rule's order inside it, on the host. The
+state is read there directly, or, from a device, through copies of
+variable `var` of the blocks that hold the elements and their
+neighbours, a few tens of kilobytes each ([`BlockCopies`](@ref
+TreeWaveOLDG.BlockCopies)). A `mesh_fold` of `wₙ (P K)ₙ gₙ` over every
 node gives the same, at the cost of a pass over the mesh; the tests keep
 it as the reference.
 
@@ -1087,9 +1462,11 @@ function pairing(p::WaveProblem{T,D}, t::TransferTables{T,P1}, u, K,
                  s::ParticleSupport{D}; var::Int=1,
                  continuous::Bool=false) where {T,D,P1}
     check_tables(p, t)
+    elements = support_elements(p, s)
     ua = statearray(u, p.fs)
+    get_backend(p.fs.work) isa CPU || (ua = BlockCopies(p.fs, ua, elements, var, Val(P1)))
     acc = zero(K(s.z))
-    for (b, e) in support_elements(p, s)
+    for (b, e) in elements
         key = blockkey(p.fs, b)
         lo, hi = element_box(block_origin(T, p.fs.forest, key),
                              spacing(T, p.fs.forest, key), e, Val(P1), Val(D))
@@ -1099,6 +1476,43 @@ function pairing(p::WaveProblem{T,D}, t::TransferTables{T,P1}, u, K,
                            t, lo, hi, SVector{0,T}(), Val(D), true)
     end
     return acc
+end
+
+"""
+    BlockCopies(fs, ua, elements, var, Val(P1))
+
+What [`pairing`](@ref) reads of a state on a device: variable `var` of
+each block that holds one of `elements`, `(block, element)` pairs, or an
+element across one of their faces, edges or corners, copied to the host,
+one copy per block. Indexed as the state array is, `c[i..., var, b]`, for
+those blocks and that variable only.
+"""
+struct BlockCopies{T,D}
+    blocks::Dict{Int,Array{T,D}}
+    var::Int
+end
+
+function BlockCopies(fs::FieldSet{T,D}, ua, elements, var, ::Val{P1}) where {T,D,P1}
+    needed = Set{Int}()
+    for (b, e) in elements
+        key = blockkey(fs, b)
+        lo, hi = element_box(block_origin(T, fs.forest, key), spacing(T, fs.forest, key), e,
+                             Val(P1), Val(D))
+        for s in CartesianIndices(ntuple(_ -> -1:1, D))
+            x = (lo + hi) / 2 + SVector(Tuple(s)) .* (hi - lo)
+            all(d -> first(fs.forest.extents[d]) < x[d] < last(fs.forest.extents[d]), 1:D) ||
+                continue
+            push!(needed, locate_element(fs, Val(P1), x)[1])
+        end
+    end
+    copies = Dict(b => Array(view(ua, ntuple(_ -> :, D)..., var, b)) for b in needed)
+    return BlockCopies{T,D}(copies, var)
+end
+
+@inline function Base.getindex(c::BlockCopies{T,D}, I::Vararg{Integer}) where {T,D}
+    I[D + 1] == c.var || throw(ArgumentError(
+        "variable $(I[D + 1]) of a block was read, and only $(c.var) was copied"))
+    return c.blocks[I[D + 2]][ntuple(d -> I[d], Val(D))...]
 end
 
 """

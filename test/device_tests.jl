@@ -1,0 +1,334 @@
+# Running on a device: every driver and problem the suite measures with
+# runs on a device and reproduces the host run at the same type, to
+# rounding. A device that built a different table, read a different ghost
+# or took a different step would still run, and only this comparison would
+# tell.
+#
+# The backend is the field sets' (`WaveProblem(…; backend)`), and the
+# integrator follows the state: a device state takes IMEXRungeKutta's
+# broadcast path, since `state_partition` hands it no partition. A device
+# package is deliberately not a dependency of the package or of the tests;
+# add one to an environment of your own and name it:
+#
+#     julia --project=<env> -e 'using Pkg; Pkg.develop(path = ".");
+#                                Pkg.add(["Metal", "KernelAbstractions",
+#                                         "TreeAMR", "IMEXRungeKutta",
+#                                         "StaticArrays", "ForwardDiff"])'
+#     TREEWAVEOLDG_TEST_BACKEND=metal julia --project=<env> test/device_tests.jl
+#
+# Unset, the CPU stands in for the device, which is what CI does: the
+# comparisons are then exact by construction, and what is exercised is the
+# plumbing, the backend reaching every set and table. See "Threads and
+# devices" in `CODE.md`.
+
+using Test
+using TreeAMR
+using TreeWaveOLDG
+# KernelAbstractions through TreeAMR, so that the tests need no dependency of
+# their own for it.
+using TreeAMR.KernelAbstractions: CPU, Backend, get_backend, supports_float64
+using LinearAlgebra: norm
+
+const DEVICE_NAME = lowercase(get(ENV, "TREEWAVEOLDG_TEST_BACKEND", ""))
+
+if DEVICE_NAME == "cuda"
+    using CUDA
+elseif DEVICE_NAME == "metal"
+    using Metal
+elseif !isempty(DEVICE_NAME)
+    error("TREEWAVEOLDG_TEST_BACKEND must be \"cuda\" or \"metal\", got " *
+          "\"$DEVICE_NAME\"")
+end
+
+# The device, or the CPU standing in for it.
+const DEVICE = let
+    device = if DEVICE_NAME == "cuda"
+        CUDA.functional() ? CUDABackend() : nothing
+    elseif DEVICE_NAME == "metal"
+        Metal.functional() ? MetalBackend() : nothing
+    end
+    if device === nothing && !isempty(DEVICE_NAME)
+        @info "TREEWAVEOLDG_TEST_BACKEND=$DEVICE_NAME is not functional here; " *
+              "the CPU stands in for it"
+    end
+    device === nothing ? CPU() : device
+end
+
+const DEVICE_LABEL = string(nameof(typeof(DEVICE)))
+
+# `Float64` where the device has it, the type the host suite makes its
+# claims at; `Float32` on Metal, which has nothing else, and on CUDA as
+# well. On the CPU stand-in one type, since the comparison is exact there.
+const DEVICE_TYPES = DEVICE isa CPU ? (Float64,) :
+                     supports_float64(DEVICE) ? (Float64, Float32) : (Float32,)
+
+# The agreement asked of a result: a device may contract `a*b + c` into an
+# `fma` where the host does not, and its `sin` and `exp` are not Julia's,
+# so it differs from the host in the last bits of every node. An error
+# norm is a difference of order-one states and carries a relative noise of
+# `eps(T)/err`, hence `sqrt(eps(T))`, as in TreeHydro's device tests.
+device_close(dev, host, ::Type{T}) where {T} = isapprox(dev, host; rtol=sqrt(eps(T)))
+
+# Two arrays agree in the norm, to the same tolerance.
+device_close_arrays(dev, host, ::Type{T}) where {T} =
+    norm(Array(dev) .- host) ≤ sqrt(eps(T)) * norm(host)
+
+@testset "on $DEVICE_LABEL" begin
+    @testset "the run returns its state on the device ($DEVICE_LABEL)" begin
+        # Guards against a problem that silently builds its sets on the
+        # host whatever it was asked for.
+        T = first(DEVICE_TYPES)
+        forest = wave_forest(T, Val(3), 3, 2; roots=2)
+        p = WaveProblem(forest, Element(T, 3); backend=DEVICE)
+        u = initial_state(p, wave_exact(3, one(T), 1, zero(T)))
+        @test get_backend(u) isa typeof(DEVICE)
+        @test get_backend(p.spacings) isa typeof(DEVICE)
+    end
+
+    @testset "the far rule over its element list is the one over the ball's blocks" begin
+        # The device's far rule launches over a list of the far elements;
+        # the CPU's over the ball's blocks. Guards against the list missing
+        # an element or the two evaluating other points; run on the CPU,
+        # where both run, and on the device against the host.
+        P, E, L = 3, 4, 5.0
+        forest = wave_forest(Float64, Val(3), P, E; roots=5, L=L)
+        c = TreeWaveOLDG.SVector(L / 2, L / 2, L / 2)
+        m = ParticleModel(; Q=0.07, ℓ=1e-3, M=1.0)
+        v = TreeWaveOLDG.SVector(0.0, 0.2, 0.0)
+        a = TreeWaveOLDG.SVector(-0.08, 0.0, 0.0)
+        tr = Trajectory(; z=c + TreeWaveOLDG.SVector(0.5, 0.0, 0.0), v=v, a=a,
+                        ȧ=-0.16 * v, ä=-0.16 * a, a⃛=0.0256 * v, a⃜=0.0256 * a)
+        w = Window(c, 1.25, 2.5; continuity=P + 1)
+        S = ParticleSource((m,), w, (tr,); order=3)
+        particles = (ParticleSupport(m, tr),)
+        function far(backend, list)
+            p = WaveProblem(forest, Element(Float64, P); backend=backend)
+            t = TransferTables(Float64, P)
+            plan = TreeWaveOLDG.projection_plan(p, t, particles, (c, w.R₂), 1.0)
+            du = statevector(p.fs)
+            fill!(du, 0)
+            dua = TreeWaveOLDG.statearray(du, p.fs)
+            scratch = projection_scratch(p, t)
+            Sd = TreeWaveOLDG.device_source(S, backend)
+            list ? TreeWaveOLDG.project_far_list!(dua, plan, t, Sd, scratch, -1.0, 2) :
+            TreeWaveOLDG.project_far!(dua, plan, t, S, scratch, -1.0, 2)
+            return Array(du)
+        end
+        host = far(CPU(), false)
+        @test far(CPU(), true) == host
+        @test norm(host) > 0
+        if supports_float64(DEVICE)
+            @test device_close_arrays(far(DEVICE, true), host, Float64)
+        end
+    end
+
+    @testset "the graded rule's kernels are the host's tensor rule" begin
+        # A device runs the graded rule as it runs the far rule, the source
+        # at every point and then the contraction, where the host visits
+        # the points recursively (`tensor_rule`). Guards against the two
+        # taking other points, products or orders: the kernels on the CPU
+        # must be the host rule to the bit, and on a device with `Float64`
+        # the host's to `sqrt(eps)`. Two particles, so that every band has
+        # elements.
+        P, E, L = 3, 4, 5.0
+        SV = TreeWaveOLDG.SVector
+        forest = wave_forest(Float64, Val(3), P, E; roots=5, L=L)
+        c = SV(L / 2, L / 2, L / 2)
+        m = ParticleModel(; Q=0.07, ℓ=1e-3, M=1.0)
+        v, a = SV(0.0, 0.2, 0.0), SV(-0.08, 0.0, 0.0)
+        tr₁ = Trajectory(; z=c + SV(0.5, 0.01, 0.02), v=v, a=a, ȧ=-0.16 * v, ä=-0.16 * a)
+        tr₂ = Trajectory(; z=c - SV(0.5, 0.03, 0.0), v=-v, a=-a, ȧ=0.16 * v, ä=0.16 * a)
+        w = Window(c, 1.25, 2.5; continuity=P + 1)
+        S = ParticleSource((m, m), w, (tr₁, tr₂); order=3)
+        particles = (ParticleSupport(m, tr₁), ParticleSupport(m, tr₂))
+        function graded(backend, kernels)
+            p = WaveProblem(forest, Element(Float64, P); backend=backend)
+            t = TransferTables(Float64, P)
+            plan = TreeWaveOLDG.projection_plan(p, t, particles, (c, w.R₂), 1.0)
+            du = statevector(p.fs)
+            fill!(du, 0)
+            dua = TreeWaveOLDG.statearray(du, p.fs)
+            if kernels
+                foreach((g, list) -> TreeWaveOLDG.project_graded_list!(dua, plan, g, list,
+                                                                       S, -1.0, 2),
+                        t.graded, plan.dev_graded)
+            else
+                TreeWaveOLDG.project_graded!(dua, plan, t, S, -1.0, 2)
+            end
+            return Array(du), plan
+        end
+        host, plan = graded(CPU(), false)
+        @test all(!isempty, plan.graded)
+        @test norm(host) > 0
+        @test graded(CPU(), true)[1] == host
+        if supports_float64(DEVICE)
+            @test device_close_arrays(graded(DEVICE, false)[1], host, Float64)
+        end
+    end
+
+    @testset "the nested rule's listed points give the host's nested rule" begin
+        # A device runs the nested rule over a list of its points, which the
+        # host plans, summing them per chunk and element; the host sums
+        # them line by line. Guards against the list missing or repeating
+        # points, or a weight or basis function going wrong: on the CPU the
+        # two must agree to rounding, and a device with `Float64` with the
+        # host to `sqrt(eps)`. Two particles, on and off the element
+        # corners.
+        P, E, L = 3, 4, 5.0
+        SV = TreeWaveOLDG.SVector
+        forest = wave_forest(Float64, Val(3), P, E; roots=5, L=L)
+        c = SV(L / 2, L / 2, L / 2)
+        m = ParticleModel(; Q=0.07, ℓ=1e-3, M=1.0)
+        v, a = SV(0.0, 0.2, 0.0), SV(-0.08, 0.0, 0.0)
+        w = Window(c, 1.25, 2.5; continuity=P + 1)
+        for off in (SV(0.0, 0.0, 0.0), SV(0.031, 0.017, 0.043))
+            tr₁ = Trajectory(; z=c + SV(0.5, 0.0, 0.0) + off, v=v, a=a, ȧ=-0.16 * v,
+                             ä=-0.16 * a)
+            tr₂ = Trajectory(; z=c - SV(0.5, 0.0, 0.0) + off, v=-v, a=-a, ȧ=0.16 * v,
+                             ä=0.16 * a)
+            S = ParticleSource((m, m), w, (tr₁, tr₂); order=3)
+            particles = (ParticleSupport(m, tr₁), ParticleSupport(m, tr₂))
+            function nested(backend, points)
+                p = WaveProblem(forest, Element(Float64, P); backend=backend)
+                t = TransferTables(Float64, P)
+                plan = TreeWaveOLDG.projection_plan(p, t, particles, (c, w.R₂), 1.0)
+                du = statevector(p.fs)
+                fill!(du, 0)
+                dua = TreeWaveOLDG.statearray(du, p.fs)
+                points ? TreeWaveOLDG.project_near_points!(dua, plan, t, S, -1.0, 2) :
+                TreeWaveOLDG.project_near!(dua, plan, t, S, -1.0, 2)
+                return Array(du), plan
+            end
+            host, plan = nested(CPU(), false)
+            @test !isempty(plan.near)
+            @test norm(host) > 0
+            @test norm(nested(CPU(), true)[1] - host) <= 1e-13 * norm(host)
+            if supports_float64(DEVICE)
+                @test device_close_arrays(nested(DEVICE, false)[1], host, Float64)
+            end
+        end
+    end
+
+    @testset "an inspiral right-hand side on the device is the host's" begin
+        # Guards the inspiral's plumbing on a device (PLAN.md, B1): the
+        # particles' tail copied in one piece, the passes over the ball's
+        # blocks and the averaging over shared nodes as kernels, the far
+        # rule on the device with the host's rules' results added there,
+        # the initial state filled on the host and copied, the forces read
+        # from copies of the blocks around the particle, and the integrator
+        # stepping the whole state there. A particle on a circle, so that
+        # the lab slice's terms are not zero. On the CPU stand-in the same
+        # code twice; the particles need `Float64`.
+        SV = TreeWaveOLDG.SVector
+        function inspiral(backend, continuous)
+            forest = wave_forest(Float64, Val(3), 3, 2; roots=4, L=4.0)
+            wave = WaveProblem(forest, Element(Float64, 3); backend=backend)
+            c = SV(2.0, 2.0, 2.0)
+            motion = circular_motion(c + SV(0.03, 0.02, 0.01), 0.3, 0.2)
+            p = InspiralProblem(wave, (ParticleModel(; Q=0.1, ℓ=0.02, M=1.0),),
+                                Window(c, 1.0, 1.75; continuity=4), motion; continuous)
+            u = inspiral_initial_state(p)
+            du = similar(u)
+            inspiral_rhs!(du, u, p, 0.1)
+            wave_only = similar(field_state(u, p))
+            wave_rhs!(wave_only, field_state(u, p), p.wave, 0.1)
+            source = Array(field_state(du, p)) .- Array(wave_only)
+            F = particle_forces(p, u, 0.0)
+            dt = oldg_timestep(p.wave; cfl=0.5)
+            integ = inspiral_integrator(p, u, 0.0, 3dt; dt=dt)
+            TreeWaveOLDG.solve!(integ)
+            return p, Array(u), Array(du), source, F, Array(integ.u),
+                   particle_forces(p, integ.u, 3dt)
+        end
+        if supports_float64(DEVICE)
+            for continuous in (true, false)
+                _, uh, duh, sh, Fh, u3h, F3h = inspiral(CPU(), continuous)
+                pd, ud, dud, sd, Fd, u3d, F3d = inspiral(DEVICE, continuous)
+                L = TreeWaveOLDG.fieldlength(pd)
+                @test norm(sh) > 1e-3
+                @test device_close_arrays(ud, uh, Float64)
+                @test device_close_arrays(dud, duh, Float64)
+                @test device_close_arrays(sd, sh, Float64)
+                @test dud[(L + 1):end] == duh[(L + 1):end]
+                @test norm(F3h[1]) > 0
+                @test device_close(Fd[1], Fh[1], Float64)
+                @test device_close_arrays(u3d, u3h, Float64)
+                @test device_close(F3d[1], F3h[1], Float64)
+            end
+        end
+    end
+
+    for T in DEVICE_TYPES
+        @testset "a periodic box's run on the device gives the host's ($T)" begin
+            # Guards against a kernel or the integrator's broadcast path
+            # computing something else on the device.
+            dev = wave_errors(T, Val(3); P=3, E=2, roots=2, backend=DEVICE)
+            host = wave_errors(T, Val(3); P=3, E=2, roots=2)
+            @test dev.nsteps == host.nsteps
+            @test device_close(dev.l2, host.l2, T)
+            @test device_close(dev.energy, host.energy, T)
+        end
+
+        @testset "a refined box's run on the device gives the host's ($T)" begin
+            # Guards against TreeAMR's coarse-fine element exchange or the
+            # refined forest's spacings differing on the device.
+            dev = wave_errors(T, Val(3); P=3, E=2, roots=4, refined=true,
+                              backend=DEVICE)
+            host = wave_errors(T, Val(3); P=3, E=2, roots=4, refined=true)
+            @test dev.nsteps == host.nsteps
+            @test device_close(dev.l2, host.l2, T)
+            @test device_close(dev.energy, host.energy, T)
+        end
+
+        @testset "the thirteen-patch ball's step on the device is the host's ($T)" begin
+            # Its right-hand side, its truncation, its step and its energy.
+            # Guards against the truncation tables (per element on the
+            # inner shells, factored on the outer ones) or the coefficients
+            # failing to reach the device, the radiative ghosts reading the
+            # wrong face, and the step being taken from other speeds.
+            forest, geo = thirteenpatch_forest(T, 3, 2; roots=(2, 1, 1), Lc=1, Rm=2,
+                                               R1=3)
+            el = Element(T, 3)
+            mk(backend) = WaveProblem(forest, el; geometry=geo, backend=backend,
+                                      boundary=RadiativeBoundary())
+            pd, ph = mk(DEVICE), mk(CPU())
+            uh = T.(sin.(1:statelength(ph.fs)))
+            truncate_state!(uh, ph)
+            ud = similar(statevector(pd.fs))
+            copyto!(ud, uh)
+            duh, dud = similar(uh), similar(ud)
+            wave_rhs!(duh, uh, ph, zero(T))
+            wave_rhs!(dud, ud, pd, zero(T))
+            @test device_close_arrays(dud, duh, T)
+            wh, wd = copy(duh), copy(dud)
+            truncate_state!(wh, ph)
+            truncate_state!(wd, pd)
+            @test device_close_arrays(wd, wh, T)
+            @test oldg_timestep(pd; cfl=T(1//2)) == oldg_timestep(ph; cfl=T(1//2))
+            @test device_close(wave_energy(pd, ud), wave_energy(ph, uh), T)
+        end
+
+        @testset "the seven-patch plane wave on the device gives the host's ($T)" begin
+            # Guards against the Dirichlet hook (`WithPatch`, the shells'
+            # positions) or the full geometry's norm differing on the device.
+            dev = sevenpatch_errors(T; P=2, E=2, roots=(2, 1), tend=T(1//8),
+                                    backend=DEVICE)
+            host = sevenpatch_errors(T; P=2, E=2, roots=(2, 1), tend=T(1//8))
+            @test dev.nsteps == host.nsteps
+            @test device_close(dev.l2, host.l2, T)
+            @test device_close(dev.energy, host.energy, T)
+        end
+
+        @testset "the radiative sphere on the device gives the host's ($T)" begin
+            # A pulse through the thirteen-patch ball's radiative sphere.
+            # Guards against the radiative kernels or the boundary's energy
+            # term differing on the device.
+            kw = (; P=3, E=2, roots=(2, 1, 1), Rm=2, R1=3, tend=T(1//2))
+            dev = radiative_errors(T; kw..., backend=DEVICE)
+            host = radiative_errors(T; kw...)
+            @test dev.nsteps == host.nsteps
+            @test device_close(dev.l2, host.l2, T)
+            @test device_close(dev.energy, host.energy, T)
+        end
+    end
+end

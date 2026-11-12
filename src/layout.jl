@@ -160,6 +160,41 @@ end
     return which == 0 ? J : inv(A[which])
 end
 
+# On a full geometry the factor is `√g`, which the fold reads from the
+# problem's coefficient set at the node (its first variable; the set has
+# no ghosts and the field set's block order) rather than evaluating the
+# map's Jacobian there: it is the value the right-hand side uses, and a
+# device need not compile ForwardDiff's frame inside a fold.
+struct CoefFold{EL,C,D}
+    el::EL
+    coef::C
+    p::Int
+end
+
+Adapt.adapt_structure(to, f::CoefFold{EL,C,D}) where {EL,C,D} =
+    (coef = Adapt.adapt(to, f.coef); CoefFold{EL,typeof(coef),D}(f.el, coef, f.p))
+
+function (cf::CoefFold{EL,C,D})(acc, q) where {EL,C,D}
+    w = node_weight(q.I, q.h, cf.el, Val(D))
+    c = @inbounds cf.coef[q.I..., 1, q.b]
+    s = zero(w)
+    for x in q.u
+        s += abs(x)^cf.p
+    end
+    return TreeAMR.combine(acc, (Sum(w * c * s), Sum(w * c * length(q.u))))
+end
+
+function coef_parts(fs::FieldSet{T,D}, el::Element{T}, coef, u, p::Integer,
+                    vars) where {T,D}
+    R = real(float(T))
+    init = (Sum(zero(R)), Sum(zero(R)))
+    rf = CoefFold{typeof(el),typeof(coef),D}(el, coef, Int(p))
+    acc = u === nothing ?
+          mesh_fold(rf, TreeAMR.combine, init, fs; vars=vars) :
+          mesh_fold(rf, TreeAMR.combine, init, fs, u; vars=vars)
+    return acc[1].value, acc[2].value
+end
+
 function metric_parts(fs::FieldSet{T,D}, el::Element{T}, geometry, u, p::Integer, vars,
                       which::Integer) where {T,D}
     R = real(float(T))

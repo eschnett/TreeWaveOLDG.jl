@@ -61,7 +61,8 @@ sevenpatch_exact(geo::Geometry, wave::PlaneWave{T}, t) where {T} =
 """
     sevenpatch_errors(T=Float64; P, E, roots=(2, 2), Lc=1, R1=3,
                       k=(1.1, -0.7, 0.5), φ=0.3, cfl=1/2, tend=1, alg=RK4(),
-                      truncate=true, refined=false, grading=0, Rm=nothing)
+                      truncate=true, refined=false, grading=0, Rm=nothing,
+                      backend=CPU())
 
 Evolve a plane wave ([`PlaneWave`](@ref)) on the seven-patch ball of
 [`sevenpatch_forest`](@ref) to `tend`, with the wave itself as the
@@ -76,17 +77,19 @@ cube ([`sevenpatch_forest`](@ref)), and `h` is then its finest level's;
 `grading` grades the shells' radial elements ([`SevenPatchBall`](@ref)).
 With a middle radius `Rm` the ball is instead the thirteen-patch one of
 [`thirteenpatch_forest`](@ref), whose `roots` are `(n, m, m′)`, and
-`grading` must be `0`.
+`grading` must be `0`. The run, and the exact solution it is compared
+with, are on `backend`.
 """
 function sevenpatch_errors(::Type{T}=Float64; P::Integer, E::Integer, roots=(2, 2),
                            Lc=1, R1=3, k=(1.1, -0.7, 0.5), φ=0.3, cfl=T(1//2), tend=1,
                            alg=RK4(), truncate::Bool=true, refined=false,
-                           grading=0, Rm=nothing) where {T}
+                           grading=0, Rm=nothing, backend::Backend=CPU()) where {T}
     forest, geo = ball_forest(T, P, E; roots=roots, Lc=Lc, Rm=Rm, R1=R1, refined=refined,
                               grading=grading)
     el = Element(T, P)
     wave = PlaneWave{T}(k, φ)
-    problem = WaveProblem(forest, el; truncate=truncate, geometry=geo, boundary=wave)
+    problem = WaveProblem(forest, el; truncate=truncate, geometry=geo, boundary=wave,
+                          backend=backend)
     t_end = T(tend)
     u0 = initial_state(problem, sevenpatch_exact(geo, wave, 0))
     nsteps = ceilint(t_end / oldg_timestep(problem; cfl=cfl))
@@ -95,7 +98,8 @@ function sevenpatch_errors(::Type{T}=Float64; P::Integer, E::Integer, roots=(2, 
     solve!(integ)
     u = integ.u
 
-    exact = wave_fieldset(T, forest, 2, (0, 0, 0), state_statesparity(Val(3)), P, CPU())
+    exact = wave_fieldset(T, forest, 2, (0, 0, 0), state_statesparity(Val(3)), P,
+                          backend)
     fill_at_nodes!(sevenpatch_exact(geo, wave, t_end), exact, el)
     uexact = statevector(exact)
     gather!(uexact, exact)
@@ -179,7 +183,8 @@ end
 """
     radiative_errors(T=Float64; P, E, roots=(2, 2), Lc=1, R1=3, w=1/2,
                      κ=1, inverse_r=true, cfl=1/2, tend=2, alg=RK4(),
-                     truncate=true, refined=false, grading=0, Rm=nothing)
+                     truncate=true, refined=false, grading=0, Rm=nothing,
+                     backend=CPU())
 
 Evolve an [`OutgoingPulse`](@ref) of width `w` on the seven-patch ball of
 [`sevenpatch_forest`](@ref) to `tend`, with a [`RadiativeBoundary`](@ref)
@@ -195,18 +200,21 @@ refines the cube ([`sevenpatch_forest`](@ref)), and `h` is then its finest
 level's; `grading` grades the shells' radial elements
 ([`SevenPatchBall`](@ref)). With a middle radius `Rm` the ball is instead
 the thirteen-patch one of [`thirteenpatch_forest`](@ref), whose `roots`
-are `(n, m, m′)`, and `grading` must be `0`.
+are `(n, m, m′)`, and `grading` must be `0`. The run, and the exact
+solution it is compared with, are on `backend`.
 """
 function radiative_errors(::Type{T}=Float64; P::Integer, E::Integer, roots=(2, 2),
                           Lc=1, R1=3, w=T(1//2), κ=1, inverse_r::Bool=true,
                           cfl=T(1//2), tend=2, alg=RK4(), truncate::Bool=true,
-                          refined=false, grading=0, Rm=nothing) where {T}
+                          refined=false, grading=0, Rm=nothing,
+                          backend::Backend=CPU()) where {T}
     forest, geo = ball_forest(T, P, E; roots=roots, Lc=Lc, Rm=Rm, R1=R1, refined=refined,
                               grading=grading)
     el = Element(T, P)
     pulse = OutgoingPulse{T}(w)
     problem = WaveProblem(forest, el; truncate=truncate, geometry=geo,
-                          boundary=RadiativeBoundary(; κ=T(κ), inverse_r=inverse_r))
+                          boundary=RadiativeBoundary(; κ=T(κ), inverse_r=inverse_r),
+                          backend=backend)
     t_end = T(tend)
     u0 = initial_state(problem, WithPatch(PulseState(geo, pulse, zero(T))))
     nsteps = ceilint(t_end / oldg_timestep(problem; cfl=cfl))
@@ -215,7 +223,8 @@ function radiative_errors(::Type{T}=Float64; P::Integer, E::Integer, roots=(2, 2
     solve!(integ)
     u = integ.u
 
-    exact = wave_fieldset(T, forest, 2, (0, 0, 0), state_statesparity(Val(3)), P, CPU())
+    exact = wave_fieldset(T, forest, 2, (0, 0, 0), state_statesparity(Val(3)), P,
+                          backend)
     fill_at_nodes!(WithPatch(PulseState(geo, pulse, t_end)), exact, el)
     uexact = statevector(exact)
     gather!(uexact, exact)

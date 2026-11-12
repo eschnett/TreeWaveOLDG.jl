@@ -97,6 +97,7 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
 - [The viewer](#the-viewer)
 - [Precision](#precision)
 - [Threads and devices](#threads-and-devices)
+  - [On a device](#on-a-device)
   - [The integrator](#the-integrator)
 - [Particles](#particles)
   - [The particle](#the-particle)
@@ -487,8 +488,6 @@ one's.
   patch, and the check is that every patch with leaves on two levels is
   affine. The annulus has none; the seven-patch ball's cube is one ([A
   refined cube](#the-seven-patch-ball)).
-- **A device.** The truncation's tables are arrays inside a struct that
-  is not adapted to one.
 - **A forest the geometry does not map** (`check_geometry`).
 
 `InspiralProblem` refuses both a geometry and a forest of patches. Its
@@ -949,6 +948,8 @@ and their own step is 0.15 of the cube's at `Rm = 2Lc` and 0.32 at
 thirteen-patch ball" in [Measured results](#measured-results)). So a
 middle sphere of `Rm ≈ 3Lc` keeps the inner layer's shear and step where
 the seven-patch ball has them, and the outer layer costs no step.
+Radially wider elements in the inner shells lift the step further, to
+about 0.55 of the cube's at three to four times the cube's width.
 
 **The drivers.** `sevenpatch_errors` and `radiative_errors` take `Rm`,
 which makes the ball the thirteen-patch one with 3-tuple roots;
@@ -1514,7 +1515,10 @@ builds in `BigFloat`, as before. The thirteen-patch ball's factored
 tables, its outer shells' radial pairs and shared angular tables ([The
 thirteen-patch ball](#the-thirteen-patch-ball)), are built the same way
 and held to `BigFloat`'s bit for bit by their own test. A diagonal
-geometry's per-line tables are cheap and stay `BigFloat`'s.
+geometry's per-line tables are cheap and stay `BigFloat`'s. A `Float32`
+or `Float16` table goes from `Float64x2` through `BigFloat`, which holds
+it exactly, since `Float64x2` converts to `Float64` only (`rounded`): it
+is still rounded once.
 
 `Float32` runs, with the same step count as `Float64` and an error that
 agrees to `1e-3` at a coarse mesh. A MultiFloats type is not tested: the
@@ -1542,9 +1546,121 @@ them. No pass is serial.
 
 The element is a tuple of tuples and so travels as a kernel argument,
 and the gradient sets' arrays as a tuple. The spacings and origins
-follow the field sets' backend (`to_backend`). Nothing has been run on a
-device yet **(open)**. The truncation kernel reads its element through
-runtime tuple indices, which a GPU may spill to local memory.
+follow the field sets' backend (`to_backend`).
+
+### On a device
+
+The field runs on a GPU: the flat box, a refined forest, and the
+seven- and thirteen-patch balls with Dirichlet data or the radiative
+sphere. As in TreeAMR, the storage decides: `WaveProblem(…; backend)`
+builds every field set on `backend`, everything else the kernels read
+follows it there once, and the integrator follows the state, a device
+state taking IMEXRungeKutta's broadcast path (`state_partition` hands it
+no partition).
+
+- **The tables and coefficients are built on the host and copied.** The
+  truncation tables (`MetricTruncation`, `ElementTruncation`,
+  `FactoredTruncation`) are built in `BigFloat` or `Float64x2` as before
+  and copied with `to_backend`; they are arrays inside structs that a
+  kernel takes whole, so each has an `Adapt` rule. The coefficient set
+  is filled on a host set and copied (`coefficient_set`): the step's
+  speeds and the flat blocks are read from it node by node, and the
+  geometry's frame, ForwardDiff's Jacobian of the map, is never compiled
+  for a device.
+- **A full geometry's folds read `√g` from the coefficient set**
+  (`CoefFold`), where they evaluated the frame at each fold point; on
+  Metal that fold crashed the compiler. The value is the one the
+  right-hand side uses.
+- **Nothing a kernel or a device callback reads is a run-time index into
+  a global**: the shells' faces come from `shell_of(i)`, arithmetic, not
+  `SEVENPATCH_SHELLS[i]`; no callback captures a `Type`; no kernel
+  writes a Float64 literal, so Metal runs `Float32`.
+- **A `Float32` problem's tables are rounded once from `Float64x2`
+  through `BigFloat`** (`rounded`), since `Float64x2` converts to
+  `Float64` only.
+- **Host-only:** the blast wave's exact solution (host tables) and the
+  annulus's (Bessel functions), whose drivers keep the CPU. The
+  particles' pairing runs on the host too: from a device it reads copies
+  of variable `var` of the blocks that hold the support's elements and
+  their neighbours (`BlockCopies`), a few tens of kilobytes each, so
+  `particle_forces` takes a state on the device.
+- **The inspiral's right-hand side runs on a device** (`PLAN.md`,
+  "Particles on a device", B1, B3 and B4): the wave equation, the three
+  rules of the projection, the passes over the ball's blocks and the
+  averaging over shared nodes are kernels there. The host lists the
+  nested rule's points while the device works on the far and graded
+  rules, and copies the particles' six numbers each to and from the
+  device in one piece. `inspiral_initial_state` fills the field
+  on a host field set of the same layout and copies it. The result is
+  the host's to `sqrt(eps)` (a test), and on the CPU the same as before
+  to the bit.
+- **The source's coefficient tables are an array on a device.** A
+  `ParticleSource` held each particle's lab-slice coefficients as
+  `SVector`s, 12.9 KB per particle at order 3, and as a kernel argument
+  every work item copied them into its local memory: 35 to 52 KB of it
+  per thread on an H200, and 255 registers, at every order
+  (`bin/source_probe.jl`). `device_source(S, backend)` moves the tables
+  into one device array and gives each particle `TableRef`s into it,
+  which the generated forms read through `_coefficient` as they read an
+  `SVector`; the source shrinks from 25.8 KB to 1.9 KB, and is the same
+  to the bit on the CPU, where `device_source` returns `S` itself.
+  `project_far!` calls it.
+- **On a device the far rule runs over a list of its elements**
+  (`projection_plan`'s `far`, `project_far_list!`), one work item per
+  Gauss point of a far element. The CPU's launch over the ball's blocks
+  gave a work item to every point of them, a fifth idle, each
+  classifying its element again; the list saves 46 of the far rule's
+  168 ms on an H200. On the CPU the two give the same `du` bit for bit (a test).
+- **On a device the graded rule runs as the far rule does,** each band
+  over its list of elements in two kernels (`project_graded_list!`): the
+  source at every point into a scratch array of its own, then the
+  contraction one dimension at a time. The host visits the same points
+  recursively (`tensor_rule`) and takes the same products in the same
+  order, so the kernels on the CPU give its result to the bit (a test);
+  a device fuses some multiply-adds.
+- **The passes that evaluate the source launch over one linear index**
+  (`launch_points!`, `points_kernel!`), each work item recovering its
+  point from it, `far_point!`, `graded_point!` and `near_point!`: the
+  multi-dimensional index KernelAbstractions forms takes run-time
+  divisions, which cost the far rule's source pass a tenth of its time
+  on an H200, as TreeAMR found for its copy kernels.
+- **On CUDA those passes run with a register cap** of 128, through the
+  package extension `ext/TreeWaveOLDGCUDAExt.jl`, which loads with CUDA
+  and launches them with `@cuda maxregs=128` and 128 threads a block:
+  KernelAbstractions' CUDA back end passes no cap. The source at order 3
+  takes all 255 registers a thread may have and spills; capped it
+  spills more, but twice as many threads fit, and a right-hand side at
+  `d/8` takes a tenth less. Every other kernel launches as before.
+- **On a device the nested rule runs over a list of its points**
+  (`project_near_points!`). The host lists them with their weights, the
+  products of their lines' weights (`nested_points`), in two passes
+  threaded over the outermost lines' points, one counting and one
+  writing: collected into a vector per point they allocated 200 MB at
+  `d/8` and took 117 ms on eight host threads, most of it in the garbage
+  collector, against 18 ms so. The device evaluates the source at each
+  point, sums each chunk of up to 256 of an element's points per node,
+  and each element's chunks in order. The points are the host rule's
+  and the sums in another order: the result is the host's to `5·10⁻¹⁶`
+  on the CPU (a test).
+- **The generated lab slice makes no calls on the nested dual numbers**
+  ([The near field](#the-near-field), "No calls inside them"). Its
+  order-3 term called `evalpoly` 46 times and a four-factor product 32
+  times, each with its tuple through memory: most of the 24 KB of local
+  memory each work item of the source took. Written out, the same
+  operations to the bit, the source takes 8 KB for two particles, a
+  point in the window's transition costs 6.9 ns instead of 15.1, and the
+  far rule 55 ms instead of 122.
+
+`test/device_tests.jl` holds the device to the host
+([Tests](#tests)). On the laptop's GPU (Apple M-series, Metal,
+`Float32`) a step costs about what four CPU threads do: with unified
+memory a memory-bound kernel gains nothing there, as TreeWave found.
+On one H200 the benchmark ball steps 5.7 times faster than on a 64-core
+node, the flat box 2.6 times (under [Threads on
+Symmetry](#threads-on-symmetry)). Not done: flat launches and the other device lessons of TreeAMR's
+"The copy kernels on a device"; the truncation kernels still read their
+element through run-time tuple indices, and the per-element Cholesky
+solves go through a scratch array in global memory.
 
 ### The integrator
 
@@ -1827,7 +1943,7 @@ terms. The powers the groups multiply, of `v·y`, `α′·y` and `r` or `ℓ`,
 are formed once per evaluation before the groups and named by their
 exponent (`vy³`, `r⁻⁵`), and each group multiplies two or three of them:
 on the bracket's nested dual numbers, forming them in every group cost
-as much as the polynomials. Three things the generated code must keep,
+as much as the polynomials. Four things the generated code must keep,
 each found the hard way:
 
 - **Running sums.** Julia parses `a + b + …` as one call of `+` with as
@@ -1836,7 +1952,22 @@ each found the hard way:
 - **No inlining.** A `BigFloat` Hessian of the order-3 lab slice with
   every radial function inlined took 178 s to compile, against 4 s in
   `Float64`, and 17 s with them out of line. `_lab_coefficients` and
-  `_lab_evaluate` are not inlined; the polynomials inside them are.
+  `_lab_evaluate` are not inlined.
+- **No calls inside them.** On the nested dual numbers Julia inlines
+  neither `evalpoly(x, (c₁, …, cₙ))` nor a product of four or more
+  factors, `a * b * c * d`, which it parses as one call of `*` and folds
+  from the left: the order-3 term made 46 calls of the one and 32 of
+  the other, each taking its tuple of lifted coefficients or factors
+  through memory, and on a device that memory was most of a work item's
+  24 KB of local memory ([On a device](#on-a-device)). So each group's
+  polynomial is Horner's rule written out, `poly = muladd(x, poly, cᵢ)`
+  from the last coefficient down, each read where it is used, and its
+  monomial a product nested from the left, `((vy² * ay) * ℓ⁻¹) * poly`:
+  the same operations in the same order, and the same results to the
+  bit in `Float64` and `BigFloat`. The radial functions of the near
+  field and the profile keep `evalpoly`: there the inlined chain lets
+  LLVM fuse other multiply-adds, which moves `Float64` results by an
+  ulp, and they are a small part of the cost.
 - **No copies of the tables.** The bracket reads a coefficient in place
   through `_coefficient(c, i, d)`, which lifts it from its rates there;
   wrapping the tables for every point copied them, about 10 KB per
@@ -1852,9 +1983,14 @@ on the laptop (`source_terms`, inside and outside the particle):
 | one function per order, ns | 17 | 72 | 380 | 1867 |
 | grouped, ns | 15 | 71 | 315 | 1017 |
 | grouped, outside the particle, ns | 16 | 69 | 287 | 941 |
-| powers shared, as now, outside, ns | 16 | 53 | 197 | 540 |
+| powers shared, outside, ns | 16 | 53 | 197 | 540 |
+| Horner written out, as now, outside, ns | 32 | 65 | 173 | 428 |
 
-At order 3, outside the particle, the shared powers cut the lab slice's
+The last row was measured on a busier laptop, beside the previous form
+in one process, which there gave 31, 68, 209 and 557 ns: writing Horner
+out takes 17 and 23 % off orders 2 and 3, inside the particle as
+outside, and the first `BigFloat` bracket compiles in about 40 s either
+way. At order 3, outside the particle, the shared powers cut the lab slice's
 term on the bracket's dual numbers from 472 to 274 ns, and its
 Laplacian, in plain numbers, from 98 to 21 ns; the near-field terms
 (73 ns at orders 1–3) and forming the invariants (14 ns) are the rest.
@@ -2017,9 +2153,11 @@ discontinuous across faces. It is element-local and needs no exchange.
   paths](#prescribed-paths)): one over `E·q` points per dimension and
   block evaluates `S` into a scratch array (`projection_scratch`), and
   one per element contracts its `q^D` values one dimension at a time, in
-  place, into `P S` at its nodes. That is the one place a kernel is not
-  launched through `map_blocks!`; it is written so that it could run on
-  a device, and has not been. The others run on the host: those at
+  place, into `P S` at its nodes. On a device the far rule runs over a
+  list of its elements instead, the graded rule in kernels of the same
+  kind, and the nested rule over a list of its points
+  ([On a device](#on-a-device)). On the CPU the
+  others run on the host: those at
   least `rnear·hₑ` from every particle take the graded rule, `q` points
   per dimension by their distance from the nearest particle, evaluated
   and contracted one dimension at a time as the points are visited
@@ -2027,7 +2165,9 @@ discontinuous across faces. It is element-local and needs no exchange.
   dozen closer ones take the nested rule, threaded over the points of
   each element's outermost line, handed out one at a time, and summed
   afterwards in the rule's order, since the element that holds a
-  particle can be a third of the nested work. Each element writes only
+  particle can be a third of the nested work. Both keep each element's
+  values on the host, and one kernel adds them to its nodes on the
+  state's backend (`add_elements!`). Each element writes only
   its own nodes, and every sum is
   in a fixed order, so the result does not depend on the thread count. An
   element near two particles takes its rule from the nearer one, since
@@ -2039,7 +2179,8 @@ discontinuous across faces. It is element-local and needs no exchange.
   finds, those meeting the box `[z - ℓ, z + ℓ]`, at most `2^D` since
   `2ℓ < hₑ`, from the box's corners through `TreeAMR.locate_point` and
   the element arithmetic of `node_coordinates`, and reads the state on
-  the host. A `mesh_fold` of `wₙ (P K)ₙ gₙ` gives the same at the cost of
+  the host, from a device through copies of the blocks it touches. A
+  `mesh_fold` of `wₙ (P K)ₙ gₙ` gives the same at the cost of
   a projection and a pass over the mesh; the tests keep it as the
   reference ([The transfer's cost](#the-transfers-cost) has both).
   With `continuous = true` it first replaces each node on an element's
@@ -2059,7 +2200,8 @@ every particle's support must lie inside the box, and `support_elements`
 refuses a support that reaches a face. On a refined forest every block
 the source's ball meets, and every block that holds part of a particle's
 support, must be on the finest level ([Nested boxes](#nested-boxes)).
-The graded and nested rules and the pairing run on the CPU.
+The pairing runs on the host, and on the CPU the graded and nested
+rules too.
 
 ### The averaging
 
@@ -2091,8 +2233,9 @@ jump of `∇(AΦ_r)_h`, of size `Q[∇Φ_r,h]`, not `Q[Φ_r,h]/ℓ`.
   `InspiralProblem`, since the ball does not move.
 - `average_shared!(ua, sn, var, Val(P+1))` averages one dimension at a
   time: each pair of coincident nodes across a face along `d` takes
-  their mean, inside a block and across its upper face, threaded over
-  blocks. The passes together give the group's mean, the same values
+  their mean, inside a block and across its upper face, one kernel
+  launch per dimension with a work item per pair, on `ua`'s backend
+  (`SharedNodes` holds its lists there too). The passes together give the group's mean, the same values
   the pairing reads. A face to a block outside the ball's is left alone,
   so at the ball's outermost blocks a node some of whose sharers are
   outside gets no exact mean; the source has fallen to zero there with
@@ -2100,7 +2243,8 @@ jump of `∇(AΦ_r)_h`, of size `Q[∇Φ_r,h]`, not `Q[Φ_r,h]/ℓ`.
 - `inspiral_rhs!` averages the source alone, without the wave equation's
   part or a second array: in the ball's blocks it projects the source
   into `du`'s first variable, which `wave_rhs!` has just set to `v`,
-  averages it there, adds it to `dv`, and writes `du = v` again.
+  averages it there, adds it to `dv`, and writes `du = v` again, in
+  kernels over the ball's blocks.
 - `pairing(…; continuous = true)` averages the nodes of each element the
   support meets over all the elements that share them, which it finds
   through `locate_element`; it refuses a neighbour on another level, or
@@ -2280,7 +2424,8 @@ with `wave_rhs!` unchanged and the source subtracted after it.
   `field_state(u, p)` is the field's part as a view, which every function
   that takes a field state accepts with `p.wave`, as TreeAMR's multi-set
   state vectors are used through `stateview`; `particle_state(u, p)` reads
-  the particles. IMEXRungeKutta's stage arithmetic by block owner takes a
+  the particles, in one copy of the vector's tail, which on a device is
+  all that crosses to the host. IMEXRungeKutta's stage arithmetic by block owner takes a
   plain `Array` only, and the particles' entries are added to thread 1's
   ranges of the partition (`inspiral_partition`), so that path needs no
   change there.
@@ -2309,14 +2454,17 @@ with `wave_rhs!` unchanged and the source subtracted after it.
 - `inspiral_initial_state(p; t = 0)`: `Φ_r = (1 - W)Ψ̂` and
   `Π_r = (1 - W)𝒟Ψ̂` through `fill_at_nodes!` at the trajectories of time
   `t`, `Π_r` truncated, and the particles from the path. `Ψ̂` is not
-  evaluated where `W = 1`. For a particle in uniform motion
+  evaluated where `W = 1`. On a device the field is filled on a host
+  field set of the same layout and copied, since `Ψ̂` is host code. For
+  a particle in uniform motion
   `(1 - W)Φ_C(z + vt)` is the exact remainder at every `t`, since `Φ_C`
   solves the wave equation with the particle's source, so the same
   function at time `t` is the reference the runs are compared with.
 - `particle_forces(p, u, t)`: the remainder's force on each particle,
   `F = -(Q/γ)(∇̄Φ_r + vΠ̄_r) = ∫(∇ρ)Φ_r,h - v∫ρΠ_r,h`, through the pairing
   over the support's elements. It is a diagnostic and does not act on the
-  particles; the analytic parts of the force are M6a's.
+  particles; the analytic parts of the force are M6a's. On a device the
+  pairing reads copies of the few blocks around each particle.
 - `ball_norm(p, u, centre, radius; p = 2, vars = 1:2)`:
   `quadrature_norm` over the nodes within a ball, through `mesh_fold`,
   with each node's position and weight from its own block's origin and
@@ -2706,6 +2854,21 @@ written without the averaging and the force read both ways, are
   `bin/symmetry/benchmark.sh` runs it at several thread counts on a
   Symmetry AMD node, with `bin/symmetry/simwatch.sh` reporting its
   stages to SimWatch.
+- `bin/ball_benchmark.jl`: the same on the thirteen-patch ball, by
+  default the benchmark ball (under "Threads on Symmetry" in [Measured
+  results](#measured-results)), with the sizes, step, memory and build
+  time; `--scan` over the roots separates the three layers' costs.
+  `bin/symmetry/ball_benchmark.sh` runs it at several thread counts and
+  the flat box beside it.
+- `bin/backend.jl`: `--backend=cpu|cuda|metal` and `--type=f64|f32` for
+  both benchmarks, loading the device package only when asked for, and
+  their timer, which waits for the device.
+- `bin/far_rule.jl`: the far rule of the source projection on a device
+  against the host, the gate for moving the particles there.
+  `bin/source_probe.jl`: the source alone on a CUDA device, its
+  registers, local memory and time per point for variants of the call.
+  `bin/symmetry/gpu.sh` runs the device tests, both benchmarks and it on
+  one H200 of Symmetry, in an environment of its own that adds CUDA.
 - `bin/projection.jl`: the cost of the transfer on the first run's
   source, one tab-separated row per quantity, run in the package
   environment.
@@ -3014,6 +3177,28 @@ one thread on CI, is otherwise silent until its summary.
   the acceleration it exerts with the `t′²` term put back, and that of
   the circle less than `0.1 F_RR` radially, falling from `hₑ = 1/2` to
   `1/4`, where with the term put back it more than doubles.
+- `device_tests.jl`, last, on the device `TREEWAVEOLDG_TEST_BACKEND=cuda`
+  or `metal` names, loaded only then and not a test dependency, or with
+  the CPU standing in, as on CI, where it checks the plumbing: the state
+  and the spacings come back on the device; the far rule over its list of
+  elements is the one over the ball's blocks, bit for bit on the CPU and
+  to `sqrt(eps)` on a device with `Float64`; the graded rule's kernels
+  are the host's tensor rule, bit for bit on the CPU and to `sqrt(eps)`
+  on a device; the nested rule over its listed points is the host's to
+  `10⁻¹³` on the CPU and to `sqrt(eps)` on a device, with the particles
+  on and off the element corners; an inspiral right-hand side
+  and initial state of a particle on a circle, with and without the
+  averaging, are the host's to `sqrt(eps)` in the field, the source
+  alone too, and exactly in the particles, and so are the forces and
+  the state after three RK4 steps, on a device with `Float64`; a periodic and a refined
+  box's runs, the seven-patch plane wave with Dirichlet data and a pulse
+  through the thirteen-patch ball's radiative sphere give the host's
+  errors and energies to `sqrt(eps)` in the step counts the host takes;
+  and on the thirteen-patch ball one right-hand side, one truncation
+  (per element and factored) and the energy are the host's to
+  `sqrt(eps)`, and the step is the host's exactly. In `Float64` and
+  `Float32` on CUDA, `Float32` on Metal; about a minute on the laptop's
+  GPU.
 
 ## Measured results
 
@@ -3462,6 +3647,20 @@ steps above. The outer shells, without shear, never set the step once
 `Rm ≥ 3Lc`; below it their tangential spacing beside the faces' corners
 on the middle sphere is the smaller one.
 
+Wider radial elements in the inner shells, thicker beside the cube's
+corners, lift the whole ball's step towards about 0.55 of the cube's
+(2026-11-10, `P = 3`, `E = 4`, `Lc = 10`, `R1 = 100`, `n = 4` and 8, which
+agree; the step depends on `Rm/Lc` and the width ratio alone):
+
+| `Rm/Lc` \ inner radial width over the cube's | 0.67 | 1 | 1.33–1.5 | 2 | 2.67–3 | 4 | 6–8 |
+|---|---|---|---|---|---|---|---|
+| 2 | 0.10 | 0.15 | 0.20 | 0.28 | | 0.44 | |
+| 2.5 | | 0.27 | 0.37 | 0.43 | 0.50 | | 0.56 |
+| 3 | | | 0.39 | 0.47 | 0.52 | 0.55 | 0.57 |
+
+Whether the inner shells' radial accuracy holds at those widths is not
+measured.
+
 **What the tables show:**
 
 - **The order is `P`** across both layers' glues and the factored
@@ -3843,6 +4042,164 @@ What it says:
 - Pinned runs below 64 threads fill the NUMA domains one after another,
   so only the 64-thread column compares like with like across sizes;
   before and after compare at every count.
+
+**The benchmark ball.** `bin/symmetry/ball_benchmark.sh`, job 595219 on
+`cn084`, 2026-11-10, the same EPYC 7532 node type as above, Julia 1.13.3,
+threads pinned. The ball is the thirteen-patch one, sized as the
+physical runs will be: a constant angular resolution of 16 elements
+across each patch (`n = 4`, `E = 4`), `hₑ = 1/2` in the cube and radially
+in both layers of shells, so a cube of `Lc = 4`, `Rm = 3Lc = 12` and
+`R1 = 100`, roots `(4, 4, 44)`: 4672 blocks of `16³`, `1.91·10⁷` nodes,
+1.4 % in the cube, 8 % in the inner shells and 90 % in the outer ones.
+`P = 3`, the radiative sphere, truncation on. Its step is 0.32 of the
+cube's flat one, `dt = 5.0·10⁻³` at `cfl = 1/2`, set by the inner shells.
+Each time is the least of five, in ns per node; the flat box is
+`bin/benchmark.jl`'s 4096 blocks of `16³` in the same job:
+
+| phase | 1 | 8 | 16 | 32 | 64 | 1 → 64 | flat box, 64 |
+|---|---|---|---|---|---|---|---|
+| right-hand side | 104.8 | 18.0 | 9.12 | 4.74 | 2.55 | 41× | 0.71 |
+|   gradient pass | 15.8 | 4.03 | 2.05 | 1.03 | 0.53 | 30× | 0.16 |
+|   Laplacian pass | 64.6 | 8.41 | 4.24 | 2.30 | 1.16 | 56× | 0.22 |
+|   both exchanges, radiative ghosts included | 22.9 | 4.73 | 2.33 | 1.16 | 0.72 | 32× | 0.16 |
+| truncation | 30.0 | 6.34 | 3.44 | 2.16 | 1.19 | 25× | 0.04 |
+| stage arithmetic | 9.87 | 7.60 | 3.82 | 1.95 | 1.03 | 10× | 1.02 |
+| RK4 step | 552 | 106 | 54.4 | 29.7 | 16.1 | 34× | 4.23 |
+
+- **A step takes 0.31 s at 64 threads,** 3.8 times the flat box per node.
+  To `t = 2R1 + 3σ ≈ 224`, out to the sphere and back at `λ = 16`, that
+  is 44 600 steps and about 3.8 hours; to `t = 90`, 1.5 hours.
+- **The right-hand sides are 63 % of a step at 64 threads, the
+  truncations 30 %,** the stage arithmetic 6 %, which costs what the flat
+  box's does. The Laplacian pass costs 5 times the flat one's, the
+  truncation 30 times, and it scales worst: about 190 core cycles per
+  node for about 25 multiply-adds, so it is bound by its memory accesses,
+  not its arithmetic.
+- **The ball scales better than the flat box,** 34× against about 30×
+  from one thread to 64; its kernels have more work per byte.
+- **The problem takes 151 bytes per node,** 2.9 GB. Its build takes 89 s
+  at one thread, 27 s at 16 and 33 s at 64, where the collector binds it.
+- **Inner shells four times as wide radially,** roots `(4, 1, 44)`,
+  `1.80·10⁷` nodes, take the step to 0.55 of the cube's
+  (`dt = 8.6·10⁻³`) and match the benchmark ball per node up to 32
+  threads; at 64 their gradient pass took 1.56 ns per node against 1.03
+  at 32, and the step 22.1 ns against 16.1. That is not explained, and
+  wants a rerun **(open)**.
+- On the laptop (four threads) the same ball takes 1.51 s a step, 79 ns
+  per node against the flat box's 17.4: the ratio is 4.5 there.
+
+**On an H200.** `bin/symmetry/gpu.sh`, job 595237 on `cn113`, one NVIDIA
+H200 (sm_90, 141 GB), 2026-11-10, Julia 1.13.3, CUDA.jl 6.4.2 with the
+13.2 runtime, eight host threads. The device tests pass there, 34 in
+`Float64` and `Float32`. In ns per node, the least of five, against
+the 64-core node above (job 595219, EPYC 7532):
+
+| phase | flat box, H200 `Float64` | `Float32` | 64 cores | ball, H200 `Float64` | `Float32` | 64 cores |
+|---|---|---|---|---|---|---|
+| right-hand side | 0.357 | 0.288 | 0.71 | 0.603 | 0.394 | 2.55 |
+|   gradient pass | 0.088 | 0.083 | 0.16 | 0.241 | 0.169 | 0.53 |
+|   Laplacian pass | 0.228 | 0.170 | 0.22 | 0.257 | 0.129 | 1.16 |
+|   both exchanges | 0.029 | 0.023 | 0.16 | 0.091 | 0.083 | 0.72 |
+| truncation | 0.030 | 0.018 | 0.04 | 0.090 | 0.074 | 1.19 |
+| stage arithmetic | 0.059 | 0.039 | 1.02 | 0.059 | 0.039 | 1.03 |
+| RK4 step | 1.61 | 1.26 | 4.23 | 2.84 | 1.92 | 16.1 |
+
+The flat box is `bin/benchmark.jl`'s 4096 blocks of `16³` (512 of `32³`
+are within 2 %), the ball the benchmark ball.
+
+- **The benchmark ball steps 5.7 times faster on one H200 than on 64
+  cores:** 54 ms a step in `Float64`, 37 in `Float32`. To `t ≈ 224`
+  that is 40 minutes, against 3.8 hours. Its build takes 72 s on the
+  job's eight host threads.
+- **The flat box gains only 2.6 times,** because its Laplacian pass
+  costs on the H200 what it costs on 64 cores, 0.23 ns per node, about a
+  tenth of the device's bandwidth: it and the gradient pass are now nearly
+  90 % of its right-hand side. They read the element's stencil through a
+  run-time index into a tuple and form their position with
+  `@index(Global, NTuple)`, the two costs TreeAMR removed from its own
+  kernels on a device ("The copy kernels on a device" in its `CODE.md`)
+  **(open)**.
+- **The stage arithmetic is 17 times faster,** one fused broadcast per
+  combination near the device's bandwidth, the exchanges 5 to 8 times, and the
+  ball's truncation 13 times.
+- **`Float32`** saves a third on the ball and a fifth on the flat box.
+- **The far rule** of the binary's source at `d/8`, order 3
+  (`bin/far_rule.jl`), 6.7 M source evaluations, 87 % of them in the
+  window's transition: 0.363 s on the H200 as first ported, 54 ns a
+  point, against 0.856 s on 64 cores (job 592110 above; 4.4 s on the
+  job's eight host threads). With the source's tables in a device array
+  0.168 s, and over the list of far elements 0.122 s (jobs 595357 and
+  595366): 7.0 times 64 cores, equal to the host's to `1.7·10⁻¹¹`
+  relative, on and off the grid. Its contraction is 0.2 ms of it. With
+  the lab slice's Horner chains written out ([The near
+  field](#the-near-field)) 0.0546 s (job 595812), on and off the grid,
+  equal to the host's as before; the same change takes 64 cores of an
+  EPYC 7543 from 0.676 to 0.506 s (job 595813, `cn107`), so the H200 is
+  9.3 times 64 cores of the same code, and 12.4 times the code it was
+  first held against.
+- **An inspiral right-hand side** at `d/8` (`bin/far_rule.jl`'s box,
+  4.1 M nodes, its binary on circles, order 3, with the averaging; job
+  595833, a scratch script): 2.04 s on the H200 against 5.19 s on the
+  job's eight host threads, equal to `6·10⁻¹⁴` relative and the
+  particles' rates exactly. On the device the wave equation takes
+  1.6 ms, the far rule 55 ms, the averaging 0.06 ms and the plan 1.4 ms;
+  the graded and nested rules, then on the eight host threads, took
+  1.11 and 0.92 s. With the graded rule on the device (job 595837) it
+  takes 20 ms there, 2.5 M points against the far rule's 6.8 M, and the
+  right-hand side 0.93 s, equal to the host's as before; the nested
+  rule's 0.92 s on the host was nearly all of it. With the nested rule
+  on the device (job 595881) the right-hand side takes 0.102 s, 50 times
+  the eight host threads' 5.13 s and about 7.4 times what 64 cores of
+  an EPYC 7543 take (0.753 s for the projection there, job 595813),
+  equal to the host's as before. The nested rule, 1.58 M points, takes
+  36 to 53 ms: 18 ms to list its points on the host, 4 ms to copy them,
+  8.5 ms for the source at them and 2.5 ms for the sums. The far rule's
+  55 ms is now the largest part. An RK4 step takes 0.41 s on the H200
+  against 20.7 s on the eight host threads (job 595926), and reading
+  both particles' forces 35 ms, from copies of their blocks, against
+  32 ms on the host. Launched over one linear index (`launch_points!`),
+  the three source passes save 7 % of that (job 595944): the far rule
+  50 ms, the graded rule 18 ms, a right-hand side 0.0955 s and a step
+  0.383 s. With the register cap another tenth (job 595948): the far
+  rule 44 ms, the graded rule 17 ms, a right-hand side 0.0858 s and a
+  step 0.339 s, 61 times the eight host threads, equal to the host's as
+  before. A prototype of the far rule's pass found 128 the best cap:
+  43.5 ms against 45.8 at 168, 46.1 at 112 and 52.1 at 96, and 48.8 ms
+  uncapped.
+
+**The source on an H200** (`bin/source_probe.jl`, jobs 595363 and
+595800, the last two rows), ns per
+point at `n = 2²¹` points, nine tenths in the window's inner ball, one
+work item per point:
+
+| order | 0 | 1 | 2 | 3 | 3, all in the transition |
+|---|---|---|---|---|---|
+| `SVector` tables, one particle | 3.80 | 4.07 | 6.45 | 14.17 | |
+| tables in an array, one particle | 0.52 | 0.77 | 1.63 | 5.02 | |
+| `SVector` tables, two particles | 7.35 | 8.33 | 13.28 | 28.65 | |
+| tables in an array, two particles | 1.45 | 1.86 | 3.94 | 10.56 | 15.08 |
+| and Horner written out, one particle | 0.45 | 0.57 | 0.86 | 2.56 | |
+| and Horner written out, two particles | 1.32 | 1.58 | 2.46 | 5.46 | 6.89 |
+
+- **The tables in an array save 2.7 to 5 times,** most at the low orders,
+  where the copies were nearly all the work.
+- **Horner written out halves order 3,** 10.56 to 5.46 ns with both
+  particles and 15.08 to 6.89 in the transition, and takes a third off
+  order 2. Before, the order-3 term took 255 registers and 24 KB of
+  local memory per thread, most of it the tuples its calls of
+  `evalpoly` and of four-factor products took through memory
+  ([The near field](#the-near-field)); now 8 KB with both particles,
+  4.5 KB with the order a compile-time constant, still at 255 registers.
+- **A cap of 128 registers now saves a fifth,** 5.03 to 4.07 ns at
+  order 3 with the order a constant, where before caps of 64 to 168
+  and block sizes of 64 to 256 moved it by at most 7 %.
+  KernelAbstractions' CUDA back end takes no register cap, so the far
+  rule cannot use one yet **(open)**.
+- **The transition costs a quarter more,** 6.89 against 5.46 ns (half
+  as much again before): its points carry `∇W` as a further partial,
+  and they are 87 % of the far rule's. On one core of an EPYC 7543 the
+  same evaluation takes about 2.05 µs (3.70 before; `bin/projection.jl`'s
+  `source`), so an H200 does about 375 cores' worth.
 
 ### The source bracket
 
@@ -4776,6 +5133,30 @@ rather than in every group ([The near field](#the-near-field)):
   and `3·10⁵` times at order 1, where the point limit vanishes for some
   directions **(open)**.
 
+**Horner written out** (job 595813, `cn107`, EPYC 7543, 2026-11-11;
+`bin/projection.jl --hdiv=8`, order 3, 64 threads; after and before
+one after the other on the node, before as the old `_lab_evaluate`
+defined over the new). The generated lab slice writes each group's
+polynomial as a `muladd` chain and nests its products, instead of
+calling `evalpoly` and an n-ary `*` ([The near field](#the-near-field)),
+with the same results to the bit:
+
+| | before | after |
+|---|---|---|
+| source, µs | 3.70 | 2.05 |
+| source inside a support, µs | 3.58 | 1.84 |
+| projection | 1.092 | 0.753 |
+|   far | 0.676 | 0.506 |
+|   graded | 0.180 | 0.115 |
+|   near | 0.169 | 0.105 |
+
+- **The projection costs 31 % less and the source 45 % less;** the far
+  rule 25 % less, the graded and nested rules 36 and 38 %.
+- **This node is faster than `cn087`**, on which the far rule took
+  0.856 s before; held to the same node and code, one H200 runs the far
+  rule 9.3 times faster than 64 cores ([Threads on
+  Symmetry](#threads-on-symmetry)).
+
 **The circle at `v = 0.2`** (M5; `--v=0.2`, Julia 1.13.3, 64 threads).
 Orders 2 and 3 without `a⃜`, branch `inspiral-m5-labslice` at `31d065b`,
 2026-11-07: jobs 592979, `cn091`, EPYC 7532, `d/4` and `d/6`; 592980,
@@ -4869,7 +5250,8 @@ the thresholds is a factor 1000, not 4 ([The verdict](#the-verdict)).
 
 Not carried over: the travelling pulse, the 1D viewer,
 TreeWave's benchmark (this package has its own), the vertex centering,
-and the device and threading test files.
+and the threading test file. The device test file came later, after
+TreeHydro's ([On a device](#on-a-device)).
 
 ## Possible extensions
 
@@ -4893,8 +5275,7 @@ and the device and threading test files.
   Symmetry](#threads-on-symmetry)), by about half.
 - The paper's averaging post-processing (its eq. 98–100) for plotting;
   the transfer has it already ([The averaging](#the-averaging)).
-- A 1D viewer, a device run, and a subprocess thread-count test, as in
-  TreeWave.
+- A 1D viewer and a subprocess thread-count test, as in TreeWave.
 - **(proposed)** Cheaper transfer, if the cost gate is to be met (see
   [The transfer's cost](#the-transfers-cost)): `INSPIRAL.md`'s exterior
   and core split. The plan's first step, `q = P + 1` far from the
@@ -4904,8 +5285,8 @@ and the device and threading test files.
   transition would let a smaller `q` do there. The nested rule's own cost,
   its breakpoints, allocations and per-point basis products, is most of
   its time.
-- The graded and nested passes on a device, and the pairing there too;
-  they run on the host now.
+- **(proposed)** The particles on a device: `PLAN.md`'s "Particles on a
+  device", after the far rule's gate.
 - A smooth reading kernel of width about `hₑ` for the forces
   (`INSPIRAL.md`, "The transfer operator", and M4's fallback in
   `HISTORY.md`, "Gates of the finished milestones"), should the gradient's
