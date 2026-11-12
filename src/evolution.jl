@@ -125,6 +125,14 @@ end
 # component normal to the face of the neighbour's `∇u`, which is the
 # neighbour's own `F` across the glue to rounding. No metric is evaluated at
 # a ghost. See "The seven-patch ball" in `CODE.md`.
+#
+# A block whose frame is one constant diagonal at every node, as the
+# seven-patch ball's cube's is, takes a flat path (`flat[b]`): `V_i =
+# S[i][i] D_i u / √g` and `F^d = S[d][d] V_d`, from the block's first node's
+# coefficients, reading one component of the gradient where the general
+# path reads all `D` and the frame at every window point. It does the same
+# arithmetic as the general path less the products with the frame's zeros,
+# so it gives its result bit for bit.
 @inline frame_coef(coef, idx, b, d, i, ::Val{D}) where {D} =
     @inbounds coef[idx..., 1 + (d - 1) * D + i, b]
 
@@ -134,7 +142,7 @@ end
 end
 
 @kernel function cart_gradient_kernel!(gc, @Const(work), @Const(spacings), el, coef,
-                                       ::Val{D}, ::Val{G}) where {D,G}
+                                       @Const(flat), ::Val{D}, ::Val{G}) where {D,G}
     I = @index(Global, NTuple)                 # (i1..iD, block), owned
     b = I[D + 1]
     c = ntuple(d -> I[d] + G[d], Val(D))
@@ -142,9 +150,17 @@ end
     @inbounds h = spacings[b]
     Du = ntuple(@inline(e -> (@inbounds wide_derivative(work, c, I[e], 1, b, e, el)) / h),
                 Val(D))
-    ntuple(@inline(i -> (@inbounds gc[c..., i, b] = cart_component(coef, Du, inner, b,
-                                                                   Val(i), Val(D)))),
-           Val(D))
+    if @inbounds flat[b]
+        first = ntuple(_ -> 1, Val(D))
+        @inbounds J = coef[first..., 1, b]
+        ntuple(@inline(i -> (@inbounds gc[c..., i, b] =
+                                 frame_coef(coef, first, b, i, i, Val(D)) * Du[i] / J)),
+               Val(D))
+    else
+        ntuple(@inline(i -> (@inbounds gc[c..., i, b] = cart_component(coef, Du, inner, b,
+                                                                       Val(i), Val(D)))),
+               Val(D))
+    end
 end
 
 # `D_d F^d` at owned point `I`, with `F^d = S[d] ⋅ V` formed at each point
@@ -167,14 +183,36 @@ end
     return acc
 end
 
+# `D_d F^d` at owned point `I` of a flat block, whose `F^d` is
+# `S[d][d] V_d` with the one constant `S[d][d]`.
+@inline function flat_flux_derivative(gc, Sdd, I, b, el::Element{T,P1,PW}, ::Val{d},
+                                      ::Val{D}) where {T,P1,PW,d,D}
+    i = (I[d] - 1) % P1
+    row = el.stencil[i + 1]
+    start = I[d] - i - 1
+    acc = zero(eltype(gc))
+    for k in 1:PW
+        st = ntuple(q -> q == d ? start + k : I[q] + 1, Val(D))
+        acc += row[k] * (Sdd * (@inbounds gc[st..., d, b]))
+    end
+    return acc
+end
+
 @kernel function cart_laplacian_kernel!(du, @Const(ua), @Const(gc), @Const(spacings), el,
-                                        coef, ::Val{D}) where {D}
+                                        coef, @Const(flat), ::Val{D}) where {D}
     I = @index(Global, NTuple)
     b = I[D + 1]
     inner = ntuple(d -> I[d], Val(D))
     N = size(coef, 1)
-    terms = ntuple(@inline(d -> cart_flux_derivative(gc, coef, I, b, N, el, Val(d),
-                                                     Val(D))), Val(D))
+    terms = if @inbounds flat[b]
+        first = ntuple(_ -> 1, Val(D))
+        ntuple(@inline(d -> flat_flux_derivative(gc, frame_coef(coef, first, b, d, d,
+                                                                Val(D)),
+                                                 I, b, el, Val(d), Val(D))), Val(D))
+    else
+        ntuple(@inline(d -> cart_flux_derivative(gc, coef, I, b, N, el, Val(d), Val(D))),
+               Val(D))
+    end
     acc = foldl(+, terms; init=zero(eltype(du)))
     @inbounds h = spacings[b]
     @inbounds du[inner..., 1, b] = ua[inner..., 2, b]
@@ -201,6 +239,14 @@ end
     J = @index(Global, NTuple)                 # (e1..eD, block)
     b = J[D + 1]
     base = ntuple(d -> (J[d] - 1) * P1, Val(D))
+    tensor_truncate!(a, tables, J, b, base, var, Val(P1), Val(D))
+end
+
+# The tensor projector on the element `J` of block `b`, whose first node
+# is at `base .+ 1`, shared with the full geometry's kernel for the blocks
+# of an affine patch.
+@inline function tensor_truncate!(a, tables, J, b, base, var, ::Val{P1},
+                                  ::Val{D}) where {P1,D}
     for d in 1:D
         for K in CartesianIndices(ntuple(k -> k == d ? 1 : P1, Val(D)))
             c = zero(eltype(a))
@@ -214,6 +260,7 @@ end
             end
         end
     end
+    return nothing
 end
 
 # The truncation on a full geometry, whose `√g` does not factorize: per
@@ -224,12 +271,26 @@ end
 # [`ElementTruncation`](@ref TreeWaveOLDG.ElementTruncation)). The
 # coefficients go through the element's own column of `t.scratch`, which
 # no other work item touches, and the two triangular solves run in place
-# there.
+# there. A block of an affine patch has no tables (`slot` 0): `√g` is
+# constant there, and the element's tensor projector is the
+# `√g`-orthogonal one.
 @kernel function element_truncate_kernel!(a, t, ::Val{P1}, var, ::Val{D},
                                           E) where {P1,D}
     J = @index(Global, NTuple)                 # (e1..eD, block)
     b = J[D + 1]
     base = ntuple(d -> (J[d] - 1) * P1, Val(D))
+    s = @inbounds t.slot[b]
+    if s == 0
+        tensor_truncate!(a, t.element, J, b, base, var, Val(P1), Val(D))
+    else
+        element_project!(a, t, J, b, s, base, var, Val(P1), Val(D), E)
+    end
+end
+
+# The per-element projection of the element `J` of block `b`, whose tables
+# are at `s`.
+@inline function element_project!(a, t, J, b, s, base, var, ::Val{P1}, ::Val{D},
+                                  E) where {P1,D}
     e = 1
     stride = 1
     for d in 1:D
@@ -242,32 +303,33 @@ end
         c = zero(eltype(a))
         for (n, K) in enumerate(nodes)
             idx = ntuple(k -> base[k] + K[k], Val(D))
-            @inbounds c += t.modes[n, q] * t.weights[n, e, b] * a[idx..., var, b]
+            @inbounds c += t.modes[n, q] * t.weights[n, e, s] * a[idx..., var, b]
         end
-        @inbounds t.scratch[q, e, b] = c
+        @inbounds t.scratch[q, e, s] = c
     end
     for q in 1:M                               # Uᵀ y = c
-        @inbounds c = t.scratch[q, e, b]
+        @inbounds c = t.scratch[q, e, s]
         for r in 1:(q - 1)
-            @inbounds c -= t.chol[r, q, e, b] * t.scratch[r, e, b]
+            @inbounds c -= t.chol[r, q, e, s] * t.scratch[r, e, s]
         end
-        @inbounds t.scratch[q, e, b] = c / t.chol[q, q, e, b]
+        @inbounds t.scratch[q, e, s] = c / t.chol[q, q, e, s]
     end
     for q in M:-1:1                            # U z = y
-        @inbounds c = t.scratch[q, e, b]
+        @inbounds c = t.scratch[q, e, s]
         for r in (q + 1):M
-            @inbounds c -= t.chol[q, r, e, b] * t.scratch[r, e, b]
+            @inbounds c -= t.chol[q, r, e, s] * t.scratch[r, e, s]
         end
-        @inbounds t.scratch[q, e, b] = c / t.chol[q, q, e, b]
+        @inbounds t.scratch[q, e, s] = c / t.chol[q, q, e, s]
     end
     for (n, K) in enumerate(nodes)             # a = Ψ z
-        s = zero(eltype(a))
+        z = zero(eltype(a))
         for q in 1:M
-            @inbounds s += t.modes[n, q] * t.scratch[q, e, b]
+            @inbounds z += t.modes[n, q] * t.scratch[q, e, s]
         end
         idx = ntuple(k -> base[k] + K[k], Val(D))
-        @inbounds a[idx..., var, b] = s
+        @inbounds a[idx..., var, b] = z
     end
+    return nothing
 end
 
 """
@@ -373,13 +435,16 @@ struct WaveProblem{T,D,F,S,U,GS,US,GSS,V,EL,M,CG,CS,B}
 end
 
 # What a geometry adds to the problem: its coefficients at the nodes, the
-# truncation's per-line projections, and the largest logical wave speed.
+# truncation's per-line projections, the largest logical wave speed, and
+# the smallest of each block's spacing over its own largest speed, which
+# sets the time step.
 struct Metric{G,C,A,TT,T}
     geometry::G
     cfs::C                       # `√g, A₁ … A_D` at the nodes, `G = 0`
     coef::A                      # its working array, which the kernels read
     truncation::TT
     speed::T                     # max over nodes and d of √(A_d/√g) = √g^{dd}
+    hspeed::T                    # min over blocks of h_b / (max speed in b)
 end
 
 metric_coef(p) = p.metric === nothing ? nothing : p.metric.coef
@@ -458,15 +523,58 @@ function metric_truncation(geo, forest::Forest{D}, el::Element{T,P1},
                             map(m -> to_backend(backend, m), duals))
 end
 
-# What every geometry refuses: a forest it does not map, a refined one,
-# and a device.
+# Whether each block's frame is one constant diagonal: `√g` and every
+# `S[d][i]` the same at all its nodes, and `S[d][i] = 0` for `d ≠ i`
+# exactly. Such a block takes the Cartesian kernels' flat path.
+function flat_blocks(c, N, ::Val{D}) where {D}
+    return [all(I -> all(k -> c[Tuple(I)..., k, b] == c[ntuple(_ -> 1, D)..., k, b],
+                         axes(c, D + 1)),
+                CartesianIndices(ntuple(_ -> N, D))) &&
+            all(k -> (k - 2) % D == (k - 2) ÷ D || iszero(c[ntuple(_ -> 1, D)..., k, b]),
+                2:size(c, D + 1))
+            for b in axes(c, D + 2)]
+end
+
+# The largest logical wave speed `speed(I, b)` at any node `I` of any block
+# `b` of the coefficient array `c`, and the smallest over the blocks of the
+# block's logical spacing over its own largest speed. The time step is the
+# CFL condition of the block that binds, not of the finest spacing and the
+# fastest node, which on a refined ball lie in different blocks (the cube
+# and the shells).
+function block_speeds(speed, forest::Forest{D}, c, ::Type{T}) where {D,T}
+    spacings = block_spacings(forest, T)
+    smax = zero(T)
+    hspeed = T(Inf)
+    for b in axes(c, D + 2)
+        sb = zero(T)
+        for I in CartesianIndices(ntuple(_ -> forest.N, D))
+            sb = max(sb, T(speed(I, b)))
+        end
+        smax = max(smax, sb)
+        hspeed = min(hspeed, spacings[b] / sb)
+    end
+    return smax, hspeed
+end
+
+# What every geometry refuses: a forest it does not map, refinement in a
+# patch whose map is not affine, and a device. TreeAMR keeps every glued
+# face conforming, so a coarse-fine face lies inside one patch, and inside
+# an affine one if every patch with leaves on two levels is affine.
 function check_metric_forest(geo, forest, backend)
     check_geometry(geo, forest)
-    lv = unique(level.(forest.leaves))
-    length(lv) == 1 || throw(ArgumentError(
-        "a geometry takes a uniform forest, and this one has leaves on levels " *
-        "$(sort(lv)): the coarse-fine coupling keeps the energy in the flat " *
-        "weights, not the √g-weighted ones (\"Multi-patch forests\" in CODE.md)"))
+    levels = Dict{Int,Set{Int}}()
+    for key in forest.leaves
+        push!(get!(Set{Int}, levels, Int(patch(forest, key))), Int(level(key)))
+    end
+    for p in sort!(collect(keys(levels)))
+        lv = levels[p]
+        length(lv) == 1 || affine_patch(geo, p) || throw(ArgumentError(
+            "a geometry takes refinement only in a patch whose map is affine, and " *
+            "patch $p, which is not, has leaves on levels $(sort!(collect(lv))): the " *
+            "coarse-fine coupling keeps the energy in the flat weights, which are the " *
+            "√g-weighted ones only where √g is constant (\"The seven-patch ball\" in " *
+            "CODE.md)"))
+    end
     backend isa CPU || throw(ArgumentError(
         "a geometry runs on the CPU only, and the problem was asked for $backend: " *
         "its truncation tables are not adapted to a device"))
@@ -480,21 +588,24 @@ function build_metric(geo::Geometry, forest::Forest{D}, el::Element{T},
                         fill(EvenParity, 1 + D), order(el), backend)
     fill_by_coordinates!(WithPatch(AllVariables(MetricTerms(geo))), cfs)
     c = cfs.work
-    speed = zero(T)
-    for b in axes(c, D + 2), I in CartesianIndices(ntuple(_ -> forest.N, D)), d in 1:D
-        speed = max(speed, sqrt(c[Tuple(I)..., 1 + d, b] / c[Tuple(I)..., 1, b]))
+    speed, hspeed = block_speeds(forest, c, T) do I, b
+        maximum(d -> sqrt(c[Tuple(I)..., 1 + d, b] / c[Tuple(I)..., 1, b]), 1:D)
     end
-    return Metric(geo, cfs, c, metric_truncation(geo, forest, el, backend), speed)
+    return Metric(geo, cfs, c, metric_truncation(geo, forest, el, backend), speed,
+                  hspeed)
 end
 
 # What a full geometry adds: `√g` and the area vectors at the nodes, the
-# per-element truncation, and the largest logical wave speed.
-struct FullMetric{G,C,A,TT,T}
+# per-element truncation, the largest logical wave speed, and the time
+# step's spacing over speed, as for a diagonal geometry.
+struct FullMetric{G,C,A,TT,T,F}
     geometry::G
     cfs::C                       # `√g, S[1]…, S[D]…` at the nodes, `G = 0`
     coef::A
     truncation::TT
     speed::T                     # max over nodes of √λ_max(g^{de})
+    hspeed::T                    # min over blocks of h_b / (max speed in b)
+    flat::F                      # per block: its frame is one constant diagonal
 end
 
 """
@@ -504,18 +615,28 @@ The truncation on a full geometry, whose `√g` does not factorize, so that
 no tensor product of one-dimensional projections is `√g`-orthogonal: per
 element `e` of block `b`, the projection `Ψ G_e⁻¹ Ψᵀ W_e` onto `Q_{P-1}`.
 `modes = Ψ` is the tensor Legendre basis of `Q_{P-1}` at the element's
-nodes (`(P+1)^D × P^D`, the same for every element); `weights[:, e, b]`
+nodes (`(P+1)^D × P^D`, the same for every element); `weights[:, e, s]`
 is `W_e`, the element's quadrature weights on `[-1, 1]^D` times `√g`; and
-`chol[:, :, e, b]` is the upper Cholesky factor `U_e` of the Gram matrix
-`G_e = Ψᵀ W_e Ψ = U_eᵀ U_e`. Built in `BigFloat` and rounded once, the Gram
-matrix by sum factorization over the dimensions. `scratch` holds each
+`chol[:, :, e, s]` is the upper Cholesky factor `U_e` of the Gram matrix
+`G_e = Ψᵀ W_e Ψ = U_eᵀ U_e`. Built in [`table_type`](@ref
+TreeWaveOLDG.table_type)`(T)` and rounded once, the Gram matrix by sum
+factorization over the dimensions. `scratch` holds each
 element's `P^D` coefficients through the two triangular solves.
+
+The tables are held only for the blocks of patches whose map is not
+affine ([`affine_patch`](@ref TreeWaveOLDG.affine_patch)): `slot[b]` is
+block `b`'s index `s` into them, or 0 on an affine patch, where `√g` is
+constant and the element's own tensor projector, `element`'s, is the
+`√g`-orthogonal one. On the seven-patch ball's refined cube that saves
+the tables, `P^{2D} + (P+1)^D` numbers per element, and their build.
 """
-struct ElementTruncation{A,B,C,S}
+struct ElementTruncation{A,B,C,S,I,EL}
     modes::A                     # (n, m)
-    weights::B                   # (n, E^D, nblocks)
-    chol::C                      # (m, m, E^D, nblocks)
-    scratch::S                   # (m, E^D, nblocks)
+    weights::B                   # (n, E^D, ntables)
+    chol::C                      # (m, m, E^D, ntables)
+    scratch::S                   # (m, E^D, ntables)
+    slot::I                      # (nblocks,): 0, or the block's index in the tables
+    element::EL                  # the tensor projector on an affine patch
 end
 
 # The volume element alone, for the truncation's weights; a geometry may
@@ -544,22 +665,37 @@ function gram_sumfact(w::AbstractVector, pair::AbstractMatrix, P1, P, D)
     return [A[pairindex(q, r)] for q in vec(basis), r in vec(basis)]
 end
 
-function element_truncation(geo, forest::Forest{D}, el::Element{T,P1},
-                            backend) where {D,T,P1}
+# The number type the shells' truncation tables are built in before they
+# are rounded to `T`: `Float64x2` for a `T` no wider than `Float64`, whose
+# 106 bits round to the same `T` as `BigFloat`'s 512 do (a test compares
+# them bit for bit) at about a sixth of the time, and `BigFloat` for a wider
+# `T`. The build needs only `+ − × /` and `sqrt` (the map's Jacobian, `det`,
+# `inv`, Cholesky), which `Float64x2` has; the Gauss–Lobatto nodes and
+# weights stay `BigFloat`'s, rounded to it ("Precision" in `CODE.md`).
+table_type(::Type{<:Union{Float16,Float32,Float64}}) = Float64x2
+table_type(::Type) = BigFloat
+
+function element_truncation(geo, forest::Forest{D}, el::Element{T,P1}, backend,
+                            ::Type{B}=table_type(T)) where {D,T,P1,B}
     P = P1 - 1
     E = forest.N ÷ P1
     origins = block_origins(forest, T)
     spacings = block_spacings(forest, T)
     patches = block_patches(forest)
     nb = length(spacings)
+    slot = zeros(Int32, nb)
+    tabled = [b for b in 1:nb if !affine_patch(geo, Int(patches[b]))]
+    slot[tabled] .= 1:length(tabled)
+    ns = length(tabled)
     nodes = CartesianIndices(ntuple(_ -> P1, D))
     basis = CartesianIndices(ntuple(_ -> P, D))
     n, m = length(nodes), length(basis)
     modes = Array{T}(undef, n, m)
-    weights = Array{T}(undef, n, E^D, nb)
-    chol = zeros(T, m, m, E^D, nb)
-    ξ, ŵ = gll_nodes_weights(P)
+    weights = Array{T}(undef, n, E^D, ns)
+    chol = zeros(T, m, m, E^D, ns)
+    ξbig, ŵbig = gll_nodes_weights(P)
     setprecision(BigFloat, 512) do
+        ξ, ŵ = B.(ξbig), B.(ŵbig)
         Lall = [legendre_all(P, x) for x in ξ]
         offsets = [(P + 1) * (1 + x) / 2 for x in ξ]
         offsets[1], offsets[P1] = 0, P1
@@ -568,22 +704,29 @@ function element_truncation(geo, forest::Forest{D}, el::Element{T,P1},
                 for k in 1:P1, p in 1:(P^2)]
         ŵn = [prod(ŵ[K[d]] for d in 1:D) for K in vec(nodes)]
         modes .= T.(Ψ)
-        for b in 1:nb, (e, Je) in enumerate(CartesianIndices(ntuple(_ -> E, D)))
-            w = [ŵn[i] *
-                 geometry_volume(geo,
-                                 ntuple(d -> big(origins[b][d]) +
-                                             big(spacings[b]) *
-                                             ((Je[d] - 1) * P1 + offsets[K[d]]), D),
-                                 Int(patches[b]))
-                 for (i, K) in enumerate(vec(nodes))]
-            G = gram_sumfact(w, pair, P1, P, D)
-            weights[:, e, b] .= T.(w)
-            chol[:, :, e, b] .= T.(cholesky(Symmetric(G)).U)
+        # One block per task: each writes its own tables, so the result does
+        # not depend on the thread count, and a `BigFloat` build's precision
+        # is inherited by the tasks.
+        Threads.@threads :dynamic for s in eachindex(tabled)
+            b = tabled[s]
+            for (e, Je) in enumerate(CartesianIndices(ntuple(_ -> E, D)))
+                w = [ŵn[i] *
+                     geometry_volume(geo,
+                                     ntuple(d -> B(origins[b][d]) +
+                                                 B(spacings[b]) *
+                                                 ((Je[d] - 1) * P1 + offsets[K[d]]), D),
+                                     Int(patches[b]))
+                     for (i, K) in enumerate(vec(nodes))]
+                G = gram_sumfact(w, pair, P1, P, D)
+                weights[:, e, s] .= T.(w)
+                chol[:, :, e, s] .= T.(cholesky(Symmetric(G)).U)
+            end
         end
     end
     return ElementTruncation(to_backend(backend, modes), to_backend(backend, weights),
                              to_backend(backend, chol),
-                             to_backend(backend, zeros(T, m, E^D, nb)))
+                             to_backend(backend, zeros(T, m, E^D, ns)),
+                             to_backend(backend, slot), el)
 end
 
 # The callback that fills a full geometry's coefficient set:
@@ -611,15 +754,15 @@ function build_metric(geo::FullGeometry, forest::Forest{D}, el::Element{T},
                         fill(EvenParity, 1 + D * D), order(el), backend)
     fill_by_coordinates!(WithPatch(AllVariables(FrameTerms(geo))), cfs)
     c = cfs.work
-    speed = zero(T)
-    for b in axes(c, D + 2), I in CartesianIndices(ntuple(_ -> forest.N, D))
+    speed, hspeed = block_speeds(forest, c, T) do I, b
         J = c[Tuple(I)..., 1, b]
         S = ntuple(d -> ntuple(i -> c[Tuple(I)..., 1 + (d - 1) * D + i, b], D), D)
         g = SMatrix{D,D,T}(ntuple(k -> dot(S[(k - 1) % D + 1], S[(k - 1) ÷ D + 1]) / J^2,
                                   D * D))
-        speed = max(speed, sqrt(maximum(eigvals(Symmetric(g)))))
+        sqrt(maximum(eigvals(Symmetric(g))))
     end
-    return FullMetric(geo, cfs, c, element_truncation(geo, forest, el, backend), speed)
+    return FullMetric(geo, cfs, c, element_truncation(geo, forest, el, backend), speed,
+                      hspeed, to_backend(backend, flat_blocks(c, forest.N, Val(D))))
 end
 
 # The reflection symmetry a solid wall puts on each variable: both state
@@ -938,7 +1081,7 @@ end
 
 function gradient_pass!(p::WaveProblem, metric::FullMetric, t, ua)
     map_blocks!(cart_gradient_kernel!, p.ufs, p.cartgrad.work, p.ufs.work, p.spacings,
-                p.element, metric.coef, p.valD, Val(p.ufs.G))
+                p.element, metric.coef, metric.flat, p.valD, Val(p.ufs.G))
     exchange!(p.cartgrad, p.cartschedule, p, t, Val(:grad))
     radiative_grad!(p, p.boundary, ua)
     return nothing
@@ -950,7 +1093,7 @@ laplacian_pass!(du, u, p::WaveProblem, metric) =
 
 laplacian_pass!(du, u, p::WaveProblem, metric::FullMetric) =
     map_blocks!(cart_laplacian_kernel!, p.fs, statearray(du, p.fs), statearray(u, p.fs),
-                p.cartgrad.work, p.spacings, p.element, metric.coef, p.valD)
+                p.cartgrad.work, p.spacings, p.element, metric.coef, metric.flat, p.valD)
 
 """
     wave_rhs!(du, u, p::WaveProblem, t)
@@ -1120,16 +1263,17 @@ end
 `cfl · hₑ / (P+1)²`, the DG time step (arXiv:1604.00075, eq. 64), for the
 smallest element width `hₑ = (P+1)h`, the finest level's on a refined
 forest. That is `cfl · h / (P+1)` in the mesh's spacing. On a geometry
-`hₑ` is logical, and the step is divided by the largest logical wave
-speed at any node: `√g^{dd}` for a diagonal metric, and the square root of
-the largest eigenvalue of `g^{de}` on a full geometry. RK4 is stable up to `cfl ≈ 5` in one
+`hₑ` is logical, and divided by the logical wave speed: the step is the
+smallest over the blocks of the block's own `h` over the largest speed at
+its nodes, `√g^{dd}` for a diagonal metric and the square root of the
+largest eigenvalue of `g^{de}` on a full geometry. On a uniform forest
+that is the one `h` over the largest speed anywhere. RK4 is stable up to `cfl ≈ 5` in one
 dimension, measured for every `P` from 1 to 6, and the limit falls as `1/√D`; see "Time step"
 in `CODE.md`.
 """
 function oldg_timestep(p::WaveProblem; cfl)
-    h = minimum_spacing(p.fs.forest)
-    dt = cfl * h / (order(p.element) + 1)
-    return p.metric === nothing ? dt : dt / p.metric.speed
+    h = p.metric === nothing ? minimum_spacing(p.fs.forest) : p.metric.hspeed
+    return cfl * h / (order(p.element) + 1)
 end
 
 """Least-squares convergence rate of `errs` against spacings `hs`."""

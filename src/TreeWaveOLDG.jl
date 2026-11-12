@@ -44,6 +44,7 @@ using IMEXRungeKutta: IMEXProblem, RK4, init, solve!, step!
 using KernelAbstractions: @kernel, @index, @Const, Backend, CPU, get_backend,
                           allocate, synchronize
 using LinearAlgebra: Symmetric, cholesky, det, dot, eigvals
+using MultiFloats: Float64x2
 using SpecialFunctions: besselj0
 using StaticArrays: SMatrix, SVector, push, setindex
 

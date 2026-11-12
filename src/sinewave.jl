@@ -122,9 +122,19 @@ function wave_forest(::Type{T}, ::Val{D}, P::Integer, E::Integer; roots=4,
                   extents=ntuple(_ -> (zero(T), L), D))
     end
     refined === false && return forest
-    for (k, region) in enumerate(refinement_regions(refined, Val(D), L))
+    refine_regions!(forest, refinement_regions(refined, Val(D), L), roots)
+    return forest
+end
+
+# Refine `forest` level by level: region `k` refines the leaves of level
+# `k - 1` whose centres lie in it, in patch `p`'s coordinates if `p` is
+# given and the forest's otherwise, and the forest is balanced after each.
+# `roots` is for the message when a region holds no centre.
+function refine_regions!(forest::Forest{D}, regions, roots; p=nothing) where {D}
+    for (k, region) in enumerate(regions)
         targets = filter(forest.leaves) do key
             level(key) == k - 1 || return false
+            p === nothing || patch(forest, key) == p || return false
             ext = block_extent(forest, key)
             all(d -> region[d][1] < (ext[d][1] + ext[d][2]) / 2 < region[d][2], 1:D)
         end

@@ -23,7 +23,7 @@ are the way they are. This file is only about mechanics.
 | `INSPIRAL.md` | anyone building the inspiral | the design proposal for two inspiralling scalar particles; frozen, not edited |
 | `INSPIRAL-PROMPT.md` | anyone asking what `INSPIRAL.md` answers | the task it was written for; frozen, not edited |
 | `INSPIRAL-PLAN.md` | anyone building the inspiral | concrete planned work, milestone by milestone, with how one knows each is done; a status line per milestone, and for a finished one only a line saying where its results went |
-| `PLAN.md` | — | does not exist; other planned work would go there |
+| `PLAN.md` | anyone improving the package outside the inspiral | proposed work with what it would save, measured where it says so, and how one knows each is done |
 
 To amend the documents, fix `CODE.md` to describe the current state and
 record in `HISTORY.md` what changed, when and why. When a milestone of
@@ -34,7 +34,8 @@ the inspiral code departs from `INSPIRAL.md` or settles one of its open
 items, that goes into `CODE.md` and `HISTORY.md` too, never into
 `INSPIRAL.md`. Keep
 each file's table of contents current (`##` and `###` in `CODE.md`,
-`INSPIRAL-PLAN.md` and `HISTORY.md`, `##` in `README.md` and here), and
+`INSPIRAL-PLAN.md` and `HISTORY.md`, `##` in `README.md`, `PLAN.md` and
+here), and
 update every reference to a heading you rename, in code comments and
 docstrings too.
 
@@ -160,6 +161,17 @@ has left the ball, and what remains is the reflection:
 julia --project=. -t 4,0 bin/sevenpatch.jl --P=3 --scales=1,2 --boundary=radiative --tend=5
 ```
 
+`nested_waves.jl`'s pulse through nested cubes inside the ball's cube,
+with shells out to a radiative sphere ("A refined cube"), in the package
+environment, a few minutes at these options on four threads, most of it
+the shells' truncation tables; `--cost=yes` times it beside the nested
+boxes. On Symmetry `sbatch bin/symmetry/nested_ball.sh` after its
+`setup`:
+
+```bash
+julia --project=. -t 4,0 bin/nested_ball.jl --levels=2 --w0=2 --hdiv=4 --lambda=4 --tend=1
+```
+
 From M1 of `INSPIRAL-PLAN.md` on, `src/particle_forms.jl` is generated
 from the Wolfram Language derivations in `derivations/`; do not edit it
 by hand. Regenerate it, and let the suite check that the checked-in
@@ -227,8 +239,11 @@ Each is the rule; the `CODE.md` section named after it has the reason.
 - **Pass `d` to the gradient and Laplacian kernels as a `Val`, through
   an `@inline` closure**; a runtime `d` costs 2.5× ("The right-hand
   side").
-- **The tables are built in `BigFloat` and rounded once.** Do not build
-  them in `T` or convert from the `Float64` ones ("Precision").
+- **The tables are built in `BigFloat` and rounded once,** except a full
+  geometry's per-element truncation tables, built in `Float64x2` when `T`
+  is at most `Float64` (`table_type`), which a test holds to `BigFloat`'s
+  bit for bit. Do not build them in `T` or convert from the `Float64`
+  ones ("Precision").
 - **The time step is `cfl · hₑ/(P+1)²`**, not TreeWave's `cfl · h`
   ("Time step").
 - **A diagonal geometry glues by the identity only.** The `d`-th
@@ -247,17 +262,25 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   at the ghost. The truncation is a `√g`-orthogonal projection per
   element, and the outer faces take Dirichlet data through `boundary`,
   for which `wave_rhs!` passes `t`, or a `RadiativeBoundary` ("The
-  seven-patch ball").
+  seven-patch ball"). A block whose frame is one constant diagonal (the
+  cube's) takes the kernels' flat path, which must stay bit for bit the
+  general path's result; a test sends the blocks through both.
 - **A radiative outer face is written after the exchange, not by a
   TreeAMR hook.** Its ghosts read the interior: `u`'s is the face node's
   own, and the gradient's makes the face's central flux the target,
   `S[k] ⋅ V_g = 2F* − F`. Both the energy's boundary term and its sign
   rest on the two together; do not set `u`'s ghost from data ("The
   outer boundary").
-- **On a geometry the time step divides by the largest logical wave
-  speed**, `√g^{dd}` at any node, or `√λ_max(g^{de})` on a full
-  geometry, which `oldg_timestep` does ("The metric", "The seven-patch
-  ball").
+- **On a geometry the time step is the smallest over the blocks of the
+  block's spacing over its largest logical wave speed**, `√g^{dd}`, or
+  `√λ_max(g^{de})` on a full geometry, which `oldg_timestep` does ("The
+  metric", "The seven-patch ball").
+- **A geometry takes refinement only inside a patch whose map is
+  affine** (`affine_patch`), the seven-patch ball's cube: elsewhere the
+  coarse-fine coupling's flat weights are not the `√g`-weighted ones and
+  the energy invariant breaks. Keep the refined regions a root inside the
+  cube, since the glue keeps the shells at the level across it; there
+  the truncation is the element's own ("The seven-patch ball").
 - **The `u` and `v` of a state vector interleave block by block**; use
   `statearray` and `selectdim`, not halves of the vector.
 - **A reflecting box is a TreeAMR reflection symmetry, not a boundary

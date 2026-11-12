@@ -229,7 +229,8 @@ end
     refined, geo2 = annulus_forest(Float64, 2, 2; roots=(2, 1))
     refine!(refined, refined.leaves[1:1])
     balance!(refined)
-    @test_throws "uniform forest" WaveProblem(refined, el; geometry=geo2)
+    # The annulus's map is nowhere affine, so it takes no refinement.
+    @test_throws "whose map is affine" WaveProblem(refined, el; geometry=geo2)
     # The inspiral needs a brick in flat space.
     glue = reduce(vcat, [[(from=(q, 1, 2), to=(mod1(q + 1, 4), 1, 1), map=(1, 2, 3)),
                           (from=(mod1(q + 1, 4), 1, 1), to=(q, 1, 2), map=(1, 2, 3))]
