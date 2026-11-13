@@ -49,7 +49,10 @@ order `P`, and an outgoing pulse leaves the ball. The ball's cube, whose
 map is affine, takes static refinement, M3b's nested cubes included,
 with the energy an exact invariant across its coarse-fine faces, and
 M3b's pulse leaves through the shells where the nested boxes' periodic
-faces send it back (`INSPIRAL-PLAN.md`'s M8b). The thirteen-patch ball
+faces send it back (`INSPIRAL-PLAN.md`'s M8b). The particles run in
+that cube, the transfer in its physical coordinates through its affine
+map, and on the nested boxes' step give their numbers there (M8c, under
+way; see [Particles in the ball](#particles-in-the-ball)). The thirteen-patch ball
 adds six exactly radial shells outside a middle sphere, where `√g`
 factorizes and the truncation is a radial projection times an angular
 one; see [Multi-patch
@@ -109,6 +112,7 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   - [Quadrature](#quadrature)
   - [The right-hand side with particles](#the-right-hand-side-with-particles)
   - [Nested boxes](#nested-boxes)
+  - [Particles in the ball](#particles-in-the-ball)
   - [Prescribed paths](#prescribed-paths)
 - [File layout](#file-layout)
 - [Tests](#tests)
@@ -128,6 +132,7 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   - [Uniform motion](#uniform-motion)
   - [Nested boxes](#nested-boxes-1)
   - [The radiative sphere](#the-radiative-sphere)
+  - [Particles in the ball](#particles-in-the-ball-1)
   - [Prescribed paths](#prescribed-paths-1)
 - [What carried over from TreeWave, and what did not](#what-carried-over-from-treewave-and-what-did-not)
 - [Possible extensions](#possible-extensions)
@@ -848,7 +853,8 @@ the shells read them across the glue.
   "The pulse at M3b's scale" and "What the cube–shell face sends
   back").
 - **Refinement only in the cube,** where the map is affine, and on the
-  CPU; no particles, as for every geometry (`INSPIRAL-PLAN.md`'s M8c).
+  CPU. The particles run in the cube ([Particles in the
+  ball](#particles-in-the-ball), `INSPIRAL-PLAN.md`'s M8c).
 
 ### The thirteen-patch ball
 
@@ -2655,6 +2661,109 @@ near the window are where the waves are best resolved. The outermost
 levels are coarser than `λ/4` and are only meant to keep the outer
 faces' error far away.
 
+### Particles in the ball
+
+`INSPIRAL-PLAN.md`'s M8c: the particles in the cube of the seven-patch
+ball ([The seven-patch ball](#the-seven-patch-ball)), or of the
+thirteen-patch one, with M3b's nested cubes inside the cube and the
+shells out to a radiative sphere in place of the nested boxes' coarse
+outer levels and periodic faces. The sphere removes what the periodic
+box brings: the kinks of the non-periodic initial data at the faces and
+the error they send in, the drift of `Π_r`'s mean at `Q/(γV)` that a
+net charge drives, and the clean time as a limit on a run's length. What
+it sends back instead is [The radiative sphere](#the-radiative-sphere)'s
+and the cube–shell faces' (under "Measured results").
+
+**The frame.** The cube's map `x = Lc(2ξ/n − 1)` is affine and the same
+along every dimension, so in the cube a physical position is
+`x = origin + scale ⋅ ξ` with `origin = −Lc` and `scale = 2Lc/n`, which
+a geometry gives as `affine_map(geo, p)`. Both balls compute the cube's
+positions in that form too (`cube_position`), exact where the scale and
+`ξ` are dyadic, so that a cube node lies where the nested boxes' does
+and a ball norm takes the same nodes on its sphere; `Lc(2ξ/n − 1)`
+rounds for `n` not a power of two, and moved the nodes on the window's
+spheres in or out (under "Measured results"). A `ParticleFrame` is that
+patch and its map, taken from the `WaveProblem` (`ParticleFrame(wave)`):
+the one patch of a full geometry for which `affine_patch` holds, or, on
+a brick in flat space, the whole forest under the identity. Everything
+the transfer reads of the mesh goes through it:
+
+- **Block origins and spacings** are mapped into space before anything
+  uses them (`frame_origins`, `frame_spacings`, `frame_origin`,
+  `frame_spacing`), so the element boxes are physical, and with them
+  `hₑ`, `rnear`, `rfar`, the graded bands, every quadrature point and
+  every distance. The kernels see the same arrays as before, mapped.
+- **No factor is needed anywhere.** `P S = (1/wₙ)∫Sφₙ` has the Jacobian
+  in both the integral and `wₙ`, and with physical element boxes both
+  are physical. The pairing integrates over the physical element box,
+  and its gradient is the physical basis's; the plan's `a³` and `1/a`
+  are what a logical integration would have needed.
+- **Points are located in the patch alone** (`frame_locate`): a
+  physical position goes to the patch's logical one, `(x − origin)/scale`,
+  and to TreeAMR 0.2.9's `locate_point(forest, PatchPoint(ξ, p))`; a
+  position outside the patch is outside the domain. The transfer looks
+  across no glue, as it looks for no periodic images.
+- **Only the patch's blocks** take part: the projection's blocks, the
+  averaging's `SharedNodes` and the finest-level checks skip the others
+  (`frame_blocks`), whose mapped origins mean nothing.
+- **On a brick the frame changes no bit:** `frame_point` returns the
+  logical position itself there, and the scale 1 multiplies exactly. The
+  suite's transfer tests, uniform and nested, are unchanged.
+
+**What is refused.** `InspiralProblem`, `project_source!`, the pairing
+and the reconstruction refuse a window's ball or a particle's support
+that leaves the cube, naming the patch and its physical box, before they
+look for the finest level, which they need there as on nested boxes
+(the cube is the only patch that takes refinement, so the forest's
+finest level is the cube's). A diagonal geometry, whose patches are not
+affine, and a full geometry without exactly one affine patch are
+refused by the frame. So is a patched forest without its geometry,
+from a wave problem without one (the annulus's ring) or from
+`ParticleFrame(fs)` on a forest of patches.
+
+**Initial data and norms.** `inspiral_initial_state` fills `(1 − W)Ψ̂`
+at every node of every patch at its physical position: on a geometry
+the remainder's function goes through `WithPatch` and
+`physical_coordinates` (`at_physical`), so the shells hold the particle
+field's far part out to the sphere. `ball_norm` and `ball_mean` place
+each node at its physical position, the patch from the fold's block
+tag, and weight it by `√g` from the problem's coefficient set, as
+`wave_norm` does; on a brick they are unchanged. `ball_mean` is the
+signed mean, for the drift of `Π_r`'s mean that a net charge drives in a
+periodic box. The averaging over shared nodes stays on the cube's finest
+level, where it is the nested boxes'.
+
+**The step and the layout.** The step is `oldg_timestep`'s, the smallest
+over the blocks of the block's spacing over its largest speed. With the
+sphere at `R1 = 3Lc` and three levels in the cube the finest cube sets
+it, the nested boxes' own; at `R1 = 2Lc` the shells' elements beside the
+cube's corners set it, 0.6 of the boxes' on the suite's ball
+([The seven-patch ball](#the-seven-patch-ball)). The shells' radial
+elements should be at most twice the cube's root element width, so that
+the cube–shell faces send back what the boxes' 2:1 faces do, and `R1`
+large enough that what the sphere sends back comes after the run: a
+resolved wave from about `2R1 − R₂` on ([The radiative
+sphere](#the-radiative-sphere)), but the remainder's under-resolved error
+from about `(2R1 − R₂)/2`, since it crosses the shells at about twice the
+speed of light (under "Measured results").
+`bin/ball.jl` builds that layout for the drivers.
+
+**Scripts.** `bin/uniform_motion.jl` and `bin/prescribed.jl` take
+`--ball`, with `--R1` (50 by default) and `--hshell` (twice the cube's
+root element width by default): the outermost of `--levels` nested cubes
+becomes the ball's cube, of half-width `2^(levels−1) w0`, and the centre
+the origin. So `--ball --levels=3 --w0=4 --hdiv=8 --R1=50` is the
+plan's ball, M4's layout with its two coarsest levels replaced by the
+shells. `uniform_motion.jl` also prints the mean of `Π_r` and of its
+error in the `R₂` ball.
+
+**Not done.** The ball's particles have not run on a device: the frame
+is host code and the plan's arrays are mapped before they are copied, so
+nothing in the kernels changes, but the fold of `ball_norm` reads
+`physical_coordinates` on the device, which no device test runs. The
+thirteen-patch ball's frame is the seven-patch ball's (a test), and no
+particle has run in it.
+
 ### Prescribed paths
 
 `INSPIRAL-PLAN.md`'s M4, `INSPIRAL.md`'s validation step 4: one particle
@@ -2830,14 +2939,16 @@ written without the averaging and the force read both ways, are
   `TransferTables`, `sinh_rule`, `ParticleSupport`, the far, graded and
   nested rules, the
   projection's kernels and `project_source!`, `support_elements`,
-  `pairing`, `reconstruct`, `reconstruct_gradient`, `ball_rule`, and
-  `check_finest`, which refuses a ball or a support off the finest level.
+  `pairing`, `reconstruct`, `reconstruct_gradient`, `ball_rule`,
+  `check_finest`, which refuses a ball or a support off the finest level,
+  and `ParticleFrame` with its `frame_*` maps, the patch the transfer
+  runs in and its affine map to physical space.
 - `src/inspiral.jl`: `Prescribed`, `uniform_motion`, `InspiralProblem`,
   the state's parts (`field_state`, `particle_state`),
   `inspiral_initial_state` (with the retarded field inside a window, for
   M4), `inspiral_rhs!`, `inspiral_stage!`, `inspiral_partition`,
-  `inspiral_integrator`, `particle_forces` and `ball_norm` (with a
-  hole).
+  `inspiral_integrator`, `particle_forces`, `ball_norm` (with a
+  hole) and `ball_mean`, both physical and `√g`-weighted on a geometry.
 - `src/prescribed.jl`: `circular_motion` and `hyperbolic_motion`, the
   retarded field of a point charge on any path by root-finding,
   `retarded_field`, and `point_model`.
@@ -2873,7 +2984,8 @@ written without the averaging and the force read both ways, are
   source, one tab-separated row per quantity, run in the package
   environment.
 - `bin/uniform_motion.jl`: one particle of the first run in uniform
-  motion, in M3's uniform box or, with `--levels`, on nested boxes, its
+  motion, in M3's uniform box or, with `--levels`, on nested boxes, or
+  with `--ball` in the seven-patch ball's cube, its
   error against the exact remainder, its force and, with `--cost`, the
   cost of a right-hand side and its parts and the bytes per node, one
   tab-separated row per quantity, run in the package environment;
@@ -2881,11 +2993,19 @@ written without the averaging and the force read both ways, are
   `bin/projection.jl` and its clean-time runs on a Symmetry AMD node, and
   `bin/symmetry/nested_motion.sh` M3b's on nested boxes.
 - `bin/prescribed.jl`: one particle of the first run on the slow circle
-  or in hyperbolic motion on nested boxes, its force every step in
+  or in hyperbolic motion on nested boxes, or with `--ball` in the
+  seven-patch ball's cube, its force every step in
   components, its face crossings, and its error against the retarded
   field; `--reading` reads the exact remainder's force without evolving
   it; `bin/symmetry/prescribed.sh` runs it on a Symmetry AMD node, one
   run per `path:hdiv:order[:tend]` of `TREEWAVEOLDG_RUNS`.
+- `bin/ball.jl`: the seven-patch ball with nested cubes in its cube,
+  included by `bin/uniform_motion.jl` and `bin/prescribed.jl` for their
+  `--ball` ([Particles in the ball](#particles-in-the-ball)).
+  `bin/symmetry/ball_motion.sh` runs `uniform_motion.jl --ball`, M3b's
+  series and the particle at rest past the boxes' clean time, each beside
+  the boxes of the cube's levels, on a Symmetry AMD node; `prescribed.sh` takes `--ball` through
+  `TREEWAVEOLDG_EXTRA`.
 - `bin/annulus.jl`: the annulus's convergence series and energy loss,
   one tab-separated row per run, in the package environment;
   `bin/symmetry/annulus.sh` runs it on a Symmetry AMD node.
@@ -2915,8 +3035,9 @@ written without the averaging and the force read both ways, are
   tables, and the state rearranged into global arrays, which the kernels
   are checked against.
 
-`Project.toml` requires TreeAMR 0.2.8 (for the element centering, and
-for the forests of patches of its M17, which the annulus runs on) and
+`Project.toml` requires TreeAMR 0.2.9 (for the element centering, for
+the forests of patches of its M17, which the annulus runs on, and for
+locating a point in a patch, which the particles in the ball need) and
 Julia 1.13, as TreeWave does, and IMEXRungeKutta 1.4 (for `reuse`),
 which is not registered and comes from its repository through
 `[sources]`, as in TreeHydro; `test/Project.toml` names it the same way.
@@ -3154,6 +3275,25 @@ one thread on CI, is otherwise silent until its summary.
   at `v = 0.2` keeps its remainder to an error that falls by more than
   3 from `hₑ = 1/2` to `1/4` at `t = 1/4`, its force falls by more than
   100, and its state follows the path to `10⁻¹³`.
+- `ball_inspiral_tests.jl`, the particles in the seven-patch ball's cube
+  (`P = 3`, three nested cubes in a cube of half-width 8 at the scale 4,
+  the finest at `hₑ = 1/2`, shells to a Sommerfeld sphere at `R1 = 3Lc`,
+  one particle of `ℓ = 0.01`), against nested boxes centred on the
+  origin with the same physical layout: the frame is the cube's; on the
+  finest level the projection and the pairing of a projected field are
+  the boxes' bit for bit, with all three of the transfer's rules in the
+  ball, and touch no other blocks; the initial remainder, its pairings,
+  the force, `ball_norm` and `ball_mean` are the boxes' to `10⁻¹³`; the
+  shells hold `(1 - W)Ψ̂` at their nodes' physical positions, and a
+  constant has itself as its mean and norm over a ball reaching into
+  them; a window's ball or a support leaving the cube is refused by
+  `InspiralProblem`, `project_source!` and the pairing, naming the patch,
+  and a point outside it by the reconstruction, while one inside is
+  not; the thirteen-patch ball has the same frame, and a patched forest
+  without its geometry none; and a particle moving at `v = 0.2` to
+  `t = 1/8` on the boxes' step has the boxes' error to `10⁻¹⁰` and their
+  force to `10⁻¹²`. About a minute on four threads, half of it
+  compiling the ball.
 - `prescribed_tests.jl`: the circle's and hyperbolic motion's `v`, `a`,
   `ȧ`, `ä`, `a⃛` and `a⃜` are the dual-number derivatives of their
   positions; along the exact circle at `v = 0.2` the order-3 source is
@@ -4657,6 +4797,139 @@ reaches the sphere, and then the Dirichlet run's own error grows to
 `1.6·10⁻²` at the centre while the radiative run's stays at `10⁻³`. The
 Dirichlet sphere reflects the outgoing discretization error whole, and
 that is the larger reflection of the two.
+
+### Particles in the ball
+
+`INSPIRAL-PLAN.md`'s M8c, first runs on the laptop (Apple M3 Pro, four
+threads, 2026-11-12, with the cube's map written as the frame's,
+`cube_position`), the drivers' small layouts with and without `--ball`
+(`bin/ball.jl`), the first run's particle and window, `P = 3`. The
+boxes are the cube's own levels in a periodic box of the cube's size:
+
+| run | box | `dt` | at `t` | error | force | mean of `Π_r` in the `R₂` ball |
+|---|---|---|---|---|---|---|
+| uniform motion, `v = 0.2`, three levels, `w0 = 3`, `hₑ = 1/4` | boxes, side 24 | 1/128 | 1/16 | `err_R2` 5.815319640257994e-6 | 2.192313477147e-9 | 3.161794337080e-8 |
+| | ball, `R1 = 36 = 3Lc`, `hshell = 2` | 1/128 | 1/16 | 5.815319640258713e-6 | 2.192313477146e-9 | 3.161794338399e-8 |
+| the same, two levels | boxes, side 12 | 1/128 | 1/16 | 5.815319640257875e-6 | 2.192313477148e-9 | 3.161794337650e-8 |
+| | ball, `R1 = 12 = 2Lc` | 1/240 | 1/16 | 5.815101035426923e-6 | 2.192179590843e-9 | 3.161869412690e-8 |
+| hyperbolic motion, `g = 0.1`, three levels, `w0 = 4`, `hₑ = 1/2` | boxes, side 64 | 1/64 | 1/4 | `err_R1` 3.873512547230e-5 | `Fa` 9.58252193e-7 | |
+| | ball, `R1 = 48 = 3Lc`, `hshell = 4` | 1/64 | 1/4 | 3.873512547230e-5 | 9.58252189e-7 | |
+
+- **On the boxes' step the ball gives their numbers:** at `t = 0` the
+  remainder's norm in the `R₂` ball is the boxes' bit for bit, and after
+  eight steps the error agrees to twelve digits, the force to thirteen
+  and the mean of `Π_r` to nine, the rounding of the two right-hand
+  sides, the cube's metric terms against the flat box's. Hyperbolic
+  motion's force agrees to eight digits.
+- **At `R1 = 2Lc` the shells set the step,** 0.53 of the boxes', and the
+  numbers differ by the time step's error, `3·10⁻⁵` relative.
+- **Which nodes lie on a ball's sphere matters.** With the cube's map
+  computed as `Lc(2ξ/n − 1)`, which rounds `2ξ/n` for `n = 12`, the
+  nodes at exactly `R₁ = 1.25` or `R₂ = 2.5` from the centre, such as
+  `(1.5, 2, 0)`, fell in or out of the ball by an ulp: the remainder's
+  norm at `t = 0` differed by `4·10⁻⁶`, `err_R1` by 0.6% and the mean of
+  `Π_r` by 2%, none of it the field's. `cube_position` places them
+  exactly, as the boxes do.
+- **M3b's runs are no reference:** they predate M4's averaging and M5's
+  lab slice, and their remainder differs from today's at `t = 0`
+  already. `ball_motion.sh` runs the boxes beside the ball.
+
+**On Symmetry** (Julia 1.13.3, 64 threads, 2026-11-12;
+`bin/symmetry/ball_motion.sh` and `prescribed.sh`). These are M3b's series
+and the particle at rest, three levels in the cube at `w0 = 3`
+(`Lc = 12`), shells of `hshell` twice the cube's root element width. The
+boxes are the same three levels in a periodic box of side 24, run in the
+same job. The series, job 596453 on `cn086`, an EPYC 7532, runs
+`v = 0.2` to `t = 0.5`:
+
+| `hₑ` | nodes, boxes / ball | `err_R2`, boxes | ball | force, boxes | ball | mean of `Π_r`, boxes | ball | step, boxes | ball |
+|---|---|---|---|---|---|---|---|---|---|
+| `d/4` | 2.4 M / 5.1 M | 6.846580496401e-6 | 6.846580496402e-6 | 1.912644046392e-7 | 1.912644046391e-7 | -5.21326005e-8 | -5.21326004e-8 | 0.43 s | 0.58 s |
+| `d/8` | 19.5 M / 40.7 M | 2.818224297903e-7 | 2.818224297901e-7 | 3.171513929721e-8 | 3.171513929721e-8 | -1.0009973e-9 | -1.0009978e-9 | 1.62 s | 2.24 s |
+| `d/12` | 65.7 M / 137 M | 6.51261e-8 | 6.51268e-8 | 3.818065731e-9 | 3.818065731e-9 | -1.44e-10 | -1.24e-10 | 4.34 s | 7.94 s |
+
+At rest at `d/8`, to `t = 60`: job 596454 on `cn112`, an EPYC 8534P, ran
+the ball at `R1 = 36` (`hshell = 1`, 21 M of its 41 M nodes in the
+shells) and the boxes; job 596455 on `cn109`, an EPYC 7543, ran the ball
+at `R1 = 50` (`hshell = 0.95`, 35 M of 55 M):
+
+| `t` | `err_R2`, boxes | `R1 = 36` | `R1 = 50` | force, boxes | `R1 = 36` | `R1 = 50` | mean of `Π_r`, boxes | `R1 = 36` | `R1 = 50` |
+|---|---|---|---|---|---|---|---|---|---|
+| 3 | 2.643436662e-7 | 2.643436662e-7 | 2.643436662e-7 | 5.15688428e-8 | 5.15688426e-8 | 5.15688426e-8 | 8.5e-14 | 8.4e-14 | 8.4e-14 |
+| 4.5 | 3.0285593e-7 | 3.0285586e-7 | 3.0285586e-7 | 1.45988511e-7 | 1.45988511e-7 | 1.45988511e-7 | 7.005e-10 | 7.002e-10 | 7.002e-10 |
+| 6 | 3.41e-7 | 3.30e-7 | 3.30e-7 | 9.6236e-8 | 9.6235e-8 | 9.6235e-8 | -1.8e-9 | 5.9e-10 | 5.9e-10 |
+| 10 | 2.2e-5 | 3.31e-7 | 3.31e-7 | 7.3e-8 | 6.01e-8 | 6.01e-8 | -6.2e-6 | 3.1e-10 | 3.1e-10 |
+| 30 | 1.6e-3 | 2.44e-7 | 2.44e-7 | 8.3e-7 | 2.39e-8 | 2.38e-8 | -1.4e-4 | -5.8e-11 | -4.5e-11 |
+| 60 | 6.3e-3 | 2.12e-7 | 2.11e-7 | 6.4e-7 | 1.02e-8 | 1.10e-8 | -3.1e-4 | 1.1e-10 | 1.1e-10 |
+
+The step took 1.33 s on the boxes and 1.91 s on the ball at `R1 = 36`,
+both on `cn112`, and 2.30 s at `R1 = 50` on `cn109`. The runs took about
+5.7, 8.4 and 10 hours.
+
+M5's circle at `v = 0.2`, `d/8`, order 3, from the retarded field to
+`t = 8`, ran in the plan's ball. That is the ball with M4's three
+finest levels in the cube (`w0 = 4`, `Lc = 16`) and `R1 = 50`
+(`hshell = 0.94`, 57 M of 103 M nodes in the shells). Job 596456 on
+`cn104`, an EPYC 7543, against M5's job 593531 on M4's five nested levels
+(75 M nodes, `cn103`, the same CPU):
+
+| | `F_t/F_RR` | `F_r/F_RR` | `F_n/F_RR` | sd of `F_t` | sd of `F_r` | `err_R1` at `t = 8` | `Φ` at `t = 8` | step |
+|---|---|---|---|---|---|---|---|---|
+| boxes, M5 | 1.04149 | -0.00012 | 0.00002 | 0.00628 | 0.01318 | 4.416182160e-7 | 1.3145584e-8 | 2.25 s |
+| ball | 1.04149 | -0.00012 | 0.00002 | 0.00628 | 0.01318 | 4.416182160e-7 | 1.3145584e-8 | 3.12 s |
+
+- **The ball gives the boxes' numbers inside their clean time.** In the
+  series at `d/4` and `d/8` the error agrees to twelve digits, the force
+  to eleven, and the mean of `Π_r` to `5·10⁻¹⁶` absolute, the rounding of
+  a sum that cancels. At rest, over more steps, the error agrees to ten
+  digits and the force to eight up to `t = 3`. On the circle every step's force is M5's to `1.3·10⁻⁸ F_RR`,
+  from `t = 0` on, and the means, scatters and the field's error are
+  M5's to the digits printed. The differences are the rounding of the
+  boxes' positions about `(64, 64, 64)`: their particle's position
+  error is `2·10⁻¹³` against the ball's `6·10⁻¹⁵` about the origin.
+- **At `d/12` the norms agree to four digits and the force to eleven.**
+  The step `2Lc/n = 2/3` is not dyadic, so the box's positions,
+  from TreeAMR's `block_origin` and spacing, and the cube's,
+  `(2Lc/n)ξ − Lc`, round differently. The nodes on the norms' spheres then
+  fall in or out by an ulp, as `Lc(2ξ/n − 1)` made them do at `d/4`. The
+  force, which reads no sphere, is the boxes'.
+- **The boxes' clean time ends at `t ≈ 4`.** The ball's error leaves the
+  boxes' at the ninth digit at `t = 4` and the seventh at 4.5, before the
+  `(L/2 − R₂)/2 = 4.75` of [Uniform motion](#uniform-motion). By `t = 8`
+  the boxes' error is 30 times the ball's, and by `t = 60` it is 30 000
+  times. Their mean of `Π_r` drifts to `−3·10⁻⁴` by `t = 60`, at the net
+  charge's `Q/V`.
+- **In the ball the particle at rest stays clean to `t = 60`,** but for
+  the sphere's return (below). The error in the `R₂` ball stays at
+  `2`–`3·10⁻⁷`, falling slowly. The
+  force falls from `10⁻⁷` to `10⁻⁸`. The mean of `Π_r` stays below
+  `10⁻⁹`, with no drift.
+- **The sphere's return comes at about half the light-crossing time.**
+  `R1 = 36` and 50 agree to rounding up to `t ≈ 5`. Their difference
+  then grows slowly, through the cube–shell faces and the shells (of
+  width 1 and 0.95), to `10⁻⁹` in the error by `t = 30`, 1% of it. Then
+  each run's error rises for a few time units: at `R1 = 36` from
+  `2.6·10⁻⁷` to `3.5·10⁻⁷` over `t = 34`–38, and at `R1 = 50` by about
+  `3·10⁻⁸` over `t = 48`–51. The force rises by `4·10⁻⁸` and
+  `2·10⁻⁸`. These times are `(2R1 − R₂)/2 = 34.75` and 48.75. The
+  sphere sends back the remainder's under-resolved error, which crosses
+  the shells at about twice the speed of light, as it crosses the
+  boxes' faces ([Uniform motion](#uniform-motion)). So the sphere bounds
+  a run's clean time at `(2R1 − R₂)/2`, not at `2R1 − R₂`. The return
+  falls faster than `1/R1`, 3 times smaller for 1.4 times the radius.
+- **Pushing the sphere out costs `R1`, not `R1³`.** The shells keep the
+  cube's angular resolution, `48 × 48` elements a face at `d/8`, at
+  every radius, so each radial root of four elements adds the same
+  `3.5·10⁶` nodes: 21 M at `R1 = 36` (`m = 6`), 35 M at 50 (`m = 10`),
+  about `0.9·10⁶` per unit radius. The step stays the finest cube's. A
+  box of side `2R1` at the cube's root element width of 1/2 would have
+  `4096 R1³` nodes, `5·10⁸` at `R1 = 50`. Nested boxes cost `log R1`,
+  but coarsen radially with each level and cannot carry the radiation
+  out at a fixed wavelength.
+- **The ball costs 1.4 to 1.8 times the boxes per step at the same
+  finest levels,** having twice their nodes. Its field kernels are the
+  full geometry's, at 2 to 3 times the boxes' cost per node. The source, which is most of the step, does not change. On
+  the circle the ball's step is 1.4 times the five-level boxes'.
 
 
 ### Prescribed paths

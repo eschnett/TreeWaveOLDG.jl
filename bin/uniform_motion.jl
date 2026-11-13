@@ -3,7 +3,8 @@
 #
 #     julia -t N,0 --project=. bin/uniform_motion.jl [--hdiv=8] [--L=6] \
 #         [--levels=1] [--w0=L/2] [--tend=0.5] [--every=0.125] [--v=0.2] \
-#         [--order=3] [--cfl=0.5] [--cost] [--reps=3]
+#         [--order=3] [--cfl=0.5] [--cost] [--reps=3] \
+#         [--ball] [--R1=50] [--hshell]
 #
 # Like `bin/benchmark.jl`, this runs against the package environment;
 # `bin/symmetry/uniform_motion.sh` runs M3's series on a Symmetry node, and
@@ -19,6 +20,14 @@
 # cubes' faces to fall on block faces; `E` is 4 where that fits, else 2.
 # The window's ball has to lie on the finest level, which the problem
 # checks when it is built.
+#
+# With `--ball` the outermost of the `levels` cubes is instead the cube of
+# the seven-patch ball (`bin/ball.jl`, INSPIRAL-PLAN.md's M8c), of
+# half-width `2^(levels-1) w0`, with shells to a Sommerfeld sphere at
+# `R1`, of radial elements about `hshell` wide (twice the cube's root
+# element width by default), and the centre is the origin: the nested
+# boxes' periodic box replaced by a radiative sphere. `L` in the rows is
+# then the sphere's diameter `2R1`.
 #
 # One particle of the first run of INSPIRAL.md ("Parameters for a first
 # run"), `Q² = 0.005`, `ℓ = 10⁻³`, `M = 1`, starts where the binary's first
@@ -46,7 +55,11 @@
 # the L∞ error in the `R₂` ball (`errinf_R2`), the exact remainder's L2
 # in it (`field_R2`), the remainder's force on the particle (`force`, its
 # norm, and `Fx`, `Fy`, `Fz`), and how far the particle's state is from
-# its path (`dz`).
+# its path (`dz`), and the mean of `Π_r` in the `R₂` ball (`pimean_R2`),
+# which a net charge drives at `Q/(γV)` in a periodic box, and the mean of
+# its error (`errpimean_R2`). In the ball also, at `t = 0`, `Lc`, the
+# shells' radial roots `m` and element width `hshell`, and their nodes
+# (`nodes_shells`).
 #
 # With `--cost`, at the end, in seconds per call, the least of `reps`
 # after a warm-up: `rhs`, one `inspiral_rhs!`; its parts `wave`
@@ -61,7 +74,9 @@
 
 using TreeWaveOLDG
 using TreeWaveOLDG: SVector, step!, statelength, statearray, field_state, level,
-                    maxlevel
+                    maxlevel, patch
+
+include(joinpath(@__DIR__, "ball.jl"))
 
 function option(name, default)
     for a in ARGS
@@ -98,11 +113,17 @@ function box(hdiv, L, levels, w0)
     return forest, Lout
 end
 
-function problem(hdiv, L, levels, w0, v, order)
+function problem(hdiv, L, levels, w0, v, order; ball=nothing)
     P = 3
-    forest, L = box(hdiv, L, levels, w0)
-    wave = WaveProblem(forest, Element(Float64, P))
-    c = SVector(L / 2, L / 2, L / 2)
+    if ball === nothing
+        forest, L = box(hdiv, L, levels, w0)
+        wave = WaveProblem(forest, Element(Float64, P))
+        c = SVector(L / 2, L / 2, L / 2)
+    else
+        wave = ball_wave(hdiv, levels, w0; ball...)
+        L = 2ball.R1
+        c = SVector(0.0, 0.0, 0.0)
+    end
     m = ParticleModel(; Q=sqrt(0.005), ℓ=1e-3, M=1.0)
     w = Window(c, 1.25, 2.5; continuity=P + 1)
     z = c + SVector(0.5, 0.0, 0.0) + SVector(1.23, 0.71, 0.93) * 1e-2
@@ -131,7 +152,9 @@ function observe(p, u, t, tag)
                           "field_R2" => ball_norm(p, ue, c, p.window.R₂),
                           "force" => sqrt(sum(abs2, F)),
                           "Fx" => F[1], "Fy" => F[2], "Fz" => F[3],
-                          "dz" => maximum(abs, zs - z))
+                          "dz" => maximum(abs, zs - z),
+                          "pimean_R2" => ball_mean(p, u, c, p.window.R₂; vars=2),
+                          "errpimean_R2" => ball_mean(p, e, c, p.window.R₂; vars=2))
         emit(tag..., t, name, value)
     end
     return nothing
@@ -148,8 +171,14 @@ function main()
     order = parse(Int, option("order", "3"))
     cfl = parse(Float64, option("cfl", "0.5"))
     reps = parse(Int, option("reps", "3"))
-    p, Lout = problem(hdiv, L, levels, w0, v, order)
-    tag = (hdiv, Lout, levels, levels == 1 ? Lout / 2 : w0, v)
+    ball = nothing
+    if "--ball" in ARGS
+        hs = option("hshell", "")
+        ball = (; R1=parse(Float64, option("R1", "50")),
+                hshell=isempty(hs) ? nothing : parse(Float64, hs))
+    end
+    p, Lout = problem(hdiv, L, levels, w0, v, order; ball)
+    tag = (hdiv, Lout, levels, levels == 1 && ball === nothing ? Lout / 2 : w0, v)
     println(join(("threads", "hdiv", "L", "levels", "w0", "v", "t", "quantity", "value"),
                  '\t'))
 
@@ -159,11 +188,20 @@ function main()
     nodes = statelength(p.wave.fs) ÷ 2
     emit(tag..., 0.0, "nodes", nodes)
     forest = p.wave.fs.forest
+    incube(key) = ball === nothing || patch(forest, key) == 1
     if levels > 1
         for k in 0:maxlevel(forest)
             emit(tag..., 0.0, "nodes_level$k",
-                 count(key -> level(key) == k, forest.leaves) * forest.N^3)
+                 count(key -> incube(key) && level(key) == k, forest.leaves) * forest.N^3)
         end
+    end
+    if ball !== nothing
+        (; Lc, m, hshell) = ball_layout(hdiv, levels, w0; ball...)
+        emit(tag..., 0.0, "Lc", Lc)
+        emit(tag..., 0.0, "m", m)
+        emit(tag..., 0.0, "hshell", hshell)
+        emit(tag..., 0.0, "nodes_shells",
+             count(key -> !incube(key), forest.leaves) * forest.N^3)
     end
     emit(tag..., 0.0, "steps", integ.nsteps)
     emit(tag..., 0.0, "dt", integ.dt)
@@ -183,7 +221,10 @@ function main()
     supports = map(ParticleSupport, p.models, trajs)
     fu, fdu = field_state(u, p), field_state(du, p)
     work(fs) = sizeof(fs.work)
-    bytes_wave = work(p.wave.fs) + work(p.wave.ufs) + sum(work, p.wave.grads)
+    # On a full geometry (`--ball`) the gradient is `cartgrad`, and `grads`
+    # is empty.
+    bytes_wave = work(p.wave.fs) + work(p.wave.ufs) + sum(work, p.wave.grads; init=0) +
+                 (p.wave.cartgrad === nothing ? 0 : work(p.wave.cartgrad))
     t = integ.t
     # `reps + 1` more steps, on the run's scratch.
     stepper = inspiral_integrator(p, copy(u), t, t + (reps + 1) * integ.dt; dt=integ.dt,

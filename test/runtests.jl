@@ -33,6 +33,7 @@ end
     testfile("transfer_tests.jl")
     testfile("inspiral_tests.jl")
     testfile("nested_tests.jl")
+    testfile("ball_inspiral_tests.jl")
     testfile("prescribed_tests.jl")
     testfile("device_tests.jl")
 end

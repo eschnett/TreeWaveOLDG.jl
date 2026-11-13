@@ -6,10 +6,10 @@ merged pull request and a green suite. The milestones follow
 knows it is done. Section names of `INSPIRAL.md` and `CODE.md` are used
 below without links.
 
-**Status.** M0 to M5 are done; M6a, M6b and M7 are not started; M8 is
-proposed (2026-11-09), M8a's runs are measured (2026-11-10) and its gate
-is with the owner, M8b's runs are measured (2026-11-11) and its pull
-request is open, and M8c is not started. A
+**Status.** M0 to M5 are done; M6a, M6b and M7 are not started; of M8,
+M8a and M8b are done (2026-11-11), M8a's gate having passed, and M8c is
+under way on branch `inspiral-m8c-ball`: its code, tests and runs are
+in and meet its "Done when", and its pull request is not open. A
 milestone's status line changes here when its work starts and when its
 pull request merges. A finished milestone keeps its number and one line
 saying where its results went; its earlier text, with the gates and
@@ -57,7 +57,7 @@ finished milestones").
 | cluster | Symmetry, AMD CPU nodes, Julia threads; no device work |
 | branches | one branch and pull request per milestone, merged before the next starts |
 | documents | settled parts are folded into `CODE.md`, decisions into `HISTORY.md`; `INSPIRAL.md` stays unchanged |
-| outer boundary | a periodic box large enough to be causally clean. The nested boxes' coarse outer levels make the box large enough for the orbits. The seven-patch ball's radiative sphere in its place is M8, proposed (2026-11-09) |
+| outer boundary | a periodic box large enough to be causally clean. The nested boxes' coarse outer levels make the box large enough for the orbits. The seven-patch ball's radiative sphere in its place is M8 (2026-11-09), whose gate M8a passed on 2026-11-11 |
 
 ## Ground rules
 
@@ -354,7 +354,7 @@ stepping would. Moving the projection to a GPU with the field is
 
 ## M8: The particles in the seven-patch ball
 
-**Status:** proposed (2026-11-09); not started. Not a step of
+**Status:** M8a and M8b done (2026-11-11), M8c under way. Not a step of
 `INSPIRAL.md`'s "Validation": it replaces the periodic box's outer
 faces by the seven-patch ball's radiative sphere (`CODE.md`, "The
 seven-patch ball" and "The outer boundary").
@@ -405,82 +405,40 @@ wavelength at `λ = 16`, `hₑ ≤ 2`, so `n_e ≥ R₁`. An example at `P = 3`:
 
 ### M8a: What the sphere sends back
 
-**Status:** measured (2026-11-10), on branch
-`eschnett-claude/elastic-colden-7ba544`; the results are in `CODE.md`
-("The radiative sphere" under "Measured results"), and the gate below is
-with the owner. The sphere sends back about eight times what the nested
-boxes' outer face does at `λ = 16`, and at `λ = 4` the shells keep a
-fifth of the energy. The dipole was centred, a pure `ℓ = 1` wave about
-the sphere, not off-centre, and `n_e` was varied only with `R₁`, at
-fixed spacings. The field alone, on the uniform ball, with no code
-beyond a script.
-
-- `bin/sevenpatch.jl`'s radiative run with `bin/nested_waves.jl`'s pulse,
-  `[g(r − t) − g(r + t)]/r` with `g(s) = exp(−(s/σ)²) cos(2πs/λ)`, at
-  `λ = 16` (the first run's radiation) and `λ = 4` (the start-up junk),
-  and an off-centre dipole at `λ = 16`, since the binary radiates at
-  `ℓ = 1`.
-- Against `R₁` and `n_e`: what comes back to the window's ball, its
-  amplitude and when, and the energy left in the ball.
-- Beside it, the same pulses through M3b's five-level layout, from
-  `nested_waves.jl`'s existing runs where they cover it.
-
-**Done when** the reflection at the window is recorded against `R₁` and
-`n_e` beside the nested boxes', and the owner has decided whether M8b
-and M8c go ahead (a gate, below).
+Done (2026-11-11): its runs are in `CODE.md` ("The radiative sphere"
+under "Measured results"), and its gate passed (`HISTORY.md`, "Gates of
+the finished milestones").
 
 ### M8b: Refinement inside the cube
 
-**Status:** measured (2026-11-11), before M8a's gate, at the owner's
-request; its pull request is open. The code and tests are in, and
-`bin/symmetry/nested_ball.sh`'s runs at M3b's scale are recorded
-(`CODE.md`, "The seven-patch ball" under "Measured results"): inside the
-cube the ball gives the nested boxes' coarse-fine reflections, the
-energy holds as it does on the boxes, and the step time and memory are
-recorded. The cube–shell faces send back about forty times what the
-boxes' face at 16 does at `λ = 16`, and at `λ = 4` the shells need
-radial elements of four per wavelength not to trap the wave. The field
-side, with no particles.
-
-- **The refusal.** `check_metric_forest` refuses every refined forest on
-  a geometry, because the coarse ghost is the adjoint in the flat
-  weights, not the `√g`-weighted ones. Where `√g` is constant the two
-  differ by a constant factor, so a refined forest is accepted when
-  every coarse-fine face lies in a patch whose map is affine (a trait of
-  the geometry, `affine_patch(geo, p)`), and refused otherwise with that
-  reason.
-- **The Cartesian gradient across a coarse-fine face.** `cartgrad` is
-  one set with ghosts on every face, which no refined forest has had.
-  In the cube `S` is diagonal and constant, so the Laplacian reads
-  `F^d = S[d][d] V_d` as the flat path reads its `d`-th set; whether
-  TreeAMR's coupling treats each component as it treats that set is
-  checked by the energy test.
-- **The truncation by block.** On an affine block the `√g`-orthogonal
-  projector is the element's own, so those blocks take the element's
-  tables and `ElementTruncation` holds only the shells' elements. On
-  the nested cubes that saves about 100 bytes per node.
-- **The forest.** `sevenpatch_forest(…; refined)`, with `nested_cubes`'
-  regions in patch 1's logical coordinates.
-- **The time step** stays `oldg_timestep`'s, the finest logical `hₑ`
-  over the largest logical wave speed anywhere, which is conservative.
-
-Tests: the energy, with the Neumann sphere (`κ = 0` without `u/R`), an
-invariant to rounding on a refined ball; the plane wave converging on a
-refined ball with Dirichlet data; refinement in a shell refused, naming
-the patch.
-
-Measured and recorded: the right-hand side's time per node on the
-cube's blocks against the flat path's on M3b's layout. A flat fast path
-for affine blocks is written only if the difference matters against the
-source's cost (below, "Left to settle later").
-
-**Done when** M8a's pulses through the refined ball give the nested
-boxes' coarse-fine reflections, the energy holds as it does on nested
-boxes, and the memory and step time are recorded.
+Done (2026-11-11): the refined cube is `CODE.md`'s ("The seven-patch
+ball"), and its runs are under "The seven-patch ball" in "Measured
+results".
 
 ### M8c: Particles in the cube
 
-**Status:** proposed; not started. Needs M8b and a TreeAMR release.
+**Status:** under way (2026-11-11), on branch `inspiral-m8c-ball`. The
+code and the tests are in (`CODE.md`, "Particles in the ball"): TreeAMR
+0.2.9 has the location in a patch, the transfer works through the
+cube's `ParticleFrame`, and the drivers take `--ball`. The runs were
+made on Symmetry on 2026-11-12 (jobs 596453 to 596456, `HISTORY.md`;
+results in `CODE.md`, "Particles in the ball" under "Measured results"),
+with the boxes of the cube's three levels run beside the ball by the
+current code, since M3b's runs predate M4's and M5's changes to the
+remainder. Their layout, from M8a's and M8b's measurements and the
+owner's answer to M8a's gate: the shells' radial elements at most twice
+the cube's root element width, so that the cube–shell faces send back
+what the boxes' 2:1 faces do; `R₁` at least `3Lc`, where the finest cube
+sets the step, and large enough that what the sphere sends back, from
+about `2R₁ − R₂` on, arrives after the run. The plan's ball at
+`R₁ = 50`, `Lc = 16` with `hshell = 1` is `bin/ball.jl`'s default for
+`--ball --levels=3 --w0=4 --hdiv=8`, and is clean to about `t = 97` for
+a resolved wave; M8c's runs at rest show the under-resolved error back
+from about `t = 49`.
+The runs' scripts: `bin/symmetry/ball_motion.sh`, M3b's series and the
+particle at rest to `t = 60` at `R₁ = 36` and 50, and `prescribed.sh`
+with `TREEWAVEOLDG_RUNS="circle-ret:8:3"` and
+`TREEWAVEOLDG_EXTRA="--v=0.2 --ball --levels=3 --R1=50"` for M5's circle.
 
 - **Point location, upstream.** TreeAMR refuses `locate_point` on a
   forest of patches, and its refusal names what would lift it: a
@@ -498,7 +456,9 @@ boxes, and the memory and step time are recorded.
   `P S` unchanged, since the Jacobian cancels in `(1/wₙ)∫Sφₙ`; the
   pairing's integrals times `a³` and the gradients times `1/a`. This
   covers `project_source!`, `pairing`, `support_elements`,
-  `SharedNodes`, the finest-level checks and `reconstruct`.
+  `SharedNodes`, the finest-level checks and `reconstruct`. (Done, with
+  the pairing over the mapped element boxes, which needs neither factor:
+  `CODE.md`, "Particles in the ball".)
 - **Initial data and norms.** `inspiral_initial_state` fills `(1 − W)Ψ̂`
   through `WithPatch` and `physical_coordinates` on all seven patches;
   `ball_norm` takes physical positions and `√g`-weighted volumes.
@@ -532,14 +492,6 @@ before continuing. The gates of the finished milestones are in
 - **M6a: the `ä` system is ill-conditioned** (`δm_h` not small against
   `M`). Coarser `hₑ`, or the "free amplitudes" alternative from
   `INSPIRAL.md`'s "Open questions".
-- **M8a: the sphere sends back more than the nested boxes do.** If, at
-  an `R₁` whose shells cost no more than two more nested levels, the
-  radiation the sphere sends back to the window exceeds what the nested
-  boxes' faces send back over the same run, M8b and M8c wait. The
-  fallbacks are a second-order absorbing condition (Bayliss–Turkel,
-  `CODE.md`'s **(open)** item under "The seven-patch ball") or the
-  13-patch ball, which now exists (`CODE.md`, "The thirteen-patch
-  ball"; `bin/sphere_waves.jl --Rm --m2`).
 
 ## Left to settle later
 
@@ -550,9 +502,6 @@ milestone named. Those of the finished milestones are in `HISTORY.md`
 - M6b: whether diagnostics get their own file.
 - M7: its outer region, nested boxes with seven or more levels, or the
   ball if M8 is done by then.
-- M8a: `R₁`, `Lc`, `n_e` and the shells' radial elements.
-- M8b: whether affine blocks get a flat fast path in the right-hand
-  side. Settled 2026-11-09: the owner had it written, since the full
-  geometry's right-hand side cost 7.7 times the flat one's per node on
-  the same blocks; with it the cube's blocks cost 1.9 times (`CODE.md`,
-  "The seven-patch ball", and `PLAN.md` for what is left).
+- M8c: `R₁` for each run, from the time it has to stay clean. M8c's
+  runs at rest show the sphere's return at about `(2R₁ − R₂)/2`, not
+  `2R₁ − R₂`, and the two spheres agreeing before it.

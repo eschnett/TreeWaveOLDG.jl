@@ -6,7 +6,7 @@
 #         [--levels=5] [--w0=4] [--order=3] [--tend] [--every=0.0625] \
 #         [--fevery=1] [--cfl=0.5] [--v=0.05] [--rc=0.5] [--g=0.1] \
 #         [--data=instantaneous] [--rx1] [--rx2] [--plain] [--both] \
-#         [--cost] [--reps=3]
+#         [--cost] [--reps=3] [--ball] [--R1=50] [--hshell]
 #
 # Like `bin/uniform_motion.jl`, this runs against the package environment;
 # `bin/symmetry/prescribed.sh` runs M4's series on a Symmetry node.
@@ -22,6 +22,15 @@
 # `R₁ = 1.25`, `R₂ = 2.5` about `c`, of continuity `P + 1`; `P = 3`, RK4 at
 # `cfl`, the near field carried to `order`. `o = (1.23, 0.71, 0.93)·10⁻²`
 # keeps the particle off the element faces' planes, as in M3.
+#
+# With `--ball` the outermost of the `levels` cubes is instead the cube of
+# the seven-patch ball (`bin/ball.jl`, INSPIRAL-PLAN.md's M8c), of
+# half-width `2^(levels-1) w0`, with shells to a Sommerfeld sphere at
+# `R1`, of radial elements about `hshell` wide (twice the cube's root
+# element width by default), and `c` is the origin; `path` in the rows
+# then ends in `-ball`. `--ball --levels=3` keeps the default layout's
+# three finest levels, with the ball's cube of half-width 16 in place of
+# its two coarsest.
 #
 # `--path=circle`: the slow circle, about `c + o` in the `xy` plane, of
 # radius `rc` at speed `v`, starting at `c + o + (rc, 0, 0)` and turning
@@ -103,6 +112,8 @@ using TreeWaveOLDG: SVector, step!, statelength, level, maxlevel, field_state, s
                     get_backend
 using LinearAlgebra: dot, norm
 
+include(joinpath(@__DIR__, "ball.jl"))
+
 function option(name, default)
     for a in ARGS
         startswith(a, "--$name=") && return split(a, "="; limit=2)[2]
@@ -180,8 +191,9 @@ end
 # put back into it, as it was before the particle field carried it.
 function reading(path, p, retarded, t, tag)
     u0 = inspiral_initial_state(p; t, retarded)
-    fill_at_nodes!(TPrime2(p.motion.path, p.models[1].Q, retarded, t), p.wave.fs,
-                   p.wave.element)
+    fill_at_nodes!(TreeWaveOLDG.at_physical(p.wave, TPrime2(p.motion.path, p.models[1].Q,
+                                                            retarded, t)),
+                   p.wave.fs, p.wave.element)
     t2 = zero(u0)
     f2 = field_state(t2, p)
     TreeAMR.zerofill!(statearray(f2, p.wave.fs), get_backend(p.wave.fs.work))
@@ -195,11 +207,16 @@ function reading(path, p, retarded, t, tag)
     return nothing
 end
 
-function problem(path, hdiv, levels, w0, order; v, rc, g)
+function problem(path, hdiv, levels, w0, order; v, rc, g, ball=nothing)
     P = 3
-    forest, L = box(hdiv, levels, w0)
-    wave = WaveProblem(forest, Element(Float64, P))
-    c = SVector(L / 2, L / 2, L / 2)
+    if ball === nothing
+        forest, L = box(hdiv, levels, w0)
+        wave = WaveProblem(forest, Element(Float64, P))
+        c = SVector(L / 2, L / 2, L / 2)
+    else
+        wave = ball_wave(hdiv, levels, w0; ball...)
+        c = SVector(0.0, 0.0, 0.0)
+    end
     m = ParticleModel(; Q=sqrt(0.005), ℓ=1e-3, M=1.0)
     w = Window(c, 1.25, 2.5; continuity=P + 1)
     motion = path == "circle" ? circular_motion(c + OFFSET, rc, v) :
@@ -285,14 +302,20 @@ function main()
     # The hyperbolic run ends when the speed reaches 0.05, gt/√(1 + g²t²).
     tdefault = path == "circle" ? 8.0 : 0.05 / (g * sqrt(1 - 0.05^2))
     tend = parse(Float64, option("tend", string(tdefault)))
-    p, c = problem(path, hdiv, levels, w0, order; v, rc, g)
+    ball = nothing
+    if "--ball" in ARGS
+        hs = option("hshell", "")
+        ball = (; R1=parse(Float64, option("R1", "50")),
+                hshell=isempty(hs) ? nothing : parse(Float64, hs))
+    end
+    p, c = problem(path, hdiv, levels, w0, order; v, rc, g, ball)
     path == "hyperbolic" && (rx2 + 0.6 < 1 / g || error(
         "the retarded field reaches 1/g = $(1 / g) behind the particle, and the ball " *
         "of radius rx2 = $rx2 about the centre reaches about $(rx2 + 0.6) behind it; " *
         "choose a smaller g or rx2"))
     retarded = data == "retarded" ? Window(c, rx1, rx2; continuity=4) : nothing
-    tag = (path * (path == "circle" && data == "retarded" ? "-ret" : ""), hdiv, levels,
-           w0, order)
+    tag = (path * (path == "circle" && data == "retarded" ? "-ret" : "") *
+           (ball === nothing ? "" : "-ball"), hdiv, levels, w0, order)
     println(join(("threads", "path", "hdiv", "levels", "w0", "order", "t", "quantity",
                   "value"), '\t'))
 
@@ -311,9 +334,19 @@ function main()
     nodes = statelength(p.wave.fs) ÷ 2
     emit(tag..., 0.0, "nodes", nodes)
     forest = p.wave.fs.forest
+    incube(key) = ball === nothing || TreeAMR.patch(forest, key) == 1
     for k in 0:maxlevel(forest)
         emit(tag..., 0.0, "nodes_level$k",
-             count(key -> level(key) == k, forest.leaves) * forest.N^3)
+             count(key -> incube(key) && level(key) == k, forest.leaves) * forest.N^3)
+    end
+    if ball !== nothing
+        (; Lc, m, hshell) = ball_layout(hdiv, levels, w0; ball...)
+        emit(tag..., 0.0, "R1", ball.R1)
+        emit(tag..., 0.0, "Lc", Lc)
+        emit(tag..., 0.0, "m", m)
+        emit(tag..., 0.0, "hshell", hshell)
+        emit(tag..., 0.0, "nodes_shells",
+             count(key -> !incube(key), forest.leaves) * forest.N^3)
     end
     emit(tag..., 0.0, "steps", integ.nsteps)
     emit(tag..., 0.0, "dt", integ.dt)

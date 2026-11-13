@@ -98,6 +98,20 @@ a geometry says otherwise. See "The seven-patch ball" in `CODE.md`.
 affine_patch(geo::Geometry, p) = false
 
 """
+    affine_map(geo, p) -> (origin, scale)
+
+Patch `p`'s map as `x = origin + scale ⋅ ξ`, for a patch whose map is
+affine ([`affine_patch`](@ref TreeWaveOLDG.affine_patch)) and the same
+scale along every dimension: a `D`-tuple and a number. The particles'
+transfer runs in such a patch, in physical coordinates through this map
+([`ParticleFrame`](@ref TreeWaveOLDG.ParticleFrame)). A geometry with an
+affine patch provides it; see "Particles in the ball" in `CODE.md`.
+"""
+affine_map(geo::Geometry, p) = throw(ArgumentError(
+    "$(nameof(typeof(geo))) gives no affine map for patch $p, so the particles' " *
+    "transfer cannot run there"))
+
+"""
     factored_volume(geo, p) -> k
 
 The logical dimension `k` along which patch `p`'s volume element splits
@@ -338,12 +352,18 @@ sevenpatch_index(k, s) = 1 + 2(k - 1) + (s == 1 ? 2 : 1)
 @inline function sevenpatch_position(geo::SevenPatchBall, ξ, p)
     n, m = geo.roots
     Lc = geo.Lc
-    if p == 1
-        return Lc .* (2 .* ξ ./ n .- 1)
-    end
+    p == 1 && return cube_position(Lc, n, ξ)
     k, s = shell_of(p - 1)
     return blended_shell(Lc, n, m, geo.R1, ξ, k, s, geo.grading)
 end
+
+# The cube's `x = Lc(2ξ/n - 1)`, written `(2Lc/n)ξ - Lc` as the particles'
+# frame (`affine_map`) and a brick of the same step place their nodes:
+# exact where the step `2Lc/n` and `ξ` are dyadic, so that a node of the
+# cube lies where the nested boxes' does, bit for bit, and a ball norm
+# about it takes the same nodes on its sphere ("Particles in the ball" in
+# `CODE.md`). `Lc(2ξ/n - 1)` rounds `2ξ/n` for `n` not a power of two.
+@inline cube_position(Lc, n, ξ) = (2Lc / n) .* ξ .- Lc
 
 # The point of the cube's face `(k, s)`, of half-width `Lc` and `n` roots
 # along each tangential dimension, over which logical `ξ` lies.
@@ -363,6 +383,16 @@ outer_radius(geo::SevenPatchBall) = geo.R1
 
 # The cube's map `x = Lc(2ξ/n - 1)` is affine; the shells' are not.
 affine_patch(::SevenPatchBall, p) = p == 1
+affine_map(geo::SevenPatchBall, p) = cube_map(geo, geo.roots[1], p)
+
+# The cube's map as `affine_map` returns it: the origin `-Lc` and the
+# scale `2Lc/n` of `cube_position`.
+function cube_map(geo, n, p)
+    p == 1 || throw(ArgumentError(
+        "patch $p of the $(nameof(typeof(geo))) is a shell, whose map is not affine; " *
+        "only the cube, patch 1, has an affine map"))
+    return ntuple(_ -> -geo.Lc, Val(3)), 2geo.Lc / n
+end
 
 @inline function physical_coordinates(geo::SevenPatchBall, x, p)
     return Tuple(sevenpatch_position(geo, SVector(x[1], x[2], x[3]), p))
@@ -604,9 +634,7 @@ end
 @inline function thirteenpatch_position(geo::ThirteenPatchBall, ξ, p)
     n, m, _ = geo.roots
     Lc = geo.Lc
-    if p == 1
-        return Lc .* (2 .* ξ ./ n .- 1)
-    end
+    p == 1 && return cube_position(Lc, n, ξ)
     k, s, outer = thirteenpatch_shell(p)
     outer || return blended_shell(Lc, n, m, geo.Rm, ξ, k, s)
     f = shell_face(Lc, n, ξ, k, s)
@@ -617,6 +645,7 @@ outer_radius(geo::ThirteenPatchBall) = geo.R1
 
 # The cube's map is affine; the shells' are not.
 affine_patch(::ThirteenPatchBall, p) = p == 1
+affine_map(geo::ThirteenPatchBall, p) = cube_map(geo, geo.roots[1], p)
 
 @inline physical_coordinates(geo::ThirteenPatchBall, x, p) =
     Tuple(thirteenpatch_position(geo, SVector(x[1], x[2], x[3]), p))

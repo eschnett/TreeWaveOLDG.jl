@@ -96,7 +96,7 @@ export TransferTables, gauss_nodes_weights, sinh_rule, ParticleSupport, project_
 # The coupled problem
 export InspiralProblem, Prescribed, uniform_motion, field_state, particle_state,
        inspiral_initial_state, inspiral_rhs!, inspiral_stage!, inspiral_partition,
-       inspiral_integrator, particle_forces, ball_norm
+       inspiral_integrator, particle_forces, ball_norm, ball_mean
 
 # Prescribed paths
 export circular_motion, hyperbolic_motion, retarded_field, point_model

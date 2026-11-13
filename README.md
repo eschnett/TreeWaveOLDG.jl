@@ -112,7 +112,7 @@ On a reflecting box the wall is a Neumann (solid, `∂ₙu = 0`) boundary,
 an exact discrete symmetry whose energy is conserved to the integrator's own
 loss.
 
-On TreeAMR's forests of patches (its M17, in TreeAMR 0.2.8) the wave
+On TreeAMR's forests of patches (its M17, in TreeAMR 0.2.8 and later) the wave
 equation runs in a diagonal metric. On the four-patch annulus it
 converges at order `P`, and the discrete energy is an exact invariant
 across the glued faces and the walls, the truncation being orthogonal in
@@ -142,7 +142,7 @@ one; the plane wave converges at order `P` there too:
 julia --project=. -t 4,0 bin/sevenpatch.jl --P=2,3 --scales=1,2 --Rm=2
 ```
 
-The mesh is TreeAMR's, with its element centering (TreeAMR 0.2.8), and
+The mesh is TreeAMR's, with its element centering (TreeAMR 0.2.9), and
 across a coarse-fine face the coupling keeps the discrete energy an
 exact invariant. The L2 error converges at order `P` on a refined
 forest; in two and more dimensions the largest pointwise error loses
@@ -194,6 +194,16 @@ crosses an element face:
 
 ```bash
 julia --project=. -t 4,0 bin/prescribed.jl --path=hyperbolic --hdiv=2 --levels=3 --tend=0.25
+```
+
+The particles also run in the seven-patch ball's cube, with nested
+cubes inside it and the shells out to a radiative sphere in place of the
+periodic box's faces; the transfer works there in the cube's physical
+coordinates, and on the nested boxes' time step the ball gives their
+errors and forces to rounding:
+
+```bash
+julia --project=. -t 4,0 bin/prescribed.jl --path=hyperbolic --hdiv=2 --levels=3 --tend=0.25 --ball --R1=48
 ```
 
 ## Design
