@@ -2755,14 +2755,22 @@ becomes the ball's cube, of half-width `2^(levels−1) w0`, and the centre
 the origin. So `--ball --levels=3 --w0=4 --hdiv=8 --R1=50` is the
 plan's ball, M4's layout with its two coarsest levels replaced by the
 shells. `uniform_motion.jl` also prints the mean of `Π_r` and of its
-error in the `R₂` ball.
+error in the `R₂` ball, and `prescribed.jl --radii` the error against
+the retarded field in further balls about the centre. With
+`--backend=cuda` both drivers, and `bin/nested_ball.jl`'s pulse, run on a
+device ([On a device](#on-a-device)): the frame is host code and the
+plan's arrays are mapped before they are copied, so nothing in the
+kernels changes; the initial and exact remainders are filled on the host
+and copied, and `ball_norm`'s fold evaluates `physical_coordinates` and
+reads `√g` on the device. `nested_ball.jl` takes `--type=f32` as well,
+its pulse written without a `Float64` literal, and on Metal in `Float32`
+it gives the CPU's numbers to `Float32` rounding; on the CPU the three
+drivers give their earlier rows bit for bit. A device test runs the
+particles in the ball against the host, in `Float64`, so on CUDA only.
+`bin/symmetry/gpu_scans.sh` runs the reflection scans on an H200.
 
-**Not done.** The ball's particles have not run on a device: the frame
-is host code and the plan's arrays are mapped before they are copied, so
-nothing in the kernels changes, but the fold of `ball_norm` reads
-`physical_coordinates` on the device, which no device test runs. The
-thirteen-patch ball's frame is the seven-patch ball's (a test), and no
-particle has run in it.
+**Not done.** The thirteen-patch ball's frame is the seven-patch ball's
+(a test), and no particle has run in it.
 
 ### Prescribed paths
 

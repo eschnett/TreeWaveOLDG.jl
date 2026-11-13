@@ -258,6 +258,63 @@ device_close_arrays(dev, host, ::Type{T}) where {T} =
         end
     end
 
+    @testset "the particles in the ball's cube on the device are the host's" begin
+        # Guards the particles in the seven-patch ball (INSPIRAL-PLAN.md,
+        # M8c) on a device: the transfer reads the cube's mapped block
+        # origins and spacings, copied once (`ParticleFrame`), the initial
+        # remainder is filled on the host at `physical_coordinates` and
+        # copied, and `ball_norm`'s fold evaluates `physical_coordinates`
+        # and reads `√g` there. Three nested cubes in the cube of
+        # half-width 8, shells to a Sommerfeld sphere at 24, a particle
+        # near the origin moving along `x`, as in `ball_inspiral_tests.jl`.
+        # On the CPU stand-in the same code twice; the particles need
+        # `Float64`.
+        SV = TreeWaveOLDG.SVector
+        function ball_inspiral(backend)
+            forest, geo = sevenpatch_forest(Float64, 3, 2; roots=(4, 4), Lc=8.0, R1=24.0,
+                                            refined=nested_cubes(Val(3), 0.5, 3))
+            wave = WaveProblem(forest, Element(Float64, 3); geometry=geo,
+                               boundary=RadiativeBoundary(), backend=backend)
+            c = SV(0.0, 0.0, 0.0)
+            motion = uniform_motion((SV(0.11, 0.07, 0.13),), (SV(0.2, 0.0, 0.0),))
+            p = InspiralProblem(wave, (ParticleModel(; Q=0.1, ℓ=0.01, M=1.0),),
+                                Window(c, 1.0, 1.75; continuity=4), motion)
+            u = inspiral_initial_state(p)
+            du = similar(u)
+            inspiral_rhs!(du, u, p, 0.1)
+            F = particle_forces(p, u, 0.0)
+            dt = oldg_timestep(p.wave; cfl=0.5)
+            integ = inspiral_integrator(p, u, 0.0, 3dt; dt=dt)
+            TreeWaveOLDG.solve!(integ)
+            e = integ.u .- inspiral_initial_state(p; t=3dt)
+            norms = (ball_norm(p, e, c, 1.75), ball_norm(p, e, c, 1.0; p=Inf),
+                     ball_norm(p, integ.u, c, 20.0))
+            # The mean of `Π_r` is a sum that cancels, held to the rounding
+            # of the mean of `|Π_r|`.
+            mean = (ball_mean(p, integ.u, c, 1.75; vars=2),
+                    ball_norm(p, integ.u, c, 1.75; vars=2, p=1))
+            return p, Array(u), Array(du), F, Array(integ.u),
+                   particle_forces(p, integ.u, 3dt), norms, mean
+        end
+        if supports_float64(DEVICE)
+            _, uh, duh, Fh, u3h, F3h, nh, mh = ball_inspiral(CPU())
+            pd, ud, dud, Fd, u3d, F3d, nd, md = ball_inspiral(DEVICE)
+            L = TreeWaveOLDG.fieldlength(pd)
+            @test pd.wave.metric !== nothing && pd.frame.scale == 4
+            @test norm(F3h[1]) > 0 && nh[1] > 0
+            @test device_close_arrays(ud, uh, Float64)
+            @test device_close_arrays(dud, duh, Float64)
+            @test dud[(L + 1):end] == duh[(L + 1):end]
+            @test device_close(Fd[1], Fh[1], Float64)
+            @test device_close_arrays(u3d, u3h, Float64)
+            @test device_close(F3d[1], F3h[1], Float64)
+            for (a, b) in zip(nd, nh)
+                @test device_close(a, b, Float64)
+            end
+            @test isapprox(md[1], mh[1]; atol=sqrt(eps(Float64)) * mh[2])
+        end
+    end
+
     for T in DEVICE_TYPES
         @testset "a periodic box's run on the device gives the host's ($T)" begin
             # Guards against a kernel or the integrator's broadcast path

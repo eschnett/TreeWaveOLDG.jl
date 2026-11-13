@@ -101,7 +101,11 @@ laptop's GPU has no `Float64`), in an environment of your own that
 ForwardDiff and IMEXRungeKutta, since no device package is a dependency;
 about a minute. On Symmetry `sbatch bin/symmetry/gpu.sh` runs them on
 one H200 in `Float64` and `Float32`, and `bin/far_rule.jl`, the far rule
-of the source projection on the device:
+of the source projection on the device. `bin/nested_ball.jl`,
+`bin/prescribed.jl` and `bin/uniform_motion.jl` take `--backend=cuda`
+too, the particle drivers in `Float64` only, so not on Metal;
+`bin/symmetry/gpu_scans.sh` runs M8c's reflection scans with them on an
+H200, after its `SCAN=tests` job:
 
 ```bash
 TREEWAVEOLDG_TEST_BACKEND=metal julia --project=<env> -t 4,0 test/device_tests.jl

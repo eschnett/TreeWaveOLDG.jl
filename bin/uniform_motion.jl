@@ -4,7 +4,7 @@
 #     julia -t N,0 --project=. bin/uniform_motion.jl [--hdiv=8] [--L=6] \
 #         [--levels=1] [--w0=L/2] [--tend=0.5] [--every=0.125] [--v=0.2] \
 #         [--order=3] [--cfl=0.5] [--cost] [--reps=3] \
-#         [--ball] [--R1=50] [--hshell]
+#         [--ball] [--R1=50] [--hshell] [--backend=cpu|cuda]
 #
 # Like `bin/benchmark.jl`, this runs against the package environment;
 # `bin/symmetry/uniform_motion.sh` runs M3's series on a Symmetry node, and
@@ -28,6 +28,14 @@
 # element width by default), and the centre is the origin: the nested
 # boxes' periodic box replaced by a radiative sphere. `L` in the rows is
 # then the sphere's diameter `2R1`.
+#
+# With `--backend=cuda` (or `metal`, which has no `Float64` and so cannot
+# run the particles) the field and the particles run on that device
+# (`bin/backend.jl`), from an environment that adds the device package
+# (`bin/symmetry/gpu_scans.sh` builds one); the initial and exact
+# remainders are filled on the host and copied, and the norms are
+# `ball_norm`'s on the device. `--cost` waits for the device after each
+# call.
 #
 # One particle of the first run of INSPIRAL.md ("Parameters for a first
 # run"), `Q² = 0.005`, `ℓ = 10⁻³`, `M = 1`, starts where the binary's first
@@ -76,6 +84,7 @@ using TreeWaveOLDG
 using TreeWaveOLDG: SVector, step!, statelength, statearray, field_state, level,
                     maxlevel, patch
 
+include(joinpath(@__DIR__, "backend.jl"))
 include(joinpath(@__DIR__, "ball.jl"))
 
 function option(name, default)
@@ -85,7 +94,6 @@ function option(name, default)
     return default
 end
 
-best(f, reps) = (f(); minimum(@elapsed(f()) for _ in 1:reps))
 
 # The forest: M3's uniform box of side `L` for one level, else `levels`
 # nested cubes about the centre, the finest of half-width `w0`, each with
@@ -113,14 +121,14 @@ function box(hdiv, L, levels, w0)
     return forest, Lout
 end
 
-function problem(hdiv, L, levels, w0, v, order; ball=nothing)
+function problem(hdiv, L, levels, w0, v, order; ball=nothing, backend=CPU())
     P = 3
     if ball === nothing
         forest, L = box(hdiv, L, levels, w0)
-        wave = WaveProblem(forest, Element(Float64, P))
+        wave = WaveProblem(forest, Element(Float64, P); backend=backend)
         c = SVector(L / 2, L / 2, L / 2)
     else
-        wave = ball_wave(hdiv, levels, w0; ball...)
+        wave = ball_wave(hdiv, levels, w0; ball..., backend=backend)
         L = 2ball.R1
         c = SVector(0.0, 0.0, 0.0)
     end
@@ -130,6 +138,10 @@ function problem(hdiv, L, levels, w0, v, order; ball=nothing)
     motion = uniform_motion((z,), (SVector(0.0, v, 0.0),))
     return InspiralProblem(wave, (m,), w, motion; order=order), L
 end
+
+# Seconds per call of `f()`, the least of `reps` after a warm-up, each
+# waited for on the device (`best`, `bin/backend.jl`).
+timed(backend, f, reps) = best(f, backend, reps)
 
 function emit(row...)
     println(join((Threads.nthreads(), row...), '\t'))
@@ -160,7 +172,13 @@ function observe(p, u, t, tag)
     return nothing
 end
 
+# The particles need `Float64`, so `--type` is not taken.
 function main()
+    withbackend((backend, _) -> evolve(backend), option("backend", "cpu"), "f64")
+    return nothing
+end
+
+function evolve(backend)
     hdiv = parse(Int, option("hdiv", "8"))
     L = parse(Float64, option("L", "6"))
     levels = parse(Int, option("levels", "1"))
@@ -177,7 +195,7 @@ function main()
         ball = (; R1=parse(Float64, option("R1", "50")),
                 hshell=isempty(hs) ? nothing : parse(Float64, hs))
     end
-    p, Lout = problem(hdiv, L, levels, w0, v, order; ball)
+    p, Lout = problem(hdiv, L, levels, w0, v, order; ball, backend)
     tag = (hdiv, Lout, levels, levels == 1 && ball === nothing ? Lout / 2 : w0, v)
     println(join(("threads", "hdiv", "L", "levels", "w0", "v", "t", "quantity", "value"),
                  '\t'))
@@ -230,16 +248,16 @@ function main()
     stepper = inspiral_integrator(p, copy(u), t, t + (reps + 1) * integ.dt; dt=integ.dt,
                                   reuse=integ)
     for (name, value) in (
-            "rhs" => best(() -> inspiral_rhs!(du, u, p, t), reps),
-            "wave" => best(() -> wave_rhs!(fdu, fu, p.wave, t), reps),
-            "source" => best(() -> project_source!(
+            "rhs" => timed(backend, () -> inspiral_rhs!(du, u, p, t), reps),
+            "wave" => timed(backend, () -> wave_rhs!(fdu, fu, p.wave, t), reps),
+            "source" => timed(backend, () -> project_source!(
                 fdu, p.wave, p.tables,
                 ParticleSource(p.models, p.window, trajs; order=p.order), supports;
                 ball=(p.window.centre, p.window.R₂), rnear=p.rnear,
                 scratch=p.scratch), reps),
-            "truncate" => best(() -> inspiral_stage!(u, integ, p, t), reps),
-            "forces" => best(() -> particle_forces(p, u, t), reps),
-            "step" => best(() -> step!(stepper), reps),
+            "truncate" => timed(backend, () -> inspiral_stage!(u, integ, p, t), reps),
+            "forces" => timed(backend, () -> particle_forces(p, u, t), reps),
+            "step" => timed(backend, () -> step!(stepper), reps),
             "bytes_state" => sizeof(u) / nodes,
             "bytes_wave" => bytes_wave / nodes,
             "bytes_scratch" => sizeof(p.scratch) / nodes,

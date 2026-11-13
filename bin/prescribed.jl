@@ -6,7 +6,8 @@
 #         [--levels=5] [--w0=4] [--order=3] [--tend] [--every=0.0625] \
 #         [--fevery=1] [--cfl=0.5] [--v=0.05] [--rc=0.5] [--g=0.1] \
 #         [--data=instantaneous] [--rx1] [--rx2] [--plain] [--both] \
-#         [--cost] [--reps=3] [--ball] [--R1=50] [--hshell]
+#         [--cost] [--reps=3] [--ball] [--R1=50] [--hshell] \
+#         [--radii=r1,r2,…] [--backend=cpu|cuda]
 #
 # Like `bin/uniform_motion.jl`, this runs against the package environment;
 # `bin/symmetry/prescribed.sh` runs M4's series on a Symmetry node.
@@ -31,6 +32,14 @@
 # then ends in `-ball`. `--ball --levels=3` keeps the default layout's
 # three finest levels, with the ball's cube of half-width 16 in place of
 # its two coarsest.
+#
+# With `--backend=cuda` (or `metal`, which has no `Float64` and so cannot
+# run the particles) the field and the particles run on that device
+# (`bin/backend.jl`), from an environment that adds the device package
+# (`bin/symmetry/gpu_scans.sh` builds one); the initial remainder and the
+# retarded reference are filled on the host and copied, and the norms are
+# `ball_norm`'s on the device. `--cost` waits for the device after each
+# call.
 #
 # `--path=circle`: the slow circle, about `c + o` in the `xy` plane, of
 # radius `rc` at speed `v`, starting at `c + o + (rc, 0, 0)` and turning
@@ -82,6 +91,11 @@
 # (`err_R1_all`), of `Φ_r` alone (`errphi_R1`), its L∞ there
 # (`errinf_R1`), in the ball of radius 1/2 about the particle (`err_z`),
 # and the reference's L2 in the ball `R₁` without the hole (`field_R1`).
+# For each radius `r` of `--radii`, the same error and reference in the
+# ball of radius `r` about `c` without the hole (`err_w<r>`, `field_w<r>`):
+# in the ball of radius 4 or 8, what the coarse–fine faces and the
+# cube–shell faces send back, once it has arrived, and before what the
+# retarded data's blend at `rx1` sends in.
 #
 # With `--reading` and `--data=retarded`, nothing is evolved: the force of
 # the exact remainder as the pairing reads it, at `t = 0` for the circle
@@ -112,6 +126,7 @@ using TreeWaveOLDG: SVector, step!, statelength, level, maxlevel, field_state, s
                     get_backend
 using LinearAlgebra: dot, norm
 
+include(joinpath(@__DIR__, "backend.jl"))
 include(joinpath(@__DIR__, "ball.jl"))
 
 function option(name, default)
@@ -121,7 +136,9 @@ function option(name, default)
     return default
 end
 
-best(f, reps) = (f(); minimum(@elapsed(f()) for _ in 1:reps))
+# Seconds per call of `f()`, the least of `reps` after a warm-up, each
+# waited for on the device (`best`, `bin/backend.jl`).
+timed(backend, f, reps) = best(f, backend, reps)
 
 function emit(row...)
     println(join((Threads.nthreads(), row...), '\t'))
@@ -207,14 +224,14 @@ function reading(path, p, retarded, t, tag)
     return nothing
 end
 
-function problem(path, hdiv, levels, w0, order; v, rc, g, ball=nothing)
+function problem(path, hdiv, levels, w0, order; v, rc, g, ball=nothing, backend=CPU())
     P = 3
     if ball === nothing
         forest, L = box(hdiv, levels, w0)
-        wave = WaveProblem(forest, Element(Float64, P))
+        wave = WaveProblem(forest, Element(Float64, P); backend=backend)
         c = SVector(L / 2, L / 2, L / 2)
     else
-        wave = ball_wave(hdiv, levels, w0; ball...)
+        wave = ball_wave(hdiv, levels, w0; ball..., backend=backend)
         c = SVector(0.0, 0.0, 0.0)
     end
     m = ParticleModel(; Q=sqrt(0.005), ℓ=1e-3, M=1.0)
@@ -254,7 +271,7 @@ function force_components(path, p, u, t, continuous)
     return ("Fa" => Fa, "Fp" => norm(F - Fa * â))
 end
 
-function observe(path, p, c, w0, u, t, tag; retarded)
+function observe(path, p, c, w0, u, t, tag; retarded, radii=Float64[])
     tr = p.motion.path(t)[1]
     (zs, _), = particle_state(u, p)
     rows = Pair{String,Float64}[
@@ -272,6 +289,11 @@ function observe(path, p, c, w0, u, t, tag; retarded)
                        "errinf_R1" => ball_norm(p, e, c, R₁; p=Inf, hole),
                        "err_z" => ball_norm(p, e, tr.z, 0.5),
                        "field_R1" => ball_norm(p, ue, c, R₁; hole)])
+        for r in radii
+            name = isinteger(r) ? string(Int(r)) : string(r)
+            append!(rows, ["err_w$name" => ball_norm(p, e, c, r; hole),
+                           "field_w$name" => ball_norm(p, ue, c, r; hole)])
+        end
     end
     for (name, value) in rows
         emit(tag..., t, name, value)
@@ -279,7 +301,13 @@ function observe(path, p, c, w0, u, t, tag; retarded)
     return nothing
 end
 
+# The particles need `Float64`, so `--type` is not taken.
 function main()
+    withbackend((backend, _) -> evolve(backend), option("backend", "cpu"), "f64")
+    return nothing
+end
+
+function evolve(backend)
     path = option("path", "circle")
     hdiv = parse(Int, option("hdiv", "8"))
     levels = parse(Int, option("levels", "5"))
@@ -308,7 +336,9 @@ function main()
         ball = (; R1=parse(Float64, option("R1", "50")),
                 hshell=isempty(hs) ? nothing : parse(Float64, hs))
     end
-    p, c = problem(path, hdiv, levels, w0, order; v, rc, g, ball)
+    rs = option("radii", "")
+    radii = isempty(rs) ? Float64[] : [parse(Float64, strip(r)) for r in split(rs, ",")]
+    p, c = problem(path, hdiv, levels, w0, order; v, rc, g, ball, backend)
     path == "hyperbolic" && (rx2 + 0.6 < 1 / g || error(
         "the retarded field reaches 1/g = $(1 / g) behind the particle, and the ball " *
         "of radius rx2 = $rx2 about the centre reaches about $(rx2 + 0.6) behind it; " *
@@ -359,7 +389,7 @@ function main()
     hₑ = 1 / hdiv
     cell(t) = floor.(Int, (p.motion.path(t)[1].z - c) / hₑ)
     k = max(1, round(Int, every / integ.dt))
-    observe(path, p, c, w0, integ.u, integ.t, tag; retarded)
+    observe(path, p, c, w0, integ.u, integ.t, tag; retarded, radii)
     for (name, value) in force_rows(path, p, integ.u, integ.t)
         emit(tag..., integ.t, name, value)
     end
@@ -382,7 +412,7 @@ function main()
             end
         end
         (integ.nstep % k == 0 || integ.nstep == integ.nsteps) &&
-            observe(path, p, c, w0, integ.u, t, tag; retarded)
+            observe(path, p, c, w0, integ.u, t, tag; retarded, radii)
     end
 
     "--cost" in ARGS || return nothing
@@ -395,15 +425,15 @@ function main()
     stepper = inspiral_integrator(p, copy(u), t, t + (reps + 1) * integ.dt; dt=integ.dt,
                                   reuse=integ)
     for (name, value) in (
-            "rhs" => best(() -> inspiral_rhs!(du, u, p, t), reps),
-            "wave" => best(() -> wave_rhs!(fdu, fu, p.wave, t), reps),
-            "source" => best(() -> project_source!(
+            "rhs" => timed(backend, () -> inspiral_rhs!(du, u, p, t), reps),
+            "wave" => timed(backend, () -> wave_rhs!(fdu, fu, p.wave, t), reps),
+            "source" => timed(backend, () -> project_source!(
                 fdu, p.wave, p.tables,
                 ParticleSource(p.models, p.window, trajs; order=p.order), supports;
                 ball=(p.window.centre, p.window.R₂), rnear=p.rnear,
                 scratch=p.scratch), reps),
-            "forces" => best(() -> particle_forces(p, u, t), reps),
-            "step" => best(() -> step!(stepper), reps))
+            "forces" => timed(backend, () -> particle_forces(p, u, t), reps),
+            "step" => timed(backend, () -> step!(stepper), reps))
         emit(tag..., t, name, value)
     end
     return nothing

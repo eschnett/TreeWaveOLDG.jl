@@ -1385,6 +1385,16 @@ patches.
   before the light-crossing time, and the bumps' times matched.
   Not run: uniform motion past the clean time, since at `v = 0.2` the
   particle leaves the finest cube of `w0 = 3` at `t ≈ 12`.
+- 2026-11-13: Erik Schnetter asked for the runs to be read by what the
+  transitions send back before the light-crossing time, and the
+  resolutions that control it, then for those scans to run on GPUs.
+  `bin/nested_ball.jl`, `bin/prescribed.jl` and `bin/uniform_motion.jl`
+  took `--backend`, a device test the particles in the ball, and
+  `bin/symmetry/gpu_scans.sh` the scans: the pulse against the radial
+  jump at the cube's face and the wavelength, the circle against the
+  shells' width, and the particle at rest at a third sphere. The pulse
+  scan fills in what M8a and M8b measured at single points (`10⁻³` at a
+  2:1 face resolved at 8 elements per wavelength, below `10⁻⁶` at 1:1).
 
 ### What the plan said of its finished milestones
 

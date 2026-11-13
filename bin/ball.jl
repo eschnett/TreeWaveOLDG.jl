@@ -18,7 +18,7 @@
 #
 # `ball_layout` returns the numbers: `E`, the cube's roots across `n`, its
 # half-width `Lc`, the shells' radial roots `m` and their element width
-# `hshell`. `ball_wave` builds the wave problem on that ball.
+# `hshell`. `ball_wave` builds the wave problem on that ball, on `backend`.
 
 function ball_layout(hdiv, levels, w0; R1, hshell=nothing)
     across = 2w0 * hdiv
@@ -39,11 +39,12 @@ function ball_layout(hdiv, levels, w0; R1, hshell=nothing)
     return (; E, n, Lc, m, hshell=(R1 - Lc) / (m * E))
 end
 
-function ball_wave(hdiv, levels, w0; R1, hshell=nothing, P=3)
+function ball_wave(hdiv, levels, w0; R1, hshell=nothing, P=3,
+                   backend=TreeWaveOLDG.TreeAMR.KernelAbstractions.CPU())
     (; E, n, Lc, m) = ball_layout(hdiv, levels, w0; R1, hshell)
     refined = levels == 1 ? false : nested_cubes(Val(3), n / 2^levels, levels)
     forest, geo = sevenpatch_forest(Float64, P, E; roots=(n, m), Lc=Lc, R1=R1,
                                     refined=refined)
     return WaveProblem(forest, Element(Float64, P); geometry=geo,
-                       boundary=RadiativeBoundary())
+                       boundary=RadiativeBoundary(), backend=backend)
 end

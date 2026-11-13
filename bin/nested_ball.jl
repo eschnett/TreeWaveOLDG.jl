@@ -5,7 +5,8 @@
 #     julia -t N,0 --project=. bin/nested_ball.jl [--levels=4] [--w0=4] \
 #         [--hdiv=8] [--lambda=16] [--sigma=lambda/2] [--R1=3Lc] \
 #         [--hshell=hroot] [--hface=hshell] [--tend=2R1] [--every=0.5] \
-#         [--cfl=0.5] [--cost=no] [--radii=w0,2w0,…]
+#         [--cfl=0.5] [--cost=no] [--radii=w0,2w0,…] \
+#         [--backend=cpu|cuda|metal] [--type=f64|f32]
 #
 # Like `bin/nested_waves.jl`, which it mirrors, this runs against the
 # package environment; `bin/symmetry/nested_ball.sh` runs it on a Symmetry
@@ -65,12 +66,20 @@
 # `nested_waves.jl`'s nested boxes with the same cubes (`…_brick`), and
 # reports each problem's memory (`problem_bytes`, `problem_bytes_brick`)
 # and the brick's node count (`nodes_brick`).
+#
+# With `--backend=cuda` or `metal` the ball is built on that device
+# (`bin/backend.jl`), in `--type`'s precision (`f32` on Metal, which has no
+# `Float64`), from an environment that adds the device package
+# (`bin/symmetry/gpu_scans.sh` builds one); the pulse, the exact solution
+# and every norm are evaluated there as well, the norms by `ball_norm`.
 
 using TreeWaveOLDG
 using TreeWaveOLDG: ForwardDiff, step!, statelength, level, maxlevel, node_weight
 # TreeAMR through TreeWaveOLDG: the cluster's environment holds only the
 # package (`bin/symmetry/nested_ball.sh`).
-using TreeWaveOLDG.TreeAMR: TreeAMR, WithPatch, mesh_fold, patch, statevector, Sum, Max
+using TreeWaveOLDG.TreeAMR: TreeAMR, WithPatch, patch, statevector
+
+include(joinpath(@__DIR__, "backend.jl"))
 
 function option(name, default)
     for a in ARGS
@@ -86,21 +95,23 @@ function emit(row...)
 end
 
 # `nested_waves.jl`'s exact outgoing pulse about the origin at time `t`,
-# as `(x, var) -> value` of the physical position. `isbits`.
-struct ModulatedPulse
-    σ::Float64
-    λ::Float64
-    t::Float64
+# as `(x, var) -> value` of the physical position. `isbits`, and in `T`
+# throughout, with no `Float64` literal, so that it runs on Metal in
+# `Float32`.
+struct ModulatedPulse{T}
+    σ::T
+    λ::T
+    t::T
 end
 
-pulse_g(p::ModulatedPulse, s) = exp(-(s / p.σ)^2) * cos(2π * s / p.λ)
+pulse_g(p::ModulatedPulse{T}, s) where {T} = exp(-(s / p.σ)^2) * cos(2 * T(π) * s / p.λ)
 pulse_dg(p::ModulatedPulse, s) = ForwardDiff.derivative(s -> pulse_g(p, s), s)
 
 # `u` at `(r, t)`. Below `r = 10⁻³σ` the quotient loses digits, and it is
 # its Taylor series `-2[g′(t) + g‴(t) r²/6]` instead, whose next term is
 # `O(r⁴/σ⁴)` relative.
-function pulse_u(p::ModulatedPulse, r, t)
-    r > 1e-3 * p.σ && return (pulse_g(p, r - t) - pulse_g(p, r + t)) / r
+function pulse_u(p::ModulatedPulse{T}, r, t) where {T}
+    r > T(1 // 1000) * p.σ && return (pulse_g(p, r - t) - pulse_g(p, r + t)) / r
     d1 = pulse_dg(p, t)
     d3 = ForwardDiff.derivative(s -> ForwardDiff.derivative(
                                     s′ -> pulse_dg(p, s′), s), t)
@@ -115,52 +126,18 @@ end
 
 # The pulse at logical `x` of patch `q`, for `fill_at_nodes!` through
 # `WithPatch`.
-struct OnBall{G}
+struct OnBall{G,M}
     geometry::G
-    pulse::ModulatedPulse
+    pulse::M
 end
 
 (s::OnBall)(x, q, var) = s.pulse(physical_coordinates(s.geometry, x, q), var)
 
-# The `√g`-weighted `p`-th power sum and volume of the nodes within the
-# physical ball of radius `radius` about the origin, the patch from the
-# fold's block tag and `√g` from the problem's coefficient set, at the
-# point's own block and index.
-struct PhysicalBall{EL,G,C}
-    el::EL
-    geometry::G
-    coef::C
-    radius::Float64
-    p::Int
-end
-
-function (bf::PhysicalBall)(acc, q)
-    x = physical_coordinates(bf.geometry, q.x, q.tag)
-    sum(abs2, x) < bf.radius^2 || return acc
-    w = node_weight(q.I, q.h, bf.el, Val(3)) * bf.coef[q.I..., 1, q.b]
-    s = 0.0
-    for v in q.u
-        s += abs(v)^bf.p
-    end
-    return TreeAMR.combine(acc, (Sum(w * s), Sum(w * length(q.u))))
-end
-
-function ball_errors(p, geo, u, radius; norm=2)
-    forest = p.fs.forest
-    tag = key -> Int(patch(forest, key))
-    if isinf(norm)
-        fmax = (acc, q) -> begin
-            x = physical_coordinates(geo, q.x, q.tag)
-            sum(abs2, x) < radius^2 || return acc
-            TreeAMR.combine(acc, Max(maximum(abs, q.u)))
-        end
-        return mesh_fold(fmax, TreeAMR.combine, Max(0.0), p.fs, u; tag=tag).value
-    end
-    rf = PhysicalBall(p.element, geo, p.metric.coef, Float64(radius), Int(norm))
-    total, volume = mesh_fold(rf, TreeAMR.combine, (Sum(0.0), Sum(0.0)), p.fs, u;
-                              tag=tag)
-    return (total.value / volume.value)^(1 / norm)
-end
+# The norm of `u` within the physical ball of radius `radius` about the
+# origin, `√g`-weighted, as `ball_norm` takes it on every patch and on a
+# device.
+ball_errors(p, u, radius; norm=2) =
+    ball_norm(p, u, ntuple(_ -> zero(eltype(u)), Val(3)), radius; p=norm)
 
 # The ball, its cubes and its shells: `n` roots across the cube, `m`
 # radially in each shell, `E` elements per block along each dimension, and
@@ -191,62 +168,65 @@ function layout(levels, w0, hdiv, R1, hshell, hface=nothing)
     return (; E, n, m, Lc, α)
 end
 
-function ball_problem(levels, w0, hdiv, R1, hshell, hface=nothing)
+function ball_problem(T, backend, levels, w0, hdiv, R1, hshell, hface=nothing)
     (; E, n, m, Lc, α) = layout(levels, w0, hdiv, R1, hshell, hface)
-    forest, geo = sevenpatch_forest(Float64, 3, E; roots=(n, m), Lc=Lc, R1=R1,
+    forest, geo = sevenpatch_forest(T, 3, E; roots=(n, m), Lc=Lc, R1=R1,
                                     refined=nested_cubes(Val(3), n / 2^levels, levels),
                                     grading=α)
-    p = WaveProblem(forest, Element(Float64, 3); geometry=geo,
-                    boundary=RadiativeBoundary())
+    p = WaveProblem(forest, Element(T, 3); geometry=geo, boundary=RadiativeBoundary(),
+                    backend=backend)
     return p, geo
 end
 
-function brick_problem(levels, w0, hdiv)
+function brick_problem(T, backend, levels, w0, hdiv)
     (; E, n) = layout(levels, w0, hdiv, 2^levels * w0, nothing)
-    forest = wave_forest(Float64, Val(3), 3, E; roots=n, L=2^levels * w0,
+    forest = wave_forest(T, Val(3), 3, E; roots=n, L=2^levels * w0,
                          refined=nested_cubes(Val(3), w0, levels))
-    return WaveProblem(forest, Element(Float64, 3))
+    return WaveProblem(forest, Element(T, 3); backend=backend)
 end
 
-# Nanoseconds per node of `f!()`, the fastest of `reps` calls after two to
-# compile and warm up.
-function per_node(f!, nodes; reps=10)
-    f!()
-    f!()
-    return minimum(@elapsed(f!()) for _ in 1:reps) / nodes * 1e9
-end
+# Nanoseconds per node of `f!()`, the fastest of `reps` calls after a
+# warm-up, each waited for on the device (`best`, `bin/backend.jl`).
+per_node(f!, backend, nodes; reps=10) = best(f!, backend, reps) / nodes * 1e9
 
-function cost(p, tag, suffix)
+function cost(p, backend, tag, suffix)
     u = statevector(p.fs)
-    u .= sin.(1:length(u))
+    T = eltype(u)
+    copyto!(u, T.(sin.(1:length(u))))
     du = similar(u)
     nodes = statelength(p.fs) ÷ 2
-    emit(tag..., 0.0, "rhs_ns_per_node$suffix", per_node(() -> wave_rhs!(du, u, p, 0.0),
-                                                         nodes))
-    emit(tag..., 0.0, "truncate_ns_per_node$suffix", per_node(() -> truncate_state!(u, p),
-                                                              nodes))
+    emit(tag..., 0.0, "rhs_ns_per_node$suffix",
+         per_node(() -> wave_rhs!(du, u, p, zero(T)), backend, nodes))
+    emit(tag..., 0.0, "truncate_ns_per_node$suffix",
+         per_node(() -> truncate_state!(u, p), backend, nodes))
     emit(tag..., 0.0, "problem_bytes$suffix", Base.summarysize(p))
     return nothing
 end
 
 function observe(p, geo, u, t, σ, λ, radii, R1, tag)
-    ue = initial_state(p, WithPatch(OnBall(geo, ModulatedPulse(σ, λ, t))))
+    T = eltype(u)
+    ue = initial_state(p, WithPatch(OnBall(geo, ModulatedPulse{T}(σ, λ, t))))
     e = u .- ue
     for w in radii
         name = isinteger(w) ? string(Int(w)) : string(w)
-        emit(tag..., t, "err_w$name", ball_errors(p, geo, e, w))
-        emit(tag..., t, "errinf_w$name", ball_errors(p, geo, e, w; norm=Inf))
-        emit(tag..., t, "exactinf_w$name", ball_errors(p, geo, ue, w; norm=Inf))
+        emit(tag..., t, "err_w$name", ball_errors(p, e, w))
+        emit(tag..., t, "errinf_w$name", ball_errors(p, e, w; norm=Inf))
+        emit(tag..., t, "exactinf_w$name", ball_errors(p, ue, w; norm=Inf))
     end
     name = isinteger(R1) ? string(Int(R1)) : string(R1)
-    emit(tag..., t, "err_w$name", ball_errors(p, geo, e, R1 + 1))
-    emit(tag..., t, "errinf_w$name", ball_errors(p, geo, e, R1 + 1; norm=Inf))
-    emit(tag..., t, "exactinf_w$name", ball_errors(p, geo, ue, R1 + 1; norm=Inf))
+    emit(tag..., t, "err_w$name", ball_errors(p, e, R1 + 1))
+    emit(tag..., t, "errinf_w$name", ball_errors(p, e, R1 + 1; norm=Inf))
+    emit(tag..., t, "exactinf_w$name", ball_errors(p, ue, R1 + 1; norm=Inf))
     emit(tag..., t, "energy", wave_energy(p, u))
     return nothing
 end
 
 function main()
+    withbackend(evolve, option("backend", "cpu"), option("type", "f64"))
+    return nothing
+end
+
+function evolve(backend, ::Type{T}) where {T}
     start = time()
     levels = parse(Int, option("levels", "4"))
     w0 = parse(Float64, option("w0", "4"))
@@ -270,19 +250,20 @@ function main()
     println(join(("threads", "levels", "w0", "hdiv", "lambda", "sigma", "R1", "t",
                   "quantity", "value"), '\t'))
 
-    build = @elapsed (p, geo) = ball_problem(levels, w0, hdiv, R1, hshell, hface)
+    build = @elapsed (p, geo) = ball_problem(T, backend, levels, w0, hdiv, R1, hshell,
+                                             hface)
     forest = p.fs.forest
     emit(tag..., 0.0, "build_s", build)
     if withcost
-        cost(p, tag, "")
-        brick = brick_problem(levels, w0, hdiv)
+        cost(p, backend, tag, "")
+        brick = brick_problem(T, backend, levels, w0, hdiv)
         emit(tag..., 0.0, "nodes_brick", statelength(brick.fs) ÷ 2)
-        cost(brick, tag, "_brick")
+        cost(brick, backend, tag, "_brick")
         brick = nothing
         GC.gc()
     end
-    u0 = initial_state(p, WithPatch(OnBall(geo, ModulatedPulse(σ, λ, 0.0))))
-    integ = wave_integrator(p, u0, 0.0, tend; dt=oldg_timestep(p; cfl=cfl))
+    u0 = initial_state(p, WithPatch(OnBall(geo, ModulatedPulse{T}(σ, λ, 0))))
+    integ = wave_integrator(p, u0, zero(T), T(tend); dt=oldg_timestep(p; cfl=T(cfl)))
     emit(tag..., 0.0, "nodes", statelength(p.fs) ÷ 2)
     for k in 0:maxlevel(forest)
         emit(tag..., 0.0, "nodes_level$k",
@@ -306,7 +287,7 @@ function main()
     steps = 0
     stepping = 0.0
     while integ.nstep < integ.nsteps
-        stepping += @elapsed step!(integ)
+        stepping += @elapsed (step!(integ); synchronize(backend))
         steps += 1
         if integ.nstep % n == 0 || integ.nstep == integ.nsteps
             emit(tag..., integ.t, "step_s", stepping / steps)
