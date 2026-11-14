@@ -51,8 +51,10 @@ with the energy an exact invariant across its coarse-fine faces, and
 M3b's pulse leaves through the shells where the nested boxes' periodic
 faces send it back (`INSPIRAL-PLAN.md`'s M8b). The particles run in
 that cube, the transfer in its physical coordinates through its affine
-map, and on the nested boxes' step give their numbers there (M8c, under
-way; see [Particles in the ball](#particles-in-the-ball)). The thirteen-patch ball
+map, and on the nested boxes' step give their numbers there (M8c; see
+[Particles in the ball](#particles-in-the-ball)); initial data that are
+the field far from an accelerated particle are `INSPIRAL-PLAN.md`'s M8d,
+proposed. The thirteen-patch ball
 adds six exactly radial shells outside a middle sphere, where `√g`
 factorizes and the truncation is a radial projection times an angular
 one; see [Multi-patch
@@ -2734,9 +2736,11 @@ grow with the distance, at order 3 like `r²`, and on M5's circle at
 send in reached the centre at about twice the speed of light through
 the shells, well before a signal from them would, and swamped the
 remainder ("What the transitions send back" under "Measured results").
-Retarded data out to the sphere should avoid it on a prescribed path; data for
-the inspiral that are the field far out, `Ψ̂` of order 0 there or the
-retarded field of the past motion, are **(open)**. `ball_norm` and `ball_mean` place
+Retarded data out to the sphere should avoid it on a prescribed path,
+and uniform motion's field outside the window, `Ψ̂₀` with its rate
+along the tangent line, would be an exact solution there for any motion;
+both are `INSPIRAL-PLAN.md`'s M8d **(proposed)**, and data for the
+inspiral that are the field far out are **(open)** until then. `ball_norm` and `ball_mean` place
 each node at its physical position, the patch from the fold's block
 tag, and weight it by `√g` from the problem's coefficient set, as
 `wave_norm` does; on a brick they are unchanged. `ball_mean` is the
@@ -5069,8 +5073,9 @@ remainder's own RMS is `7.4·10⁻⁴`:
   balls of radius 24 down to 4 time it at about twice the speed of light
   through the shells and the cube's root of width 2, and at about the
   speed of light on the level of width 1 inside.
-  The mechanism of its speed is **(open)**; the cure is data that are
-  the field far out ([Particles in the ball](#particles-in-the-ball)).
+  The mechanism of its speed is **(open)**, and the cure is data that
+  are the field far out ([Particles in the ball](#particles-in-the-ball));
+  both are `INSPIRAL-PLAN.md`'s M8d.
 
 *The particle at rest at a third sphere* (job 597912): the runs at rest
 above at `R1 = 72` (`m = 15`, 72.5 M nodes, 53.1 M in the shells), to

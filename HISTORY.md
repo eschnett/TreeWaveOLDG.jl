@@ -1423,12 +1423,38 @@ patches.
   particle at rest at `R₁ = 72` shows no sphere's return above `10⁻⁸`.
   On the H200 the field takes 3.9 ns per node and step, and the
   particles' runs about a sixth of a 64-core EPYC node's time per node.
+- 2026-11-14: Erik Schnetter closed M8c and asked for a milestone M8d,
+  designed with him, for what it left open. The plan's estimate of the
+  shells' cost had kept their tangential spacing at most 2 out to `R₁`,
+  so that their nodes grew like `R₁³`; M8c's shells keep the cube's
+  angular resolution instead, which is what an outgoing wave needs, and
+  grow like `R₁`, and the plan now says so. He set `R₁ = 100` for M8d,
+  the sphere causally disconnected from what is measured: what it sends
+  back after the run does not matter, so nothing is scanned in `R₁`, and
+  the scans of the transitions' resolution are mostly settled by M8c.
+  The data: the retarded field out to the sphere for the circle, and,
+  at his suggestion, a simpler start that switches radiation reaction on
+  at once, for comparison. The first form proposed, a zero remainder,
+  is the particle field inside the window and nothing beyond `R₂`; he
+  pointed out that the charge is then seen near the particle at
+  `t = 0`, which showed that it is not seen beyond `R₂`, and that what
+  should start at `t = 0` is only what the trajectory's acceleration
+  changes. That is uniform motion's field outside the window, the
+  boosted static field `Ψ̂₀` with its rate along the tangent line, which
+  he chose. Dropped: the zero remainder, whose front would carry the
+  whole Coulomb monopole out; `Ψ̂₀` with `particle_rate`'s `𝒟Ψ̂₀`,
+  which carries `a` through `v̇` and is not an exact solution; retarded
+  far data for hyperbolic motion, whose retarded field ends `1/g`
+  behind the particle and whose runs are short. The dispersion relation
+  that would explain the error faster than light went into M8d, and a
+  filter damping it, should it be the cause, is the owner's decision.
 
 ### What the plan said of its finished milestones
 
 `INSPIRAL-PLAN.md` keeps one line for each finished milestone. Its
 earlier text for M0 to M5 is here, as it stood when M5 was done, and
-for M8a and M8b as it stood when M8c started, with
+for M8a and M8b as it stood when M8c started, and for M8c as it stood
+when it was closed and M8d planned, with
 the parts of its status, decisions, gates and items left to settle that
 only those milestones used. Why nested boxes, and the estimate for their
 layouts, went to `CODE.md` ("Nested boxes").
@@ -1978,6 +2004,76 @@ source's cost (below, "Left to settle later").
 boxes' coarse-fine reflections, the energy holds as it does on nested
 boxes, and the memory and step time are recorded.
 
+#### M8c: Particles in the cube
+
+**Status:** under way (2026-11-11), on branch `inspiral-m8c-ball`. The
+code and the tests are in (`CODE.md`, "Particles in the ball"): TreeAMR
+0.2.9 has the location in a patch, the transfer works through the
+cube's `ParticleFrame`, and the drivers take `--ball`. The runs were
+made on Symmetry on 2026-11-12 (jobs 596453 to 596456, `HISTORY.md`;
+results in `CODE.md`, "Particles in the ball" under "Measured results"),
+with the boxes of the cube's three levels run beside the ball by the
+current code, since M3b's runs predate M4's and M5's changes to the
+remainder. Their layout, from M8a's and M8b's measurements and the
+owner's answer to M8a's gate: the shells' radial elements at most twice
+the cube's root element width; the reflection scans then found what
+comes back set by the shells' radial elements per wavelength, about 8
+for the shortest wave carried out, at every radius, more than by the
+jump at the cube's face; `R₁` at least `3Lc`, where the finest cube
+sets the step, and large enough that what the sphere sends back, from
+about `2R₁ − R₂` on, arrives after the run. The plan's ball at
+`R₁ = 50`, `Lc = 16` with `hshell = 1` is `bin/ball.jl`'s default for
+`--ball --levels=3 --w0=4 --hdiv=8`, and is clean to about `t = 97` for
+a resolved wave; M8c's runs at rest show the under-resolved error back
+from about `t = 49`.
+The runs' scripts: `bin/symmetry/ball_motion.sh`, M3b's series and the
+particle at rest to `t = 60` at `R₁ = 36` and 50, and `prescribed.sh`
+with `TREEWAVEOLDG_RUNS="circle-ret:8:3"` and
+`TREEWAVEOLDG_EXTRA="--v=0.2 --ball --levels=3 --R1=50"` for M5's circle.
+
+- **Point location, upstream.** TreeAMR refuses `locate_point` on a
+  forest of patches, and its refusal names what would lift it: a
+  location given the patch of each point. That is TreeAMR's,
+  `locate_point(forest, p, ξ)` ("Scope and non-goals"), followed by a
+  `[compat]` bump in both `Project.toml`s and both manifests.
+- **`InspiralProblem`** accepts a `FullGeometry` with a particle patch
+  whose map is affine, in place of its refusal of every geometry and
+  forest of patches, and refuses a window's ball or a support outside
+  that patch's finest level, as it refuses one outside the finest level
+  now.
+- **The transfer in physical coordinates** through the patch's affine
+  map, origin `o` and scale `a`: block origins and spacings mapped into
+  space, so that `hₑ`, `rnear`, `rfar` and the graded bands are physical;
+  `P S` unchanged, since the Jacobian cancels in `(1/wₙ)∫Sφₙ`; the
+  pairing's integrals times `a³` and the gradients times `1/a`. This
+  covers `project_source!`, `pairing`, `support_elements`,
+  `SharedNodes`, the finest-level checks and `reconstruct`. (Done, with
+  the pairing over the mapped element boxes, which needs neither factor:
+  `CODE.md`, "Particles in the ball".)
+- **Initial data and norms.** `inspiral_initial_state` fills `(1 − W)Ψ̂`
+  through `WithPatch` and `physical_coordinates` on all seven patches;
+  `ball_norm` takes physical positions and `√g`-weighted volumes.
+- **The averaging** stays on patch 1's finest level, where it is the
+  nested boxes' unchanged.
+
+Tests: on the cube, the projection, the pairing and the initial
+remainder equal a nested-box forest's over the same finest cube element
+for element, to an ulp, as M3b's test against a uniform box; a support
+outside the particle patch is refused.
+
+Runs, beside M3b's and M4's on nested boxes:
+
+- a particle at rest and in uniform motion past the nested boxes' clean
+  time, with the error in the `R₂` ball and the force recorded to then;
+- a single charge's `Π_r` mean, which drifts in the periodic box and
+  should not here;
+- M4's circle at `v = 0.2`, `d/8`, order 3, its forces against M5's.
+
+**Done when** inside the nested boxes' clean time the ball gives their
+numbers to the digits printed, and beyond it the error and the forces
+are recorded against `R₁`. M7 then chooses its outer region (below,
+"Left to settle later").
+
 #### Gates of the finished milestones
 
 - **M1: the derivation disagrees with `INSPIRAL.md`'s near-field
@@ -2051,6 +2147,17 @@ boxes, and the memory and step time are recorded.
   geometry's right-hand side cost 7.7 times the flat one's per node on
   the same blocks; with it the cube's blocks cost 1.9 times (`CODE.md`,
   "The seven-patch ball", and `PLAN.md` for what is left).
+- M8c: `R₁` for each run, from the time it has to stay clean. M8c's
+  runs at rest showed the sphere's return at about `(2R₁ − R₂)/2`, not
+  `2R₁ − R₂`, the two spheres agreeing before it, and at `R₁ = 72` below
+  `10⁻⁸`. Settled 2026-11-14 by the owner: `R₁` large enough that the
+  sphere is causally disconnected from the run, 100 for M8d, and no
+  scans in `R₁`.
+- M8c and the inspiral: initial data that are the field far from an
+  accelerated particle. `(1 − W)Ψ̂` of order 3 grows like `r²` and is a
+  hundred times the field at `r = 48`, and on the circle what it sent in
+  crossed the shells at about twice the speed of light. Became M8d
+  (2026-11-14).
 
 ## Dependencies
 
