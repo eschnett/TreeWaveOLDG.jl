@@ -11,6 +11,10 @@
 #     sbatch --export=ALL,SCAN=circle,HSHELL=1 bin/symmetry/gpu_scans.sh
 #     sbatch --export=ALL,SCAN=rest   bin/symmetry/gpu_scans.sh
 #
+# Measured (2026-11-13, jobs 597907 to 597912): the tests take 5 minutes,
+# the twelve pulses 2.4 hours, the circles 3.1 to 5.3 hours and the
+# particle at rest 4.5.
+#
 # `SCAN=tests` builds the environment, precompiles it on the GPU node and
 # runs `test/device_tests.jl` on CUDA, with the particles in the ball, and
 # exits with the tests' status, so that the scans can wait for it
@@ -30,12 +34,16 @@
 # from the retarded field, in the plan's ball (three levels at `w0 = 4`,
 # `Lc = 16`) with shells of radial width `HSHELL` (default 1, twice the
 # cube's root element width) to `R1 = 60`, to `t = 40`. The retarded data
-# reach `rx1 = 48`, blended out by 54, so that what the blend sends in
-# arrives after the run; the circle's radiation (`λ ≈ 16`) comes back from
-# the cube–shell face at 16 into the ball of radius 8 from `t ≈ 24`, and
-# into `R₁` from `t ≈ 30`. The error against the retarded field in `R₁`
-# and in the balls of radius 4 and 8, every half time unit; the force every
-# step.
+# reach `rx1 = 48`, blended into the particle field by 54, and hold the
+# circle's radiation (`λ ≈ 16`) from the start, so that what the
+# cube–shell face at 16 sends back reaches the ball of radius 8 from
+# `t ≈ 8`. What the particle field beyond the blend sends in was meant to
+# arrive after the run, at the speed of light; it arrived from `t ≈ 25`,
+# about twice as fast through the shells (jobs 597909 to 597911,
+# "Particles in the ball" under "Measured results" in `CODE.md`), so the
+# runs are clean to about `t = 24`. The error against the retarded field
+# in `R₁` and in the balls of radius 4 and 8, every half time unit; the
+# force every step.
 #
 # `SCAN=rest`: `bin/uniform_motion.jl`'s particle at rest at `d/8` in the
 # ball of the CPU runs (`ball_motion.sh`, `w0 = 3`, `Lc = 12`) at

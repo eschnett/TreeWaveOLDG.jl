@@ -1395,6 +1395,34 @@ patches.
   shells' width, and the particle at rest at a third sphere. The pulse
   scan fills in what M8a and M8b measured at single points (`10⁻³` at a
   2:1 face resolved at 8 elements per wavelength, below `10⁻⁶` at 1:1).
+  Submitted the same day: the device tests 597907 on `h200debugq`, and
+  behind them on `h200q` the pulses 597908, the circle at shells of 0.5,
+  1 and 2 597909 to 597911, and the particle at rest at `R₁ = 72`
+  597912.
+- 2026-11-13: the scans finished on H200s of `cn111` and `cn113`, after
+  waiting some hours for the group's GPUs (`CODE.md`, "What the
+  transitions send back" under "Particles in the ball" in "Measured
+  results"). The pulse separates what M8a and M8b had varied together:
+  at equal radial elements per wavelength in the shells, a 1:1, 2:1 or
+  4:1 jump at the cube's face sends back within a factor of two of the
+  same, and going from 4 to 8 per wavelength lowers it about 300 times;
+  so M8b's "the reflection is the jump" became "the coarse side's
+  resolution", and the layout's rule for the shells, at most twice the
+  cube's root width, became about 8 radial elements per wavelength of
+  the shortest wave carried out, at every radius. The circle at
+  `v = 0.2` agrees between shells of width 1 and 0.5 to `10⁻⁵ F_RR` up to
+  `t = 28`; width 1.83 moves the force by `4·10⁻⁴ F_RR`. From `t ≈ 25`
+  every circle was swamped by what its initial data beyond the retarded
+  window sent in, the particle field of order 3, whose near-field terms
+  grow like `r²` and are a hundred times the field at `r = 48`. The
+  script had placed the window's edge at 48 so that its signal would
+  arrive after `t = 40`; it arrived at about twice the speed of light
+  through the shells, as runs on the laptop that moved the blend and
+  timed the front at six radii confirmed. Initial data that are the
+  field far from an accelerated particle became an open item. The
+  particle at rest at `R₁ = 72` shows no sphere's return above `10⁻⁸`.
+  On the H200 the field takes 3.9 ns per node and step, and the
+  particles' runs about a sixth of a 64-core EPYC node's time per node.
 
 ### What the plan said of its finished milestones
 

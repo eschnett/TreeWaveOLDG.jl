@@ -842,16 +842,18 @@ the shells read them across the glue.
   does, and keep a fifth of the energy; a second-order condition would
   not change that. Their tangential spacing grows with the radius, and
   the scheme's central fluxes do not damp an under-resolved wave on its
-  way out. The reflection at the cube's faces is the jump in radial
-  resolution there: at 2:1 it is the nested boxes' coarse-fine face's,
-  and at 1:1 below `1e-6`. Graded shells remove the jump, but what stays
-  behind is set by the outermost radial elements, which need about 16
-  per wavelength, so at equal cost uniform shells at the cube's 2:1 do as
-  well. Radial elements of four per wavelength, as on the nested boxes'
+  way out. What the cube's faces and the shells send back is set by
+  the shells' radial elements per wavelength: at equal resolution a 1:1,
+  2:1 or 4:1 jump at the face changes it by less than twice, and it
+  falls about 300 times from 4 to 8 per wavelength. Graded shells hold
+  until what their coarse part sends back arrives, and what stays behind
+  is set by the outermost radial elements, which need about 16 per
+  wavelength, so at equal cost uniform shells do as well. Radial elements of four per wavelength, as on the nested boxes'
   coarsest level, leave `1.3e-3` of the energy instead
   ([The seven-patch ball](#the-seven-patch-ball-1) under Measured results,
   "The pulse at M3b's scale" and "What the cube–shell face sends
-  back").
+  back"; [Particles in the ball](#particles-in-the-ball-1), "What the
+  transitions send back").
 - **Refinement only in the cube,** where the map is affine, and on the
   CPU. The particles run in the cube ([Particles in the
   ball](#particles-in-the-ball), `INSPIRAL-PLAN.md`'s M8c).
@@ -2725,7 +2727,16 @@ from a wave problem without one (the annulus's ring) or from
 at every node of every patch at its physical position: on a geometry
 the remainder's function goes through `WithPatch` and
 `physical_coordinates` (`at_physical`), so the shells hold the particle
-field's far part out to the sphere. `ball_norm` and `ball_mean` place
+field's far part out to the sphere. Far from an accelerated particle
+that part is not its field: from order 1 on, `Ψ̂`'s near-field terms
+grow with the distance, at order 3 like `r²`, and on M5's circle at
+`r = 48` they are a hundred times the retarded field. What these data
+send in reached the centre at about twice the speed of light through
+the shells, well before a signal from them would, and swamped the
+remainder ("What the transitions send back" under "Measured results").
+Retarded data out to the sphere should avoid it on a prescribed path; data for
+the inspiral that are the field far out, `Ψ̂` of order 0 there or the
+retarded field of the past motion, are **(open)**. `ball_norm` and `ball_mean` place
 each node at its physical position, the patch from the fold's block
 tag, and weight it by `√g` from the problem's coefficient set, as
 `wave_norm` does; on a brick they are unchanged. `ball_mean` is the
@@ -2739,9 +2750,14 @@ sphere at `R1 = 3Lc` and three levels in the cube the finest cube sets
 it, the nested boxes' own; at `R1 = 2Lc` the shells' elements beside the
 cube's corners set it, 0.6 of the boxes' on the suite's ball
 ([The seven-patch ball](#the-seven-patch-ball)). The shells' radial
-elements should be at most twice the cube's root element width, so that
-the cube–shell faces send back what the boxes' 2:1 faces do, and `R1`
-large enough that what the sphere sends back comes after the run: a
+elements should resolve the shortest wave the run must carry out at
+about 8 elements per wavelength, 16 to send back no more than the cube's
+own error, at every radius out to the sphere: what the shells and the
+cube–shell faces send back is set by that resolution, and the jump in
+width at the cube's faces changes it by less than twice. Graded shells
+hold only until what their coarse part sends back arrives (under
+"Measured results"). `R1` should be large enough that what the sphere
+sends back comes after the run: a
 resolved wave from about `2R1 − R₂` on ([The radiative
 sphere](#the-radiative-sphere)), but the remainder's under-resolved error
 from about `(2R1 − R₂)/2`, since it crosses the shells at about twice the
@@ -3711,12 +3727,15 @@ ball of radius 2 (`--radii=2`), which the pulse has left by `t ≈ 6`:
 from the cube to the sphere where graded. The boxes' periodic faces at 8
 send the pulse back into the ball from `t ≈ 11`.
 
-- **The reflection is the jump in radial resolution, not the
+- **The reflection is the coarse side's radial resolution, not the
   interface.** At 2:1 the cube–shell face sends back what the boxes'
   flat 2:1 face does, to the digits shown, though the shells' radial
   lines bend at the face and the gradient crosses a glue in Cartesian
   components. What a 1:1 face sends back, `≲ 1e-6`, bounds what the bend
-  and the glue add.
+  and the glue add. These runs change the jump and the shells'
+  resolution together; the H200 scans, which separate them, find the
+  jump itself worth less than a factor of two ([Particles in the
+  ball](#particles-in-the-ball-1), "What the transitions send back").
 - **It falls steeply with the shells' resolution:** about forty times
   from 4:1 to 2:1 and fifteen from 2:1 to 1:1, about `h⁵` to `h⁴`, as
   the error of the coarse side's elements at the pulse's wavelengths
@@ -4924,7 +4943,8 @@ finest levels in the cube (`w0 = 4`, `Lc = 16`) and `R1 = 50`
   the shells at about twice the speed of light, as it crosses the
   boxes' faces ([Uniform motion](#uniform-motion)). So the sphere bounds
   a run's clean time at `(2R1 − R₂)/2`, not at `2R1 − R₂`. The return
-  falls faster than `1/R1`, 3 times smaller for 1.4 times the radius.
+  falls faster than `1/R1`, 3 times smaller for 1.4 times the radius,
+  and at `R1 = 72` it is below the error's scatter (below).
 - **Pushing the sphere out costs `R1`, not `R1³`.** The shells keep the
   cube's angular resolution, `48 × 48` elements a face at `d/8`, at
   every radius, so each radial root of four elements adds the same
@@ -4938,6 +4958,132 @@ finest levels in the cube (`w0 = 4`, `Lc = 16`) and `R1 = 50`
   finest levels,** having twice their nodes. Its field kernels are the
   full geometry's, at 2 to 3 times the boxes' cost per node. The source, which is most of the step, does not change. On
   the circle the ball's step is 1.4 times the five-level boxes'.
+
+**What the transitions send back, on an H200** (`bin/symmetry/gpu_scans.sh`,
+2026-11-13, Julia 1.13.3, one H200 of `cn111` or `cn113` per job, in
+`Float64`; job 597907 ran the device tests first, all 79 passing). What
+matters for the ball is what its transitions, the cube's coarse-fine faces
+and the cube–shell faces, send back before the sphere's return, and what
+resolution keeps it small. The shells keep the cube's angular resolution
+at every radius, so that only their radial width is free.
+
+*The pulse* (job 597908): `bin/nested_ball.jl`'s outgoing pulse from the
+origin, `σ = λ/2`, three nested cubes at `w0 = 4`, `hₑ = 1/4` (root
+elements 1 wide, `Lc = 16`), shells to `R1 = 64`, `dt = 1/128`, to
+`t = 60`, before the sphere's return. The shells are uniform, of radial
+width 1, 2 or 4 (1:1, 2:1 and 4:1 against the cube's root at the face),
+or graded from 1 at the cube to about 4 at the sphere (`--hface=1
+--hshell=4`, 24 radial elements). The table gives the RMS error of `u`
+and `v` in the balls of radius 16 and 4 about the origin, the largest
+over `t = 36` to 60, after the pulse has left them, each divided by the
+exact pulse's own largest RMS in that ball (0.043 to 0.056 in the ball
+of 16, 0.31 to 0.40 in the ball of 4). "Per `λ`" is the shells' radial
+elements per wavelength, from the cube to the sphere where graded:
+
+| `λ` | shells | jump at the face | per `λ` | ball of 16 | ball of 4 |
+|---|---|---|---|---|---|
+| 16 | 1 | 1:1 | 16 | 9.8e-6 | 9.1e-6 |
+| 8 | 1 | 1:1 | 8 | 4.3e-5 | 2.5e-5 |
+| 16 | 2 | 2:1 | 8 | 6.5e-5 | 3.5e-5 |
+| 4 | 1 | 1:1 | 4 | 1.7e-2 | 3.6e-3 |
+| 8 | 2 | 2:1 | 4 | 1.9e-2 | 5.1e-3 |
+| 16 | 4 | 4:1 | 4 | 1.1e-2 | 3.8e-3 |
+| 4 | 2 | 2:1 | 2 | 0.23 | 3.9e-2 |
+| 8 | 4 | 4:1 | 2 | 0.20 | 3.6e-2 |
+| 4 | 4 | 4:1 | 1 | 0.23 | 3.9e-2 |
+| 16 | 1 → 4 | 1:1 | 16 → 4 | 1.4e-5 | 1.2e-5 |
+| 8 | 1 → 4 | 1:1 | 8 → 2 | 2.2e-2 | 2.2e-3 |
+| 4 | 1 → 4 | 1:1 | 4 → 1 | 0.25 | 4.6e-2 |
+
+- **What comes back is set by the shells' radial elements per
+  wavelength, not by the jump at the cube's face.** At equal resolution
+  the jump changes it by less than twice: at 8 per wavelength `4·10⁻⁵`
+  at 1:1 and `7·10⁻⁵` at 2:1, at 4 per wavelength `1`–`2·10⁻²` at 1:1,
+  2:1 and 4:1 alike. Between 4 and 8 per wavelength it falls about 300
+  times, and at 16 it is the cube's own error, `10⁻⁵`. M8b's runs ("What
+  the cube–shell face sends back" under [The seven-patch
+  ball](#the-seven-patch-ball-1)) varied the jump and the resolution
+  together.
+- **An under-resolved shell keeps sending back** while the pulse crosses
+  it, not one reflected pulse: at 2 or 4 per wavelength the error in the
+  ball of 16 stays at its level from `t ≈ 30` to 60.
+- **Graded shells hold until what their coarse part sends back
+  arrives.** At `λ = 16` the graded shells are as good as uniform ones
+  of width 1 to `t = 60`, since they reach 4 per wavelength only near the
+  sphere; at `λ = 8` they fall to 4 per wavelength at `r ≈ 33`, and the
+  error rises from `t ≈ 35`, to `2·10⁻²` by `t = 60` and still growing.
+- **In the cube the same holds.** The cube's 2:1 faces at 16 and 32
+  per wavelength on their coarse side send back `6·10⁻⁵` of the pulse in
+  the ball of 4; at `λ = 4` the cube's root has 4 per wavelength, and
+  the error there is 1% by `t = 20`, before the pulse reaches the shells.
+- **So the shells need about 8 radial elements per wavelength of the
+  shortest wave the run must carry out, all the way to the sphere,** and
+  16 to send back no more than the cube's own error. With the angular
+  resolution fixed, pushing the sphere out at that width costs `R1`.
+- **The cost:** 3.9 ns per node per RK4 step on the H200, the step in
+  proportion to the nodes: 0.095 s on 24.6 M nodes (18.9 M in the
+  shells of width 1), 0.039 s on 10.5 M (width 4). A run to `t = 60`,
+  7680 steps, took 8 to 17 minutes, the build 60 to 110 s of it.
+
+*The circle* (jobs 597909 to 597911): M5's circle at `v = 0.2` (`Ω = 0.4`,
+the radiation's `λ = 2π/Ω = 15.7`), `d/8`, order 3, from the retarded
+field inside `rx1 = 48`, blended into the particle field by `rx2 = 54`, in
+the plan's cube (three levels, `w0 = 4`, `Lc = 16`, root elements 1/2
+wide) with shells to `R1 = 60`, to `t = 40`, `dt = 1/256`. The force's
+means over windows of the steps, each divided by `F_RR` (the script's
+`rr`), and the error against the retarded field in the ball of radius 8
+about the centre, outside the hole about the particle, where the
+remainder's own RMS is `7.4·10⁻⁴`:
+
+| shells | jump | per `λ` | nodes, shells | step | `F_t/F_RR`, `t = 2`–8 | 16–24 | 24–28 | error at `t = 8` | 24 | front at 8 | error at 40 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1.83 | 3.7:1 | 8.6 | 84 M, 38 M | 0.57 s | 1.04154 | 1.04197 | 1.04165 | 6.2e-8 | 3.7e-7 | `t ≈ 25` | 4.0e-3 |
+| 1 | 2:1 | 16 | 115 M, 69 M | 0.67 s | 1.04154 | 1.04160 | 1.04177 | 6.1e-8 | 6.4e-8 | 26.5 | 2.3e-3 |
+| 0.5 | 1:1 | 31 | 185 M, 138 M | 1.01 s | 1.04154 | 1.04160 | 1.04178 | 6.1e-8 | 6.2e-8 | 27 | 1.7e-3 |
+
+- **The circle's radiation comes back from the shells of width 1.83, and
+  not from those of 1 and 0.5.** The retarded data hold the radiation
+  out to `rx1` from the start, so what the cube–shell faces send back
+  reaches the ball of 8 from `t ≈ 8`. With shells at 8.6 per
+  wavelength the error there grows to six times its earlier level by `t = 24`, and the force
+  over `t = 16` to 24 moves by `4·10⁻⁴ F_RR`; at 16 and 31 per
+  wavelength the two runs agree to 2% in the error and `10⁻⁵ F_RR` in
+  the force, to `t = 28`. The radial force stays below `2·10⁻⁴ F_RR` in
+  every window to `t = 28` at width 1 and 0.5, `7·10⁻⁴` at 1.83. The runs
+  took 3.1, 3.5 and 5.3 hours, 10 240 steps.
+- **Then the initial data's far part arrives, faster than light.** Beyond
+  `rx2` the data are the particle field `Ψ̂` of order 3, whose near-field
+  terms grow like `r²`: at `t = 0` and `r = 48`, `Ψ̂` is up to
+  `1.4·10⁻²` where the retarded field is `1.2`–`1.4·10⁻⁴` and `Ψ̂` of
+  order 0 `1.2·10⁻⁴`, and its rate up to `1.4·10⁻²` against `10⁻⁵`.
+  What these data send in rises in the ball of 8 from `t ≈ 25` to 27,
+  where a signal from
+  `rx1` at the speed of light would arrive at 40, then in the ball of 4
+  about four time units later and in `R₁` later again: about the speed
+  of light inside the cube, about 1.7 to 1.9 times it through the
+  shells, nearly whatever their radial width. By `t = 40` it is two to
+  five times the remainder there, and the force scatters by up to
+  `15 F_RR` from step to step. On the laptop (`hₑ = 1/2`, `R1 = 40`,
+  shells of width 2) moving the blend from 24 to 28 delays it by 2, not
+  4, and the errors in
+  balls of radius 24 down to 4 time it at about twice the speed of light
+  through the shells and the cube's root of width 2, and at about the
+  speed of light on the level of width 1 inside.
+  The mechanism of its speed is **(open)**; the cure is data that are
+  the field far out ([Particles in the ball](#particles-in-the-ball)).
+
+*The particle at rest at a third sphere* (job 597912): the runs at rest
+above at `R1 = 72` (`m = 15`, 72.5 M nodes, 53.1 M in the shells), to
+`t = 80`. At `t = 3` its error is the CPU runs' to eleven digits, and it
+is the run at `R1 = 50`'s to three up to `t ≈ 45`. From `t = 45`
+to 80 the error stays at `1.8`–`2.1·10⁻⁷` and the force at
+`0.4`–`6·10⁻⁸`, the same scatter as before; at
+`(2R1 − R₂)/2 = 70.75` nothing rises above the error's scatter of about
+`10⁻⁸`. The sphere's return in the error is about `10⁻⁷` at `R1 = 36`,
+`3·10⁻⁸` at 50 and below `10⁻⁸` at 72, about as `R1⁻³` or faster. A
+step took 0.52 s, against 2.30 s at `R1 = 50` on an EPYC 7543 (55 M
+nodes): about six times the 64 threads' rate per node. The run took
+4.5 hours.
 
 
 ### Prescribed paths

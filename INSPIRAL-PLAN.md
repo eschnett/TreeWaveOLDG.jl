@@ -9,7 +9,10 @@ below without links.
 **Status.** M0 to M5 are done; M6a, M6b and M7 are not started; of M8,
 M8a and M8b are done (2026-11-11), M8a's gate having passed, and M8c is
 under way on branch `inspiral-m8c-ball`: its code, tests and runs are
-in and meet its "Done when", and its pull request is not open. A
+in and meet its "Done when", and its pull request is not open; the
+reflection scans the owner asked for after them ran on H200s (jobs
+597907 to 597912, `HISTORY.md`; results in `CODE.md`, "What the
+transitions send back"). A
 milestone's status line changes here when its work starts and when its
 pull request merges. A finished milestone keeps its number and one line
 saying where its results went; its earlier text, with the gates and
@@ -427,8 +430,10 @@ with the boxes of the cube's three levels run beside the ball by the
 current code, since M3b's runs predate M4's and M5's changes to the
 remainder. Their layout, from M8a's and M8b's measurements and the
 owner's answer to M8a's gate: the shells' radial elements at most twice
-the cube's root element width, so that the cube–shell faces send back
-what the boxes' 2:1 faces do; `R₁` at least `3Lc`, where the finest cube
+the cube's root element width; the reflection scans then found what
+comes back set by the shells' radial elements per wavelength, about 8
+for the shortest wave carried out, at every radius, more than by the
+jump at the cube's face; `R₁` at least `3Lc`, where the finest cube
 sets the step, and large enough that what the sphere sends back, from
 about `2R₁ − R₂` on, arrives after the run. The plan's ball at
 `R₁ = 50`, `Lc = 16` with `hshell = 1` is `bin/ball.jl`'s default for
@@ -504,4 +509,12 @@ milestone named. Those of the finished milestones are in `HISTORY.md`
   ball if M8 is done by then.
 - M8c: `R₁` for each run, from the time it has to stay clean. M8c's
   runs at rest show the sphere's return at about `(2R₁ − R₂)/2`, not
-  `2R₁ − R₂`, and the two spheres agreeing before it.
+  `2R₁ − R₂`, and the two spheres agreeing before it; at `R₁ = 72` it is
+  below `10⁻⁸`.
+- M8c and the inspiral: initial data that are the field far from an
+  accelerated particle. `(1 − W)Ψ̂` of order 3 grows like `r²` and is a
+  hundred times the field at `r = 48`; on the circle what it sent in
+  crossed the shells at about twice the speed of light and swamped the
+  remainder from `t ≈ 25` (`CODE.md`, "What the transitions send
+  back"). `Ψ̂` of order 0 far out, or the retarded field of the past
+  motion, would be the field there.
