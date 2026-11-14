@@ -79,9 +79,18 @@ element width, which a coarser element does not have. The window's ball
 and the particles' supports at `t = 0` are checked here, and every
 projection and pairing checks again, since the particles move ("Nested
 boxes" in `CODE.md`).
+
+The wave problem is on a brick in flat space, or on a full geometry, the
+seven-patch or the thirteen-patch ball, with the particles in its cube:
+the [`ParticleFrame`](@ref TreeWaveOLDG.ParticleFrame) of its one affine
+patch, through whose map the transfer works in physical coordinates.
+Then the window's ball and the supports must lie inside the cube, on its
+finest level, positions everywhere are physical, and the outer sphere's
+boundary is the wave problem's ("Particles in the ball" in `CODE.md`).
 """
 struct InspiralProblem{T,K,WP<:WaveProblem{T,3},TT,MO,S,SN<:SharedNodes{3}}
     wave::WP
+    frame::ParticleFrame{3,T}
     models::NTuple{K,ParticleModel{T}}
     window::Window{T}
     tables::TT
@@ -97,11 +106,7 @@ function InspiralProblem(wave::WaveProblem{T,3}, models::Tuple, window::Window,
                          motion::Prescribed; order::Int=3, tables=nothing,
                          rnear::Real=1, continuous::Bool=true) where {T}
     check_order(order)
-    wave.metric === nothing && !TreeAMR.ispatched(wave.fs.forest) || throw(ArgumentError(
-        "the inspiral runs on a brick in flat space, and this wave problem has " *
-        "$(wave.metric === nothing ? "a forest of patches" : "a geometry"): the " *
-        "transfer measures distances in the logical coordinates and locates points " *
-        "in one brick (\"Multi-patch forests\" in CODE.md)"))
+    frame = ParticleFrame(wave)
     tables === nothing && (tables = TransferTables(T, TreeWaveOLDG.order(wave.element)))
     check_tables(wave, tables)
     K = length(models)
@@ -110,14 +115,14 @@ function InspiralProblem(wave::WaveProblem{T,3}, models::Tuple, window::Window,
         "the motion moves $(length(trajs)) particles, and there are $K models"))
     models = map(m -> ParticleModel{T}(m.Q, m.ℓ, m.M), models)
     window = Window{T}(window.centre, window.R₁, window.R₂, window.m)
-    check_finest(wave.fs, (window.centre, window.R₂), "InspiralProblem")
-    foreach((m, tr) -> check_finest(wave.fs, ParticleSupport(m, tr), "InspiralProblem"),
-            models, trajs)
+    check_finest(wave.fs, (window.centre, window.R₂), "InspiralProblem", frame)
+    foreach((m, tr) -> check_finest(wave.fs, ParticleSupport(m, tr), "InspiralProblem",
+                                    frame), models, trajs)
     scratch = projection_scratch(wave, tables)
-    shared = SharedNodes(wave.fs, (window.centre, window.R₂))
+    shared = SharedNodes(wave.fs, (window.centre, window.R₂), frame)
     return InspiralProblem{T,K,typeof(wave),typeof(tables),typeof(motion),typeof(scratch),
-                           typeof(shared)}(wave, models, window, tables, order, motion,
-                                           T(rnear), scratch, continuous, shared)
+                           typeof(shared)}(wave, frame, models, window, tables, order,
+                                           motion, T(rnear), scratch, continuous, shared)
 end
 
 nparticles(::InspiralProblem{T,K}) where {T,K} = K
@@ -234,6 +239,19 @@ function retarded_part(f::RemainderData{T,K}, wx::Window, X, var) where {T,K}
     return w * s
 end
 
+# `f(x, var)` of a physical position as `fill_at_nodes!` takes it: `f`
+# itself on a brick, whose coordinates are physical, and on a geometry
+# through `WithPatch` at `physical_coordinates` of each node's patch.
+struct AtPhysical{G,F}
+    geometry::G
+    f::F
+end
+
+(a::AtPhysical)(x, q, var) = a.f(physical_coordinates(a.geometry, x, q), var)
+
+at_physical(wave::WaveProblem, f) =
+    wave.metric === nothing ? f : WithPatch(AtPhysical(wave.metric.geometry, f))
+
 """
     inspiral_initial_state(p::InspiralProblem; t = 0, retarded = nothing)
 
@@ -241,7 +259,8 @@ The state vector at time `t` of the motion: the remainder of the
 particle field, `Φ_r = (1 - W)Ψ̂` and `Π_r = (1 - W)𝒟Ψ̂` at the nodes, with
 `Π_r` truncated as [`initial_state`](@ref) truncates `v`, and each
 particle's `z` and `v` from the motion (INSPIRAL.md, "Initial data",
-step 2). The total field is then the particle field everywhere.
+step 2). The total field is then the particle field everywhere. On a
+geometry the nodes' positions are physical, on every patch.
 
 For a particle in uniform motion this is the exact remainder at every
 `t`, in an unbounded domain: `Φ_C` solves the wave equation with the
@@ -265,7 +284,7 @@ function inspiral_initial_state(p::InspiralProblem{T,K}; t::Real=0,
     fs = p.wave.fs
     retarded === nothing || (retarded = Window{T}(retarded.centre, retarded.R₁,
                                                   retarded.R₂, retarded.m))
-    data = RemainderData(p, trajs, t; retarded)
+    data = at_physical(p.wave, RemainderData(p, trajs, t; retarded))
     L = fieldlength(p)
     backend = get_backend(fs.work)
     if backend isa CPU
@@ -439,10 +458,15 @@ function particle_forces(p::InspiralProblem{T,K}, u, t;
 end
 
 # A fold's `rf` for `ball_norm`: `Σ w |x|^p` and `Σ w` over the nodes
-# within the ball and outside the hole, at the node's position, which
-# TreeAMR gives an element set's fold.
-struct BallFold{EL,D,T}
+# within the ball and outside the hole, at the node's physical position.
+# On a brick that is the position TreeAMR gives an element set's fold; on
+# a geometry its `physical_coordinates` in the patch the fold's block tag
+# names, and the weight is also multiplied by `√g`, read from the
+# problem's coefficient set at the node, as `wave_norm` reads it.
+struct BallFold{EL,G,C,D,T}
     el::EL
+    geometry::G                         # nothing on a brick
+    coef::C                             # nothing on a brick
     centre::NTuple{D,T}
     radius::T
     hcentre::NTuple{D,T}
@@ -450,18 +474,28 @@ struct BallFold{EL,D,T}
     p::Int
 end
 
-@inline function in_shell(bf::BallFold{EL,D}, x) where {EL,D}
+Adapt.adapt_structure(to, f::BallFold{EL,G,C,D,T}) where {EL,G,C,D,T} =
+    (coef = Adapt.adapt(to, f.coef);
+     BallFold{EL,G,typeof(coef),D,T}(f.el, f.geometry, coef, f.centre, f.radius, f.hcentre,
+                                     f.hradius, f.p))
+
+@inline fold_position(::Nothing, q) = q.x
+@inline fold_position(geo, q) = physical_coordinates(geo, q.x, q.tag)
+@inline fold_volume(::Nothing, q) = one(eltype(q.u))
+@inline fold_volume(coef, q) = @inbounds coef[q.I..., 1, q.b]
+
+@inline function in_shell(bf::BallFold{EL,G,C,D}, x) where {EL,G,C,D}
     r² = sum(ntuple(d -> (x[d] - bf.centre[d])^2, Val(D)))
     h² = sum(ntuple(d -> (x[d] - bf.hcentre[d])^2, Val(D)))
     return r² < bf.radius^2 && h² >= bf.hradius^2
 end
 
-function (bf::BallFold{EL,D})(acc, q) where {EL,D}
-    in_shell(bf, q.x) || return acc
-    w = node_weight(q.I, q.h, bf.el, Val(D))
+function (bf::BallFold{EL,G,C,D})(acc, q) where {EL,G,C,D}
+    in_shell(bf, fold_position(bf.geometry, q)) || return acc
+    w = node_weight(q.I, q.h, bf.el, Val(D)) * fold_volume(bf.coef, q)
     s = zero(w)
     for v in q.u
-        s += abs(v)^bf.p
+        s += bf.p == 0 ? v : abs(v)^bf.p          # 0: the signed sum, for `ball_mean`
     end
     return TreeAMR.combine(acc, (Sum(w * s), Sum(w * length(q.u))))
 end
@@ -476,7 +510,9 @@ end
 `centre`, normalized by the ball's quadrature volume; `p = Inf` is the
 largest value there. For an [`InspiralProblem`](@ref), of the field part
 of `u`. `hole = (centre, radius)` leaves out the nodes within that
-ball, as about a particle whose near field the norm should not see.
+ball, as about a particle whose near field the norm should not see. On
+a full geometry the positions are physical on every patch and the
+weights `√g`-weighted, as [`wave_norm`](@ref)'s.
 
 In a periodic box the field of a charge is not periodic, so every error
 norm of an inspiral run is taken in the ball that is still causally
@@ -485,24 +521,67 @@ clean of the box's faces ("The right-hand side with particles" in
 """
 function ball_norm(wave::WaveProblem{T,D}, u::AbstractVector, centre, radius;
                    p::Real=2, vars=1:2, hole=nothing) where {T,D}
-    fs = wave.fs
     isinf(p) || (isinteger(p) && p >= 1) || throw(ArgumentError(
         "ball_norm takes an integer p ≥ 1 or Inf, got p = $p"))
-    q = isinf(p) ? 1 : Int(p)
-    hc, hr = hole === nothing ? (Tuple(centre), zero(T)) : (Tuple(hole[1]), hole[2])
-    rf = BallFold{typeof(wave.element),D,T}(wave.element, NTuple{D,T}(Tuple(centre)),
-                                            T(radius), NTuple{D,T}(hc), T(hr), q)
     if isinf(p)
-        rfmax = (acc, pt) -> begin
-            in_shell(rf, pt.x) || return acc
-            TreeAMR.combine(acc, Max(maximum(abs, pt.u)))
-        end
-        return mesh_fold(rfmax, TreeAMR.combine, Max(zero(T)), fs, u; vars=vars).value
+        rf, kw = ball_fold(wave, centre, radius, 1, vars, hole)
+        return mesh_fold(BallMax(rf), TreeAMR.combine, Max(zero(T)), wave.fs, u; kw...).value
     end
-    total, volume = mesh_fold(rf, TreeAMR.combine, (Sum(zero(T)), Sum(zero(T))), fs, u;
-                              vars=vars)
-    volume.value == 0 && return zero(T)
-    return (total.value / volume.value)^inv(T(q))
+    total, volume = ball_parts(wave, u, centre, radius, Int(p), vars, hole)
+    volume == 0 && return zero(T)
+    return (total / volume)^inv(T(p))
+end
+
+# The fold over the ball's nodes, of the `q`-th powers (`q = 0`: the signed
+# values), and the keywords `mesh_fold` takes it with.
+function ball_fold(wave::WaveProblem{T,D}, centre, radius, q, vars, hole) where {T,D}
+    hc, hr = hole === nothing ? (Tuple(centre), zero(T)) : (Tuple(hole[1]), hole[2])
+    geo = wave.metric === nothing ? nothing : wave.metric.geometry
+    coef = metric_coef(wave)
+    rf = BallFold{typeof(wave.element),typeof(geo),typeof(coef),D,T}(
+        wave.element, geo, coef, NTuple{D,T}(Tuple(centre)), T(radius), NTuple{D,T}(hc),
+        T(hr), q)
+    # The patch reaches the fold as each block's tag, on a geometry.
+    forest = wave.fs.forest
+    kw = geo === nothing ? (; vars) : (; vars, tag=key -> Int(patch(forest, key)))
+    return rf, kw
+end
+
+function ball_parts(wave::WaveProblem{T}, u, centre, radius, q, vars, hole) where {T}
+    rf, kw = ball_fold(wave, centre, radius, q, vars, hole)
+    total, volume = mesh_fold(rf, TreeAMR.combine, (Sum(zero(T)), Sum(zero(T))), wave.fs,
+                              u; kw...)
+    return total.value, volume.value
+end
+
+"""
+    ball_mean(wave::WaveProblem, u, centre, radius; vars = 1:2, hole = nothing)
+    ball_mean(prob::InspiralProblem, u, centre, radius; vars = 1:2, hole = nothing)
+
+The quadrature-weighted mean of the values of `vars` at the nodes within
+`radius` of `centre`, signed, with the weights and positions of
+[`ball_norm`](@ref): as the mean of `Π_r` that a net charge drives in a
+periodic box at `Q/(γV)` ("Particles in the ball" in `CODE.md`).
+"""
+function ball_mean(wave::WaveProblem{T}, u::AbstractVector, centre, radius; vars=1:2,
+                   hole=nothing) where {T}
+    total, volume = ball_parts(wave, u, centre, radius, 0, vars, hole)
+    return volume == 0 ? zero(T) : total / volume
+end
+
+ball_mean(prob::InspiralProblem, u::AbstractVector, centre, radius; kwargs...) =
+    ball_mean(prob.wave, field_state(u, prob), centre, radius; kwargs...)
+
+# The largest value within the ball, for `ball_norm(…; p = Inf)`.
+struct BallMax{B}
+    ball::B
+end
+
+Adapt.adapt_structure(to, f::BallMax) = BallMax(Adapt.adapt(to, f.ball))
+
+function (m::BallMax)(acc, q)
+    in_shell(m.ball, fold_position(m.ball.geometry, q)) || return acc
+    return TreeAMR.combine(acc, Max(maximum(abs, q.u)))
 end
 
 ball_norm(prob::InspiralProblem, u::AbstractVector, centre, radius; kwargs...) =

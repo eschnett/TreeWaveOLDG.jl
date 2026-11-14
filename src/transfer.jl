@@ -683,6 +683,127 @@ function projection_scratch(p::WaveProblem{T,D}, t::TransferTables{T,P1,Q}) wher
     return allocate(get_backend(p.fs.work), T, ntuple(_ -> E * Q, D)..., nblocks(p.fs))
 end
 
+"""
+    ParticleFrame(p::WaveProblem)
+
+Where the particles' transfer runs, and how its positions are physical:
+on a brick in flat space the whole forest, whose coordinates are
+physical; on a [`FullGeometry`](@ref) its one patch whose map is affine
+and the same along every dimension, `x = origin + scale ⋅ ξ`
+([`affine_map`](@ref TreeWaveOLDG.affine_map)), the seven-patch and the
+thirteen-patch balls' cube. Anything else is refused.
+
+The transfer maps every block origin and spacing it reads through the
+frame and locates a position in the frame's patch, so that its element
+boxes, the distances `rnear`, `rfar` and the graded bands, the
+quadratures and the pairing's integrals are all physical. `P S` needs no
+factor, since the Jacobian cancels between `∫ S φₙ` and `wₙ`. The
+source's ball and every particle's support must lie inside the patch.
+On a brick the frame is the identity and changes no bit. See "Particles
+in the ball" in `CODE.md`.
+"""
+struct ParticleFrame{D,T}
+    patch::Int                      # 0 on a brick
+    origin::SVector{D,T}
+    scale::T
+end
+
+ParticleFrame(fs::FieldSet{T,D}) where {T,D} =
+    TreeAMR.ispatched(fs.forest) ? throw(ArgumentError(
+        "the forest has patches, and the particles' frame needs the geometry that maps " *
+        "them: take it from the WaveProblem, ParticleFrame(wave)")) :
+    ParticleFrame{D,T}(0, zero(SVector{D,T}), one(T))
+
+function ParticleFrame(p::WaveProblem{T,D}) where {T,D}
+    if p.metric === nothing
+        TreeAMR.ispatched(p.fs.forest) && throw(ArgumentError(
+            "the particles run on a brick in flat space or in the affine patch of a full " *
+            "geometry, and this wave problem has a forest of patches without a geometry " *
+            "(\"Particles in the ball\" in CODE.md)"))
+        return ParticleFrame(p.fs)
+    end
+    geo = p.metric.geometry
+    geo isa FullGeometry || throw(ArgumentError(
+        "the particles run on a brick in flat space or in the affine patch of a full " *
+        "geometry, and this wave problem has the diagonal geometry " *
+        "$(nameof(typeof(geo))), whose patches are not affine (\"Particles in the " *
+        "ball\" in CODE.md)"))
+    forest = p.fs.forest
+    patches = filter(q -> affine_patch(geo, q), 1:TreeAMR.npatches(forest))
+    length(patches) == 1 || throw(ArgumentError(
+        "the particles run in the one patch of a full geometry whose map is affine, " *
+        "and $(nameof(typeof(geo))) has $(length(patches)): $patches"))
+    q = only(patches)
+    origin, scale = affine_map(geo, q)
+    return ParticleFrame{D,T}(q, SVector{D,T}(origin), T(scale))
+end
+
+# A position of the frame's patch, logical `ξ`, in physical coordinates.
+# On a brick `ξ` itself, so that the frame changes no bit there.
+@inline frame_point(f::ParticleFrame{D,T}, ξ) where {D,T} =
+    f.patch == 0 ? SVector{D,T}(Tuple(ξ)) :
+    SVector{D,T}(ntuple(d -> f.origin[d] + f.scale * ξ[d], Val(D)))
+
+# Every block's origin and spacing in physical coordinates, as TreeAMR's
+# `block_origins` and `block_spacings` give them in logical ones. Blocks
+# outside the frame's patch get numbers too, which mean nothing:
+# `frame_blocks` says which are in it.
+frame_origins(forest, f::ParticleFrame{D,T}) where {D,T} =
+    NTuple{D,T}[Tuple(frame_point(f, o)) for o in block_origins(forest, T)]
+frame_spacings(forest, f::ParticleFrame{D,T}) where {D,T} =
+    f.scale .* block_spacings(forest, T)
+frame_blocks(forest, f::ParticleFrame) =
+    f.patch == 0 ? block_patches(forest) .> 0 : block_patches(forest) .== f.patch
+
+# One block's origin, spacing and extent, by its key.
+frame_origin(forest, f::ParticleFrame{D,T}, key) where {D,T} =
+    frame_point(f, block_origin(T, forest, key))
+frame_spacing(forest, f::ParticleFrame{D,T}, key) where {D,T} =
+    f.scale * spacing(T, forest, key)
+function frame_extent(forest, f::ParticleFrame, key)
+    lo = frame_origin(forest, f, key)
+    return lo, lo .+ frame_spacing(forest, f, key) * forest.N
+end
+
+# The finest element width, in physical units.
+frame_hₑ(forest, f::ParticleFrame{D,T}, P1) where {D,T} =
+    f.scale * minimum_spacing(T, forest) * P1
+
+# The domain the transfer works in: the brick's extents, or the patch's
+# box in physical coordinates, as `(lo, hi)` per dimension.
+function frame_domain(forest, f::ParticleFrame{D,T}) where {D,T}
+    f.patch == 0 && return ntuple(d -> (T(forest.extents[d][1]), T(forest.extents[d][2])), D)
+    ext = TreeAMR.patch_extents(forest, f.patch)
+    lo = frame_point(f, ntuple(d -> ext[d][1], D))
+    hi = frame_point(f, ntuple(d -> ext[d][2], D))
+    return ntuple(d -> (lo[d], hi[d]), D)
+end
+
+# The block that holds the physical position `x`, as `locate_point` finds
+# it: on a brick at `x`, folded into the domain; in a patch at the logical
+# position `(x - origin)/scale` of the patch, or `nothing` outside it,
+# since the transfer looks across no glue.
+function frame_locate(forest, f::ParticleFrame{D,T}, x) where {D,T}
+    f.patch == 0 && return locate_point(forest, Tuple(x))
+    dom = frame_domain(forest, f)
+    all(d -> dom[d][1] <= x[d] <= dom[d][2], 1:D) || return nothing
+    ξ = ntuple(d -> (x[d] - f.origin[d]) / f.scale, D)
+    return locate_point(forest, PatchPoint(ξ, f.patch))
+end
+
+# In a patch the source's ball has to lie inside it, since the transfer
+# works in the patch alone; a brick's ball is the check of the faces'
+# own ("The transfer" in `CODE.md`).
+function check_in_patch(forest, f::ParticleFrame{D}, lo, hi, what, thing) where {D}
+    f.patch == 0 && return nothing
+    dom = frame_domain(forest, f)
+    all(d -> dom[d][1] <= lo[d] && hi[d] <= dom[d][2], 1:D) && return nothing
+    throw(ArgumentError(
+        "$what needs $thing inside patch $(f.patch), where the particles' transfer " *
+        "runs, $(map(collect, dom)) in physical coordinates, and it reaches from " *
+        "$(Tuple(lo)) to $(Tuple(hi)): the transfer works in that patch alone"))
+end
+
 # The transfer measures its distances (`rnear`, `rfar` and the graded
 # bands) in units of the finest element width `hₑ`, classifies its near
 # and graded elements in it, and divides by its weights, so every element
@@ -691,16 +812,21 @@ end
 # support. On a coarser element every one of them would be off by the
 # ratio of the spacings, and the quadrature chosen for it silently too
 # coarse. The forest may be refined elsewhere ("Nested boxes" in
-# `CODE.md`).
-function check_finest(fs::FieldSet{T,D}, ball, what) where {T,D}
+# `CODE.md`). In a patch, ball and support have to lie inside it, and
+# only its blocks are looked at.
+function check_finest(fs::FieldSet{T,D}, ball, what,
+                      frame::ParticleFrame=ParticleFrame(fs)) where {T,D}
     forest = fs.forest
     top = maxlevel(forest)
     c, R = SVector{D,T}(Tuple(ball[1])), T(ball[2])
+    check_in_patch(forest, frame, c .- R, c .+ R, what, "the source's ball of radius $R " *
+                   "about $(Tuple(c))")
+    inpatch = frame_blocks(forest, frame)
     for b in 1:nblocks(fs)
+        inpatch[b] || continue
         key = blockkey(fs, b)
         level(key) == top && continue
-        ext = block_extent(T, forest, key)
-        lo, hi = SVector(map(first, ext)), SVector(map(last, ext))
+        lo, hi = frame_extent(forest, frame, key)
         r² = box_distance2(c, lo, hi, 1:D)
         r² < R^2 || continue
         r = sqrt(r²)
@@ -714,18 +840,20 @@ function check_finest(fs::FieldSet{T,D}, ball, what) where {T,D}
     return nothing
 end
 
-function check_finest(fs::FieldSet{T,D}, s::ParticleSupport{D}, what) where {T,D}
+function check_finest(fs::FieldSet{T,D}, s::ParticleSupport{D}, what,
+                      frame::ParticleFrame=ParticleFrame(fs)) where {T,D}
     forest = fs.forest
     top = maxlevel(forest)
+    check_in_patch(forest, frame, s.z .- s.ℓ, s.z .+ s.ℓ, what,
+                   "the support of radius $(s.ℓ) about z = $(Tuple(s.z))")
     for corner in CartesianIndices(ntuple(_ -> 2, D))
         x = ntuple(d -> s.z[d] + (corner[d] == 1 ? -s.ℓ : s.ℓ), D)
-        b = locate_point(forest, x)
+        b = frame_locate(forest, frame, x)
         # Past the domain's faces, which `support_elements` refuses.
         b === nothing && continue
         key = blockkey(fs, b)
         level(key) == top && continue
-        ext = block_extent(T, forest, key)
-        lo, hi = SVector(map(first, ext)), SVector(map(last, ext))
+        lo, hi = frame_extent(forest, frame, key)
         r = sqrt(box_distance2(s.z, lo, hi, 1:D))
         throw(ArgumentError(
             "$what needs the finest level, $top, under every particle's support, and " *
@@ -802,21 +930,24 @@ function projection_plan(p::WaveProblem{T,D}, t::TransferTables{T,P1}, particles
         "rnear = $rnear must lie between 0 and the far rule's distance rfar = $(t.rfar)"))
     fs = p.fs
     forest = fs.forest
-    check_finest(fs, ball, "project_source!")
-    foreach(s -> check_finest(fs, s, "project_source!"), particles)
+    frame = ParticleFrame(p)
+    check_finest(fs, ball, "project_source!", frame)
+    foreach(s -> check_finest(fs, s, "project_source!", frame), particles)
     backend = get_backend(fs.work)
-    hₑ = minimum_spacing(forest) * P1
+    hₑ = frame_hₑ(forest, frame, P1)
     rn = T(rnear) * hₑ
     rf = t.rfar * hₑ
     region = (SVector{D,T}(ball[1]), T(ball[2]))
-    origins = block_origins(forest, T)
-    spacings = block_spacings(forest, T)
+    origins = frame_origins(forest, frame)
+    spacings = frame_spacings(forest, frame)
+    inpatch = frame_blocks(forest, frame)
     mask = map(eachindex(origins)) do b
         lo = SVector(origins[b])
-        box_distance2(region[1], lo, lo .+ spacings[b] * forest.N, 1:D) < region[2]^2
+        inpatch[b] &&
+            box_distance2(region[1], lo, lo .+ spacings[b] * forest.N, 1:D) < region[2]^2
     end
     near, graded, far = host_elements(fs, t, origins, spacings, mask, region, particles, rn,
-                                      rf, Val(P1))
+                                      rf, hₑ, Val(P1))
     return (; fs, backend, hₑ, rn, rf, region, particles, origins, spacings,
             dev_origins=to_backend(backend, origins),
             dev_spacings=to_backend(backend, spacings),
@@ -1190,9 +1321,8 @@ end
 # The graded rule's band is chosen by the distance to the nearest
 # particle.
 function host_elements(fs::FieldSet{T,D}, t::TransferTables, origins, spacings, mask,
-                       region, particles, rn, rf, ::Val{P1}) where {T,D,P1}
+                       region, particles, rn, rf, hₑ, ::Val{P1}) where {T,D,P1}
     E = fs.forest.N ÷ P1
-    hₑ = minimum_spacing(fs.forest) * P1
     near = Tuple{Int,NTuple{D,Int},Int}[]
     graded = map(_ -> Tuple{Int,NTuple{D,Int}}[], t.graded)
     far = Tuple{Int32,NTuple{D,Int32}}[]
@@ -1222,15 +1352,19 @@ function host_elements(fs::FieldSet{T,D}, t::TransferTables, origins, spacings, 
     return near, graded, far
 end
 
-# The block and element that hold the point `x`, and the element's box.
-# A point on a face between elements belongs to the upper one, as
-# `locate_point` gives a point on a face between blocks to the upper block.
-function locate_element(fs::FieldSet{T,D}, ::Val{P1}, x) where {T,D,P1}
-    b = locate_point(fs.forest, Tuple(x))
-    b === nothing && throw(ArgumentError("the point $(Tuple(x)) is outside the domain"))
+# The block and element that hold the physical point `x`, and the
+# element's box, in the frame. A point on a face between elements belongs
+# to the upper one, as `locate_point` gives a point on a face between
+# blocks to the upper block.
+function locate_element(fs::FieldSet{T,D}, ::Val{P1}, x,
+                        frame::ParticleFrame=ParticleFrame(fs)) where {T,D,P1}
+    b = frame_locate(fs.forest, frame, x)
+    b === nothing && throw(ArgumentError(
+        "the point $(Tuple(x)) is outside the domain" *
+        (frame.patch == 0 ? "" : " of patch $(frame.patch), where the particles run")))
     key = blockkey(fs, b)
-    origin = block_origin(T, fs.forest, key)
-    h = spacing(T, fs.forest, key)
+    origin = frame_origin(fs.forest, frame, key)
+    h = frame_spacing(fs.forest, frame, key)
     E = fs.forest.N ÷ P1
     e = ntuple(d -> clamp(floorint((x[d] - origin[d]) / (h * P1)), 0, E - 1), D)
     lo, hi = element_box(origin, h, e, Val(P1), Val(D))
@@ -1253,21 +1387,23 @@ end
 # neighbours must be on the element's level, where coincident nodes have
 # equal weights and the averaging is the `⟨,⟩_w`-orthogonal projection
 # onto continuous fields.
-function continuous_values(fs::FieldSet{T,D}, ua, b, e::NTuple{D}, var,
-                           ::Val{P1}) where {T,D,P1}
+function continuous_values(fs::FieldSet{T,D}, ua, b, e::NTuple{D}, var, ::Val{P1},
+                           frame::ParticleFrame=ParticleFrame(fs)) where {T,D,P1}
     E = fs.forest.N ÷ P1
     key = blockkey(fs, b)
-    lo, hi = element_box(block_origin(T, fs.forest, key), spacing(T, fs.forest, key), e,
-                         Val(P1), Val(D))
+    lo, hi = element_box(frame_origin(fs.forest, frame, key),
+                         frame_spacing(fs.forest, frame, key), e, Val(P1), Val(D))
+    dom = frame_domain(fs.forest, frame)
     function neighbour(s)
         en = e .+ s
         all(d -> 0 <= en[d] < E, 1:D) && return b, en
         x = (lo + hi) / 2 + SVector(s) .* (hi - lo)
-        all(d -> first(fs.forest.extents[d]) < x[d] < last(fs.forest.extents[d]), 1:D) ||
+        all(d -> dom[d][1] < x[d] < dom[d][2], 1:D) ||
             throw(ArgumentError(
                 "the element at $(Tuple(lo)) is on the domain's face; the continuous " *
-                "reconstruction, like the transfer, does not look for periodic images"))
-        bn, en, lon, hin = locate_element(fs, Val(P1), x)
+                "reconstruction, like the transfer, does not look for periodic images" *
+                (frame.patch == 0 ? "" : " or across the glue of patch $(frame.patch)")))
+        bn, en, lon, hin = locate_element(fs, Val(P1), x, frame)
         hin - lon ≈ hi - lo || throw(ArgumentError(
             "the element at $(Tuple(lo)) has a neighbour on another level; the " *
             "continuous reconstruction needs the same level across every face"))
@@ -1290,10 +1426,12 @@ function continuous_values(fs::FieldSet{T,D}, ua, b, e::NTuple{D}, var,
 end
 
 """
-    SharedNodes(fs::FieldSet, ball)
+    SharedNodes(fs::FieldSet, ball, frame = ParticleFrame(fs))
 
 Where [`average_shared!`](@ref) averages: the blocks that the source's
-`ball = (centre, R)` meets, the ones [`project_source!`](@ref) writes,
+`ball = (centre, R)` meets in the [`ParticleFrame`](@ref
+TreeWaveOLDG.ParticleFrame)'s patch, the ones [`project_source!`](@ref)
+writes,
 and for each of them and each dimension the block across its upper face,
 or 0 where that block is not among them or not on the same level (the
 ball's blocks are all on the finest level, [`check_finest`](@ref)). No
@@ -1308,14 +1446,17 @@ struct SharedNodes{D,B,U}
     dev_upper::U                    # `upper` likewise
 end
 
-function SharedNodes(fs::FieldSet{T,D}, ball) where {T,D}
+function SharedNodes(fs::FieldSet{T,D}, ball,
+                     frame::ParticleFrame=ParticleFrame(fs)) where {T,D}
     forest = fs.forest
     N = forest.N
-    origins = block_origins(forest, T)
-    spacings = block_spacings(forest, T)
+    origins = frame_origins(forest, frame)
+    spacings = frame_spacings(forest, frame)
+    inpatch = frame_blocks(forest, frame)
+    dom = frame_domain(forest, frame)
     centre, R = SVector{D,T}(ball[1]), T(ball[2])
-    meets(b) = box_distance2(centre, SVector(origins[b]),
-                             SVector(origins[b]) .+ spacings[b] * N, 1:D) < R^2
+    meets(b) = inpatch[b] && box_distance2(centre, SVector(origins[b]),
+                                           SVector(origins[b]) .+ spacings[b] * N, 1:D) < R^2
     blocks = filter(meets, collect(1:nblocks(fs)))
     member = falses(nblocks(fs))
     member[blocks] .= true
@@ -1323,9 +1464,8 @@ function SharedNodes(fs::FieldSet{T,D}, ball) where {T,D}
         lo, h = SVector(origins[b]), spacings[b]
         ntuple(Val(D)) do d
             x = ntuple(k -> k == d ? lo[k] + h * (N + 1 // 2) : lo[k] + h * N / 2, D)
-            all(k -> first(forest.extents[k]) < x[k] < last(forest.extents[k]), 1:D) ||
-                return 0
-            bn = locate_point(forest, x)
+            all(k -> dom[k][1] < x[k] < dom[k][2], 1:D) || return 0
+            bn = frame_locate(forest, frame, x)
             (bn !== nothing && member[bn] && spacings[bn] == h) ? bn : 0
         end
     end
@@ -1411,23 +1551,26 @@ inside the domain: periodic images are not looked for. On a refined
 forest every block that holds part of the support must be on the finest
 level, and anything else is refused.
 """
-function support_elements(p::WaveProblem{T,D}, s::ParticleSupport{D}) where {T,D}
+function support_elements(p::WaveProblem{T,D}, s::ParticleSupport{D},
+                          frame::ParticleFrame=ParticleFrame(p)) where {T,D}
     P1 = order(p.element) + 1
     forest = p.fs.forest
-    hₑ = minimum_spacing(forest) * P1
+    hₑ = frame_hₑ(forest, frame, P1)
     2s.ℓ < hₑ || throw(ArgumentError(
         "the particle's support, 2ℓ = $(2s.ℓ) across, is not smaller than an " *
         "element, hₑ = $hₑ"))
-    lo, hi = first.(forest.extents), last.(forest.extents)
-    inside(d) = lo[d] <= s.z[d] - s.ℓ && s.z[d] + s.ℓ < hi[d]
+    check_in_patch(forest, frame, s.z .- s.ℓ, s.z .+ s.ℓ, "the pairing",
+                   "the support of radius $(s.ℓ) about z = $(Tuple(s.z))")
+    dom = frame_domain(forest, frame)
+    inside(d) = dom[d][1] <= s.z[d] - s.ℓ && s.z[d] + s.ℓ < dom[d][2]
     all(inside, 1:D) || throw(ArgumentError(
         "the particle's support around z = $(Tuple(s.z)) reaches past the domain's " *
         "faces; the transfer does not look for periodic images"))
-    check_finest(p.fs, s, "the pairing")
+    check_finest(p.fs, s, "the pairing", frame)
     list = Tuple{Int,NTuple{D,Int}}[]
     for corner in CartesianIndices(ntuple(_ -> 2, D))
         x = SVector(ntuple(d -> s.z[d] + (corner[d] == 1 ? -s.ℓ : s.ℓ), D))
-        b, e, _, _ = locate_element(p.fs, Val(P1), x)
+        b, e, _, _ = locate_element(p.fs, Val(P1), x, frame)
         (b, e) in list || push!(list, (b, e))
     end
     return list
@@ -1462,15 +1605,17 @@ function pairing(p::WaveProblem{T,D}, t::TransferTables{T,P1}, u, K,
                  s::ParticleSupport{D}; var::Int=1,
                  continuous::Bool=false) where {T,D,P1}
     check_tables(p, t)
-    elements = support_elements(p, s)
+    frame = ParticleFrame(p)
+    elements = support_elements(p, s, frame)
     ua = statearray(u, p.fs)
-    get_backend(p.fs.work) isa CPU || (ua = BlockCopies(p.fs, ua, elements, var, Val(P1)))
+    get_backend(p.fs.work) isa CPU ||
+        (ua = BlockCopies(p.fs, ua, elements, var, Val(P1), frame))
     acc = zero(K(s.z))
     for (b, e) in elements
         key = blockkey(p.fs, b)
-        lo, hi = element_box(block_origin(T, p.fs.forest, key),
-                             spacing(T, p.fs.forest, key), e, Val(P1), Val(D))
-        g = continuous ? continuous_values(p.fs, ua, b, e, var, Val(P1)) :
+        lo, hi = element_box(frame_origin(p.fs.forest, frame, key),
+                             frame_spacing(p.fs.forest, frame, key), e, Val(P1), Val(D))
+        g = continuous ? continuous_values(p.fs, ua, b, e, var, Val(P1), frame) :
             element_values(ua, b, e, var, Val(P1))
         acc += nested_rule(x -> K(x) * dot(g, element_basis(t, lo, hi, x)), zero(acc), s,
                            t, lo, hi, SVector{0,T}(), Val(D), true)
@@ -1492,17 +1637,18 @@ struct BlockCopies{T,D}
     var::Int
 end
 
-function BlockCopies(fs::FieldSet{T,D}, ua, elements, var, ::Val{P1}) where {T,D,P1}
+function BlockCopies(fs::FieldSet{T,D}, ua, elements, var, ::Val{P1},
+                     frame::ParticleFrame=ParticleFrame(fs)) where {T,D,P1}
     needed = Set{Int}()
+    dom = frame_domain(fs.forest, frame)
     for (b, e) in elements
         key = blockkey(fs, b)
-        lo, hi = element_box(block_origin(T, fs.forest, key), spacing(T, fs.forest, key), e,
-                             Val(P1), Val(D))
+        lo, hi = element_box(frame_origin(fs.forest, frame, key),
+                             frame_spacing(fs.forest, frame, key), e, Val(P1), Val(D))
         for s in CartesianIndices(ntuple(_ -> -1:1, D))
             x = (lo + hi) / 2 + SVector(Tuple(s)) .* (hi - lo)
-            all(d -> first(fs.forest.extents[d]) < x[d] < last(fs.forest.extents[d]), 1:D) ||
-                continue
-            push!(needed, locate_element(fs, Val(P1), x)[1])
+            all(d -> dom[d][1] < x[d] < dom[d][2], 1:D) || continue
+            push!(needed, locate_element(fs, Val(P1), x, frame)[1])
         end
     end
     copies = Dict(b => Array(view(ua, ntuple(_ -> :, D)..., var, b)) for b in needed)
@@ -1528,7 +1674,7 @@ function reconstruct(p::WaveProblem{T,D}, t::TransferTables{T,P1}, u, x;
                      var::Int=1) where {T,D,P1}
     check_tables(p, t)
     xs = SVector{D,T}(Tuple(x))
-    b, e, lo, hi = locate_element(p.fs, Val(P1), xs)
+    b, e, lo, hi = locate_element(p.fs, Val(P1), xs, ParticleFrame(p))
     g = element_values(statearray(u, p.fs), b, e, var, Val(P1))
     return dot(g, element_basis(t, lo, hi, xs))
 end
@@ -1543,7 +1689,7 @@ function reconstruct_gradient(p::WaveProblem{T,D}, t::TransferTables{T,P1}, u, x
                               var::Int=1) where {T,D,P1}
     check_tables(p, t)
     xs = SVector{D,T}(Tuple(x))
-    b, e, lo, hi = locate_element(p.fs, Val(P1), xs)
+    b, e, lo, hi = locate_element(p.fs, Val(P1), xs, ParticleFrame(p))
     g = element_values(statearray(u, p.fs), b, e, var, Val(P1))
     return SVector(ntuple(d -> dot(g, element_basis(t, lo, hi, xs, d)), Val(D)))
 end

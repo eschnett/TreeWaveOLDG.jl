@@ -101,7 +101,11 @@ laptop's GPU has no `Float64`), in an environment of your own that
 ForwardDiff and IMEXRungeKutta, since no device package is a dependency;
 about a minute. On Symmetry `sbatch bin/symmetry/gpu.sh` runs them on
 one H200 in `Float64` and `Float32`, and `bin/far_rule.jl`, the far rule
-of the source projection on the device:
+of the source projection on the device. `bin/nested_ball.jl`,
+`bin/prescribed.jl` and `bin/uniform_motion.jl` take `--backend=cuda`
+too, the particle drivers in `Float64` only, so not on Metal;
+`bin/symmetry/gpu_scans.sh` runs M8c's reflection scans with them on an
+H200, after its `SCAN=tests` job:
 
 ```bash
 TREEWAVEOLDG_TEST_BACKEND=metal julia --project=<env> -t 4,0 test/device_tests.jl
@@ -156,6 +160,19 @@ remainder's force without evolving it:
 julia --project=. -t 4,0 bin/prescribed.jl --path=hyperbolic --hdiv=2 --levels=3 --tend=0.25
 julia --project=. -t 4,0 bin/prescribed.jl --path=circle --data=retarded --rx1=10 --rx2=14 --hdiv=2 --levels=3 --tend=0.25
 julia --project=. -t 4,0 bin/prescribed.jl --path=circle --data=retarded --levels=1 --hdiv=4 --rx1=3 --rx2=3.75 --reading
+```
+
+Both particle drivers take `--ball`: the outermost nested cube becomes
+the seven-patch ball's cube, with shells to a Sommerfeld sphere at
+`--R1` ("Particles in the ball"). With `R1 = 3Lc` the ball keeps the
+boxes' step and gives their numbers to rounding. On Symmetry
+`sbatch bin/symmetry/ball_motion.sh` after its `setup` runs the particle
+in uniform motion and at rest in the ball, and `prescribed.sh` the
+circle with `TREEWAVEOLDG_EXTRA="--ball --levels=3 --R1=50"`. The run
+below takes about a minute on four threads:
+
+```bash
+julia --project=. -t 4,0 bin/prescribed.jl --path=hyperbolic --hdiv=2 --levels=3 --tend=0.25 --ball --R1=48
 ```
 
 The four-patch annulus ("The annulus"), its convergence series and
@@ -227,6 +244,14 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   finest, because the transfer measures its distances in the finest
   element width. Do not lift that refusal without making the transfer
   level-aware ("Nested boxes").
+- **In the ball the particles stay in the cube, and the transfer works
+  in physical coordinates.** Everything the transfer reads of the mesh
+  goes through the `ParticleFrame` of the cube's affine map: block
+  origins and spacings mapped before use, points located in the cube
+  alone. Do not read `block_origin`, `spacing` or `locate_point` in the
+  transfer directly, and do not let a ball or a support leave the cube;
+  on a brick the frame is the identity and must stay bit for bit
+  ("Particles in the ball").
 - **The refinement indicator reads `u`'s mode `P - 1` under truncation,
   `P` without it,** since truncation freezes `u`'s top mode in time; and
   it reads every mode below that too, weighted, because one mode alone
@@ -368,6 +393,12 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   source near a particle with the nested rule, never a Gauss or sinh rule
   across the support's edge, where the profile is only `C³`
   ("Quadrature").
+- **Far from an accelerated particle `Ψ̂` is not its field.** Its
+  near-field terms grow with the distance, at order 3 like `r²`, a
+  hundred times the field at `r = 48` on M5's circle, and what
+  `(1 − W)Ψ̂` out there sends in crosses the shells at about twice the
+  speed of light. A run that must stay clean takes data that are the
+  field far out ("Particles in the ball").
 - **The transfer looks for no periodic images.** The source's ball and
   every particle's support lie inside the box ("The transfer").
 - **The inspiral's state is the field's state vector followed by six
@@ -401,7 +432,8 @@ guards.
 - `origin` is `https://github.com/eschnett/TreeWaveOLDG.jl.git`, and
   `main` tracks it. Work on a branch; do not push, open a pull request,
   or merge to `main` without being asked.
-- Not registered. TreeAMR 0.2.8 (with M17's forests of patches) comes
+- Not registered. TreeAMR 0.2.9 (with M17's forests of patches and
+  `locate_point` in a patch) comes
   from the General registry, not from a local checkout; IMEXRungeKutta,
   which is not registered, from its GitHub repository through
   `[sources]` in `Project.toml` and `test/Project.toml`.
