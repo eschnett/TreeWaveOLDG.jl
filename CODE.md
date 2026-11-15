@@ -1628,6 +1628,16 @@ no partition).
   gave a work item to every point of them, a fifth idle, each
   classifying its element again; the list saves 46 of the far rule's
   168 ms on an H200. On the CPU the two give the same `du` bit for bit (a test).
+- **What the projection reads of the forest is built once** (`SourceBall`,
+  which `InspiralProblem` keeps for its window's ball): the frame's block
+  origins and spacings, which blocks the ball reaches, and their copies
+  on the device. `projection_plan` built them at every call, a pass over
+  every block: 1.4 ms at `d/8`, but on M8d's ball, 43 520 blocks, 50 ms
+  of a 92 ms projection on an H200 node's host threads. Built once, the
+  plan takes 1.2 ms per call, and only the classification of the
+  supports' elements and the uploads remain. `project_source!` takes it
+  as `sourceball` and refuses one built for another ball; a test holds
+  its projection to a fresh one's bit for bit.
 - **On a device the graded rule runs as the far rule does,** each band
   over its list of elements in two kernels (`project_graded_list!`): the
   source at every point into a scratch array of its own, then the
@@ -5291,6 +5301,20 @@ over `t = 10` to 90; the retarded start's falls from `5.8·10⁻³` on
   retarded reference on the host's 16 threads at every half time unit
   took most of the rest, about 95 to 110 s per fill, 0.5 to `0.6 µs`
   per node.
+- **A step is the wave operator, the projection and the truncation.**
+  Phase by phase (job 598940, `cn111`, 2026-11-15), a step of 0.966 s
+  is four right-hand sides of 0.18 s, each the wave operator 0.099 s
+  (the gradient 0.043 s, the Laplacian 0.044 s, the exchanges the rest)
+  and the projection 0.083 s; four truncations of 0.056 s; and 0.01 s
+  each for the stages' arithmetic and the forces. Half the projection
+  was its plan's pass over the forest, now built once ([On a
+  device](#on-a-device)): on `cn113` (job 599012), whose host is slower,
+  the projection takes 0.042 s instead of 0.092 s and a step 0.83 s
+  instead of about 1.03. Of a reference fill's 90 s, the retarded field
+  alone takes 19 s; the rest is the particle field of the window's
+  part. The shells' own stable step is 2.07 times the finest level's,
+  so stepping them at their own rate would save at most a factor 1.9 on
+  the wave operator.
 
 
 ### Prescribed paths

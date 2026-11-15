@@ -685,6 +685,19 @@ patches.
   `@cuda maxregs=128`, another tenth, as its own commit so that it can
   be dropped: whether its gain is worth the extension is the owner's
   call.
+- 2026-11-15: Erik Schnetter asked how to make M8d's runs faster, and
+  for a profile first (job 598940): a step was the wave operator, 41 %,
+  the projection, 34 %, and the truncation, 23 %, and the host's fill of
+  the reference cost about as much as the steps. Half the projection
+  was its plan's pass over the forest, which B2 had left as a host loop
+  at `d/8`'s 1.4 ms. He asked for both fixes proposed. The pass is now
+  built once per problem (`SourceBall`), and a step takes 0.83 s
+  instead of about 1.03 (job 599012). The reference's fix, to fill
+  `Φ_ret` alone where the window vanishes, was written and dropped: the
+  data there are `(1 − W)Ψ̂` of the extended particle plus
+  `w(Φ_ret − Ψ̂)` of the point model, and the two particle fields differ
+  far out by about `5·10⁻¹³`, so it moved the data and the reference by
+  about `10⁻⁹` of the field. The exact ways out are in `PLAN.md`, B6.
 
 ## Particles
 

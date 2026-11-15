@@ -159,10 +159,23 @@ plenty of in `Float64`.
   `6·10⁻¹⁴`: 0.055 s the far rule, 1.6 ms the wave equation, and 2.03 s
   the graded and nested rules on the eight host threads. So they are
   next.
-- **B2, the plan per call. Measured:** 1.4 ms at `d/8`, beside the far
-  rule's 55 ms, with the jets uploaded per call (`device_source`). The
-  classification stays a host loop unless a larger box shows it
-  growing.
+- **B2, the plan per call. Done** (2026-11-15; `CODE.md`, "On a
+  device"). It took 1.4 ms at `d/8`, beside the far rule's 55 ms, but on
+  M8d's ball, 43 520 blocks, 50 ms of a 92 ms projection on an H200
+  node's host threads, nearly all of it a pass over the forest that does
+  not move with the particles. That pass is now built once per problem
+  (`SourceBall`): the plan takes 1.2 ms, and a step 0.83 s instead of
+  about 1.03. The classification of the supports' elements stays a host
+  loop.
+- **B6, the reference fill. (proposed)** The drivers fill the retarded
+  reference on the host, 90 to 110 s per fill on an H200 node's 16
+  threads, every 128 steps of about 0.83 s each: nearly half a run. Using
+  `Φ_ret` alone where the window vanishes is not exact, since the
+  extended particle's field there differs from the point model's by
+  about `5·10⁻¹³`, `10⁻⁹` of the field. Exact ways out: fill the next
+  reference on the host while the device steps, which hides it almost
+  entirely, or fill it on the device. Done when a run's time is its
+  steps'.
 - **B3, the graded rule. Done** (2026-11-11; `CODE.md`, "On a device").
   Each band runs over its list of elements in two kernels of the far
   rule's kind, the source at the band's points and the contraction; on

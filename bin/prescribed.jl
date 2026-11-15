@@ -445,7 +445,7 @@ function evolve(backend)
                 fdu, p.wave, p.tables,
                 ParticleSource(p.models, p.window, trajs; order=p.order), supports;
                 ball=(p.window.centre, p.window.R₂), rnear=p.rnear,
-                scratch=p.scratch), reps),
+                scratch=p.scratch, sourceball=p.sourceball), reps),
             "forces" => timed(backend, () -> particle_forces(p, u, t), reps),
             "step" => timed(backend, () -> step!(stepper), reps))
         emit(tag..., t, name, value)

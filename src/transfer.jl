@@ -874,7 +874,8 @@ end
 
 """
     project_source!(du, p::WaveProblem, t::TransferTables, S, particles; ball,
-                    rnear = 1, factor = -1, var = 2, scratch = nothing)
+                    rnear = 1, factor = -1, var = 2, scratch = nothing,
+                    sourceball = nothing)
 
 Add `factor · (P S)` to variable `var` of the state vector `du`, where
 `(P S)ₙ = (1/wₙ) ∫_{element(n)} S φₙ` is the projection of the source `S`
@@ -892,6 +893,10 @@ subtract it from `v`'s rate, as the remainder equations want.
   `t.rfar·hₑ` the graded rule, and the others the far one. At the
   defaults the rules agree to `10⁻¹²` relative where they meet
   ("Quadrature" in `CODE.md`).
+- `sourceball`, a [`SourceBall`](@ref TreeWaveOLDG.SourceBall) built for
+  this `ball` once, saves building it at every call: what the
+  projection reads of the forest that does not move with the particles.
+  One built for another ball is refused.
 
 The forest may be refined, but every block the ball meets, and every
 block that holds part of a particle's support, must be on the finest
@@ -908,9 +913,9 @@ supports meet is refused.
 """
 function project_source!(du, p::WaveProblem{T,D}, t::TransferTables, S, particles::Tuple;
                          ball, rnear::Real=1, factor=-one(T), var::Int=2,
-                         scratch=nothing) where {T,D}
+                         scratch=nothing, sourceball=nothing) where {T,D}
     check_tables(p, t)
-    plan = projection_plan(p, t, particles, ball, rnear)
+    plan = projection_plan(p, t, particles, ball, rnear; sourceball)
     scratch === nothing && (scratch = projection_scratch(p, t))
     dua = statearray(du, p.fs)
     project_far!(dua, plan, t, S, scratch, T(factor), var)
@@ -920,23 +925,39 @@ function project_source!(du, p::WaveProblem{T,D}, t::TransferTables, S, particle
     return du
 end
 
-# Where a projection's work is: the blocks' geometry on the host and on
-# the kernels' backend, which blocks meet the source's ball, and the
-# host's elements, nested and graded. Built once per call;
-# `bin/projection.jl` times the passes that read it separately.
-function projection_plan(p::WaveProblem{T,D}, t::TransferTables{T,P1}, particles, ball,
-                         rnear) where {T,D,P1}
-    0 <= rnear <= t.rfar || throw(ArgumentError(
-        "rnear = $rnear must lie between 0 and the far rule's distance rfar = $(t.rfar)"))
+"""
+    SourceBall(p::WaveProblem, ball; what = "project_source!")
+
+What a projection reads of the forest that does not move with the
+particles, for the source's ball `ball = (centre, R)`: the particles'
+frame, the finest element width, every block's origin and spacing in
+physical coordinates, on the host and on the problem's backend, and the
+blocks the ball meets. Building it checks that the ball lies on the
+finest level, naming `what` if not. [`project_source!`](@ref) takes one as `sourceball` and
+then builds only what the particles' positions decide, the elements near
+them; [`InspiralProblem`](@ref) builds one for its window's ball. Without
+it every call builds these again, which at `4·10⁴` blocks costs half the
+projection ("Particles on a device" in `PLAN.md`).
+"""
+struct SourceBall{D,T,O,S,A}
+    frame::ParticleFrame{D,T}
+    hₑ::T
+    region::Tuple{SVector{D,T},T}
+    origins::Vector{NTuple{D,T}}
+    spacings::Vector{T}
+    mask::Vector{Bool}
+    dev_origins::O
+    dev_spacings::S
+    active::A
+end
+
+function SourceBall(p::WaveProblem{T,D}, ball; what="project_source!") where {T,D}
     fs = p.fs
     forest = fs.forest
     frame = ParticleFrame(p)
-    check_finest(fs, ball, "project_source!", frame)
-    foreach(s -> check_finest(fs, s, "project_source!", frame), particles)
+    check_finest(fs, ball, what, frame)
     backend = get_backend(fs.work)
-    hₑ = frame_hₑ(forest, frame, P1)
-    rn = T(rnear) * hₑ
-    rf = t.rfar * hₑ
+    hₑ = frame_hₑ(forest, frame, order(p.element) + 1)
     region = (SVector{D,T}(ball[1]), T(ball[2]))
     origins = frame_origins(forest, frame)
     spacings = frame_spacings(forest, frame)
@@ -946,12 +967,40 @@ function projection_plan(p::WaveProblem{T,D}, t::TransferTables{T,P1}, particles
         inpatch[b] &&
             box_distance2(region[1], lo, lo .+ spacings[b] * forest.N, 1:D) < region[2]^2
     end
+    return SourceBall(frame, hₑ, region, origins, spacings, mask,
+                      to_backend(backend, origins), to_backend(backend, spacings),
+                      to_backend(backend, Int32.(findall(mask))))
+end
+
+# Where a projection's work is: the blocks' geometry on the host and on
+# the kernels' backend, which blocks meet the source's ball (both from
+# `sourceball`, built here when none is given), and the host's elements,
+# nested and graded, which the particles' positions decide.
+# `bin/projection.jl` times the passes that read it separately.
+function projection_plan(p::WaveProblem{T,D}, t::TransferTables{T,P1}, particles, ball,
+                         rnear; sourceball=nothing) where {T,D,P1}
+    0 <= rnear <= t.rfar || throw(ArgumentError(
+        "rnear = $rnear must lie between 0 and the far rule's distance rfar = $(t.rfar)"))
+    fs = p.fs
+    region = (SVector{D,T}(ball[1]), T(ball[2]))
+    if sourceball === nothing
+        sourceball = SourceBall(p, region)
+    elseif sourceball.region != region
+        throw(ArgumentError(
+            "the source's ball is $(Tuple(region[1])) of radius $(region[2]), and the " *
+            "sourceball was built for $(Tuple(sourceball.region[1])) of radius " *
+            "$(sourceball.region[2])"))
+    end
+    (; frame, hₑ, origins, spacings, mask) = sourceball
+    foreach(s -> check_finest(fs, s, "project_source!", frame), particles)
+    backend = get_backend(fs.work)
+    rn = T(rnear) * hₑ
+    rf = t.rfar * hₑ
     near, graded, far = host_elements(fs, t, origins, spacings, mask, region, particles, rn,
                                       rf, hₑ, Val(P1))
     return (; fs, backend, hₑ, rn, rf, region, particles, origins, spacings,
-            dev_origins=to_backend(backend, origins),
-            dev_spacings=to_backend(backend, spacings),
-            active=to_backend(backend, Int32.(findall(mask))), near, graded,
+            sourceball.dev_origins, sourceball.dev_spacings, sourceball.active, near,
+            graded,
             dev_graded=map(list -> to_backend(backend, map(x -> (Int32(x[1]), Int32.(x[2])),
                                                            list)), graded),
             far=to_backend(backend, far))

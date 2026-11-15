@@ -88,7 +88,8 @@ Then the window's ball and the supports must lie inside the cube, on its
 finest level, positions everywhere are physical, and the outer sphere's
 boundary is the wave problem's ("Particles in the ball" in `CODE.md`).
 """
-struct InspiralProblem{T,K,WP<:WaveProblem{T,3},TT,MO,S,SN<:SharedNodes{3}}
+struct InspiralProblem{T,K,WP<:WaveProblem{T,3},TT,MO,S,SN<:SharedNodes{3},
+                       SB<:SourceBall{3,T}}
     wave::WP
     frame::ParticleFrame{3,T}
     models::NTuple{K,ParticleModel{T}}
@@ -100,6 +101,7 @@ struct InspiralProblem{T,K,WP<:WaveProblem{T,3},TT,MO,S,SN<:SharedNodes{3}}
     scratch::S
     continuous::Bool
     shared::SN
+    sourceball::SB                      # the window's ball, for every projection
 end
 
 function InspiralProblem(wave::WaveProblem{T,3}, models::Tuple, window::Window,
@@ -115,14 +117,17 @@ function InspiralProblem(wave::WaveProblem{T,3}, models::Tuple, window::Window,
         "the motion moves $(length(trajs)) particles, and there are $K models"))
     models = map(m -> ParticleModel{T}(m.Q, m.ℓ, m.M), models)
     window = Window{T}(window.centre, window.R₁, window.R₂, window.m)
-    check_finest(wave.fs, (window.centre, window.R₂), "InspiralProblem", frame)
+    sourceball = SourceBall(wave, (window.centre, window.R₂); what="InspiralProblem")
     foreach((m, tr) -> check_finest(wave.fs, ParticleSupport(m, tr), "InspiralProblem",
                                     frame), models, trajs)
     scratch = projection_scratch(wave, tables)
     shared = SharedNodes(wave.fs, (window.centre, window.R₂), frame)
     return InspiralProblem{T,K,typeof(wave),typeof(tables),typeof(motion),typeof(scratch),
-                           typeof(shared)}(wave, frame, models, window, tables, order,
-                                           motion, T(rnear), scratch, continuous, shared)
+                           typeof(shared),typeof(sourceball)}(wave, frame, models, window,
+                                                              tables, order, motion,
+                                                              T(rnear), scratch,
+                                                              continuous, shared,
+                                                              sourceball)
 end
 
 nparticles(::InspiralProblem{T,K}) where {T,K} = K
@@ -372,14 +377,14 @@ function inspiral_rhs!(du, u, p::InspiralProblem{T,K}, t) where {T,K}
         TreeAMR.launch_by_owner!(ball_zero_kernel!, backend, dua, p.shared.dev_blocks;
                                  ndrange=range)
         project_source!(fdu, p.wave, p.tables, S, supports; ball, rnear=p.rnear,
-                        scratch=p.scratch, var=1)
+                        scratch=p.scratch, sourceball=p.sourceball, var=1)
         average_shared!(dua, p.shared, 1, Val(TreeWaveOLDG.order(p.wave.element) + 1))
         TreeAMR.launch_by_owner!(ball_add_kernel!, backend, dua, ua, p.shared.dev_blocks;
                                  ndrange=range)
         synchronize(backend)
     else
         project_source!(fdu, p.wave, p.tables, S, supports; ball, rnear=p.rnear,
-                        scratch=p.scratch)
+                        scratch=p.scratch, sourceball=p.sourceball)
     end
     particles = particle_state(u, p)
     set_particle_states!(du, p, map(last, particles), map(tr -> tr.a, trajs))
