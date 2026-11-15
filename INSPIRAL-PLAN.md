@@ -8,9 +8,9 @@ below without links.
 
 **Status.** M0 to M5 are done; M6a, M6b and M7 are not started; of M8,
 M8a and M8b are done (2026-11-11), M8a's gate having passed, and M8c is
-done (2026-11-14) on branch `inspiral-m8c-ball`, whose pull request is
-not open. M8d, data that are the field far from an accelerated particle,
-is proposed (2026-11-14). A
+done (2026-11-14), merged with pull request #15. M8d, data that are the
+field far from an accelerated particle, is in progress (2026-11-14) on
+branch `inspiral-m8d-far-data`. A
 milestone's status line changes here when its work starts and when its
 pull request merges. A finished milestone keeps its number and one line
 saying where its results went; its earlier text, with the gates and
@@ -358,7 +358,7 @@ stepping would. Moving the projection to a GPU with the field is
 ## M8: The particles in the seven-patch ball
 
 **Status:** M8a and M8b done (2026-11-11), M8c done (2026-11-14), M8d
-proposed. Not a step of
+in progress. Not a step of
 `INSPIRAL.md`'s "Validation": it replaces the periodic box's outer
 faces by the seven-patch ball's radiative sphere (`CODE.md`, "The
 seven-patch ball" and "The outer boundary").
@@ -423,8 +423,11 @@ is M8d's.
 
 ### M8d: Far data that are the field
 
-**Status:** proposed (2026-11-14), not started; on branch
-`inspiral-m8d-far-data` once M8c's pull request has merged. It settles
+**Status:** in progress (2026-11-14) on branch `inspiral-m8d-far-data`.
+Done: the uniform start (`far = :uniform`), its tests, `--data=uniform`,
+the scans in `gpu_scans.sh` (`SCAN=far`), the reference's cost and the
+dispersion relation (`CODE.md`, "Why the error outruns light"). Not
+done: the two runs on an H200. It settles
 what M8c left open (`CODE.md`, "Particles in the ball" and "What the
 transitions send back"):
 
@@ -569,8 +572,10 @@ milestone named. Those of the finished milestones are in `HISTORY.md`
   ball, which M8c has made ready; and its initial data, `INSPIRAL.md`'s
   `(1 − W)Ψ̂`, the retarded field of the binary on its circle forever,
   or uniform motion's field outside the window, from M8d's comparison.
-- M8d: whether the fast modes are damped, should the dispersion relation
-  show them the cause. The paper's modal filter (its eq. 76, `CODE.md`,
+- M8d: whether the fast modes are damped, now that the dispersion
+  relation shows them the cause (`CODE.md`, "Why the error outruns
+  light"): under-resolved waves at up to 1.58 times the speed of light,
+  and a dispersive tail ahead of them. The paper's modal filter (its eq. 76, `CODE.md`,
   "Possible extensions") would move the sphere's under-resolved return
   from `(2R₁ − R₂)/2` toward `2R₁ − R₂`, and so halve the `R₁` a clean
   time needs, at the cost of the energy's exact invariance; the

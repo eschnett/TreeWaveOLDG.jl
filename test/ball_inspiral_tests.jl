@@ -6,7 +6,7 @@
 # ball" in `CODE.md`.
 
 using IMEXRungeKutta: solve!
-using LinearAlgebra: norm
+using LinearAlgebra: dot, norm
 using StaticArrays
 
 const TWB = TreeWaveOLDG
@@ -225,4 +225,38 @@ end
     @test ball.err < ball.field
     @test ball.err ≈ boxes.err rtol = 1e-10
     @test ball.force ≈ boxes.force rtol = 1e-12
+end
+
+@testset "In the ball a circle steps from uniform motion's far data" begin
+    # Guards `far = :uniform` on the ball (INSPIRAL-PLAN.md, M8d): the
+    # ball has to take the data whose far field is that of the tangent
+    # line and evolve them, and beyond the window they are far smaller
+    # than the order-3 particle field's, whose near-field terms grow with
+    # the distance, most of all in `Π_r`. Near the particle the two starts
+    # are the same remainder, so for the first steps the force is the
+    # default start's (measured on this forest: `Π_r` beyond `R₂` 90 times
+    # smaller, the force along the motion after 16 steps 4 % apart).
+    p = ball_problem(4)
+    c = p.window.centre
+    m = p.models[1]
+    motion = circular_motion(c + SVector(0.011, 0.007, 0.013), 0.25, 0.3)
+    p = InspiralProblem(p.wave, p.models, p.window, motion)
+    dt = oldg_timestep(p.wave; cfl=1 // 2)
+    hole = (c, p.window.R₂)
+    results = map((:particle, :uniform)) do far
+        u0 = inspiral_initial_state(p; far)
+        integ = solve!(inspiral_integrator(p, u0, 0.0, 16dt; dt=dt))
+        tr = motion.path(integ.t)[1]
+        F = particle_forces(p, integ.u, integ.t)[1]
+        (; far0=ball_norm(p, u0, c, 5.0; hole), farΠ0=ball_norm(p, u0, c, 5.0; vars=2, hole),
+         far=ball_norm(p, integ.u, c, 5.0; hole), finite=all(isfinite, integ.u),
+         Ft=dot(F, tr.v) / norm(tr.v), rr=m.Q^2 / 12π * dot(tr.ȧ, tr.v) / norm(tr.v))
+    end
+    particle, uniform = results
+    @test uniform.finite
+    @test uniform.far0 < particle.far0 / 4
+    @test uniform.farΠ0 < particle.farΠ0 / 50
+    @test uniform.far < 2 * uniform.far0
+    @test uniform.Ft ≈ particle.Ft rtol = 0.1
+    @test 0 < uniform.Ft / uniform.rr < 1
 end

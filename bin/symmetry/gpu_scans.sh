@@ -5,11 +5,14 @@
 # under-resolved error and `2R1 − R₂` for a resolved wave, what comes back
 # into the window is what the cube's coarse-fine faces and the cube–shell
 # faces reflect; the scans vary the resolution on either side of them.
+# `SCAN=far` runs M8d's circle from data that are the field far out.
 #
 #     sbatch --export=ALL,SCAN=tests  bin/symmetry/gpu_scans.sh   # first
 #     sbatch --export=ALL,SCAN=pulses bin/symmetry/gpu_scans.sh
 #     sbatch --export=ALL,SCAN=circle,HSHELL=1 bin/symmetry/gpu_scans.sh
 #     sbatch --export=ALL,SCAN=rest   bin/symmetry/gpu_scans.sh
+#     sbatch --export=ALL,SCAN=far,DATA=retarded bin/symmetry/gpu_scans.sh
+#     sbatch --export=ALL,SCAN=far,DATA=uniform  bin/symmetry/gpu_scans.sh
 #
 # Measured (2026-11-13, jobs 597907 to 597912): the tests take 5 minutes,
 # the twelve pulses 2.4 hours, the circles 3.1 to 5.3 hours and the
@@ -51,6 +54,17 @@
 # `(2R1 − R₂)/2 = 70.75`: the third point, beside 36 and 50, for how that
 # return falls with `R1`.
 #
+# `SCAN=far`: INSPIRAL-PLAN.md's M8d, the circle of `SCAN=circle` from
+# data that are the field far out, in the plan's ball at `R1 = 100` with
+# shells of radial width 1, to `t = 90`, before the sphere's
+# under-resolved return at about 99. `DATA=retarded` starts from the
+# eternal circle's retarded field everywhere (`rx1 = 200` is beyond the
+# sphere); `DATA=uniform` from uniform motion's field outside the window
+# (`--data=uniform`). Both are measured against the retarded field
+# everywhere, in the balls of radius 4 to 64 every half time unit, and
+# the force every step. About 1.8·10⁸ nodes; the reference is filled on
+# the host at every output, about 2.7 µs per node on one core.
+#
 # Run from a checkout of its own (`TREEWAVEOLDG_REPO`, default `$PWD`),
 # rsynced to the cluster without `.git` and `Manifest*.toml`. The
 # environment is one of its own that `Pkg.develop`s the checkout and adds
@@ -72,12 +86,12 @@ export PATH="$HOME/.juliaup/bin:$PATH"
 REPO="${TREEWAVEOLDG_REPO:-$PWD}"
 SCRATCH=/mnt/beegfs/eschnetter/claude/treewaveoldg-inspiral
 ENVDIR="${TREEWAVEOLDG_GPU_ENV:-$SCRATCH/env-gpu-scans}"
-SCAN="${SCAN:?set SCAN to tests, pulses, circle or rest}"
+SCAN="${SCAN:?set SCAN to tests, pulses, circle, rest or far}"
 OUTDIR="${TREEWAVEOLDG_OUT:-$SCRATCH/gpu-scans-$SCAN-${SLURM_JOB_ID:-local}}"
 mkdir -p "$ENVDIR" "$OUTDIR"
 
 . "$REPO/bin/symmetry/simwatch.sh"
-simwatch_begin "$OUTDIR" "TreeWaveOLDG M8c reflection scan: $SCAN" 2
+simwatch_begin "$OUTDIR" "TreeWaveOLDG GPU scan: $SCAN${DATA:+ $DATA}" 2
 
 echo "# $(hostname) $(date -Iseconds) SCAN=$SCAN"
 nvidia-smi --query-gpu=name,memory.total --format=csv
@@ -131,6 +145,13 @@ case $SCAN in
         "${JL[@]}" "$REPO/bin/uniform_motion.jl" --backend=cuda --ball --R1=72 \
             --levels=3 --w0=3 --hdiv=8 --v=0 --tend=80 --every=0.25 --cost \
             > "$OUTDIR/rest-R72-h8.tsv"
+        ;;
+    far)
+        data=${DATA:?set DATA to retarded or uniform}
+        "${JL[@]}" "$REPO/bin/prescribed.jl" --backend=cuda --path=circle \
+            --data="$data" --v=0.2 --hdiv=8 --levels=3 --w0=4 --order=3 --ball \
+            --R1=100 --hshell=1 --rx1=200 --rx2=210 --tend=90 --every=0.5 \
+            --radii=4,8,16,32,64 --cost > "$OUTDIR/far-$data.tsv"
         ;;
     *)
         echo "unknown SCAN=$SCAN"

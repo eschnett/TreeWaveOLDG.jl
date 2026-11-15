@@ -1448,6 +1448,22 @@ patches.
   behind the particle and whose runs are short. The dispersion relation
   that would explain the error faster than light went into M8d, and a
   filter damping it, should it be the cause, is the owner's decision.
+- 2026-11-14: M8d started once M8c's pull request had merged. Uniform
+  motion's far data became `inspiral_initial_state(p; far = :uniform)`,
+  which at `a = 0` is the default's data bit for bit, and
+  `bin/prescribed.jl --data=uniform`. On a coarse ball the uniform
+  start's remainder beyond the window is a sixth of the order-3 particle
+  field's, and its `Π_r` a ninetieth. The retarded reference costs
+  2.7 µs per node on one laptop core, about 8 core-minutes per output at
+  `R₁ = 100`. `bin/dispersion.jl` took the dispersion relation from the
+  operator itself: with truncation the fastest group velocity is 1.58,
+  on the physical branch's unfolded, under-resolved part, in every
+  direction since the operator is the sum of the one-dimensional ones;
+  without it a spurious branch carries long waves at 3. Ahead of the
+  group velocity a dispersive tail reaches thresholds of `10⁻⁶` to
+  `10⁻¹⁰` at 1.7 to 2.5 times the speed of light, which accounts for
+  M3's twice it and M8c's 1.7 to 1.9 in the shells; the mechanism is no
+  longer open.
 
 ### What the plan said of its finished milestones
 

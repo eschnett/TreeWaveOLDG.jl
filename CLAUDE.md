@@ -175,6 +175,16 @@ below takes about a minute on four threads:
 julia --project=. -t 4,0 bin/prescribed.jl --path=hyperbolic --hdiv=2 --levels=3 --tend=0.25 --ball --R1=48
 ```
 
+The dispersion relation of the semi-discrete scheme on a brick, and
+with `--front` how far ahead of light compact data reach ("Why the
+error outruns light"), in the package environment, seconds in 1D and
+half a minute in 3D:
+
+```bash
+julia --project=. bin/dispersion.jl
+julia --project=. -t 4,0 bin/dispersion.jl --front --truncate=yes
+```
+
 The four-patch annulus ("The annulus"), its convergence series and
 energy loss, in the package environment, a few seconds per run on four
 threads; on Symmetry `sbatch bin/symmetry/annulus.sh` after its `setup`,
