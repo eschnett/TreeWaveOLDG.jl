@@ -288,3 +288,44 @@ end
     @test abs(fine.with) < abs(coarse.with)
     @test abs(fine.without) > 2 * abs(coarse.without)
 end
+
+@testset "Uniform motion's far data are the default's at a = 0 and the tangent's field on a circle" begin
+    # Guards `far = :uniform` (INSPIRAL-PLAN.md, M8d): data that beyond the
+    # window are the field of a charge that has always moved on its
+    # tangent. At `a = 0` they must be the default's `(1 - W)Ψ̂` bit for
+    # bit, since every near-field and lab-slice term vanishes there. On a
+    # circle `Φ_r` must be the boosted static field of the particle's `z`
+    # and `v`, and `Π_r` its derivative along the tangent line, a finite
+    # difference in `t`, not `𝒟Ψ̂₀`, which carries the acceleration through
+    # `v̇` and is not the time derivative of any solution.
+    p, wx = hyperbolic_box(4)
+    c = p.window.centre
+    uniform = uniform_motion((c + SVector(0.11, 0.07, 0.13),), (SVector(0.2, 0.1, 0.0),))
+    q = InspiralProblem(p.wave, p.models, p.window, uniform)
+    @test inspiral_initial_state(q; far=:uniform) == inspiral_initial_state(q)
+    @test inspiral_initial_state(q; t=0.3, far=:uniform) ==
+          inspiral_initial_state(q; t=0.3)
+    @test_throws ArgumentError inspiral_initial_state(q; far=:retarded)
+    @test_throws ArgumentError inspiral_initial_state(q; far=:uniform, retarded=wx)
+
+    m = p.models[1]
+    motion = circular_motion(c + SVector(0.011, 0.007, 0.013), 0.25, 0.3)
+    q = InspiralProblem(p.wave, p.models, p.window, motion)
+    t = 0.4
+    tr = motion.path(t)[1]
+    f = TWP.RemainderData(q, (tr,), t; far=:uniform)
+    Φ₀(x, s) = TWP.boosted_static(m, x, tr.z + s * tr.v, tr.v)
+    δ = 1e-4
+    for x in (c + SVector(3.0, 0.5, -0.4), c + SVector(-1.0, 2.7, 1.3),
+              c + SVector(0.2, -0.3, 4.1))
+        @test norm(x - c) > p.window.R₂
+        @test f(x, 1) == Φ₀(x, 0.0)
+        fd = (Φ₀(x, δ) - Φ₀(x, -δ)) / 2δ
+        @test f(x, 2) ≈ fd rtol = 1e-7
+        𝒟Ψ̂₀ = TWP.particle_rate(m, x, tr; order=0)
+        @test abs(f(x, 2) - 𝒟Ψ̂₀) > 1e-3 * abs(fd)
+    end
+    # Inside the window's inner ball the remainder is zero.
+    @test f(tr.z + SVector(0.1, 0.0, 0.0), 1) == 0
+    @test f(tr.z + SVector(0.1, 0.0, 0.0), 2) == 0
+end

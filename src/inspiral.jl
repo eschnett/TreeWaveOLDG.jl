@@ -187,6 +187,10 @@ trajectories(m::Prescribed, p::InspiralProblem, u, t) = m.path(t)
 # `order` are `Ψ̂`'s. The total field is then `W_x Φ_ref + (1 - W_x)Ψ̂`,
 # with `Φ_ref = Φ_ret + Ψ̂ - Ψ̂_pt` the retarded field of the extended
 # particles but for their finite-size terms beyond `order`.
+#
+# With `far = :uniform` the trajectories are their uniform parts, `z` and
+# `v` alone, and the order 0: the remainder is `(1 - W)Ψ̂₀` with `Ψ̂₀` the
+# boosted static field, and its rate is taken along the tangent line.
 struct RemainderData{T,K,R,PA,PM}
     models::NTuple{K,ParticleModel{T}}
     trajs::NTuple{K,Trajectory{T}}
@@ -198,10 +202,15 @@ struct RemainderData{T,K,R,PA,PM}
     t::T
 end
 
-function RemainderData(p, trajs, t; retarded=nothing)
+function RemainderData(p, trajs, t; retarded=nothing, far::Symbol=:particle)
     T = eltype(p.window.centre)
     points = map(point_model, p.models)
-    return RemainderData(p.models, trajs, p.window, p.order, retarded, p.motion.path,
+    order = p.order
+    if far === :uniform
+        trajs = map(tr -> Trajectory(; z=tr.z, v=tr.v), trajs)
+        order = 0
+    end
+    return RemainderData(p.models, trajs, p.window, order, retarded, p.motion.path,
                          points, T(t))
 end
 
@@ -253,7 +262,8 @@ at_physical(wave::WaveProblem, f) =
     wave.metric === nothing ? f : WithPatch(AtPhysical(wave.metric.geometry, f))
 
 """
-    inspiral_initial_state(p::InspiralProblem; t = 0, retarded = nothing)
+    inspiral_initial_state(p::InspiralProblem; t = 0, retarded = nothing,
+                           far = :particle)
 
 The state vector at time `t` of the motion: the remainder of the
 particle field, `Φ_r = (1 - W)Ψ̂` and `Π_r = (1 - W)𝒟Ψ̂` at the nodes, with
@@ -277,14 +287,31 @@ of the path reaches ("Prescribed paths" in `CODE.md`). For a path the
 particles follow, this is the exact remainder at `t` in the ball where
 `W_x = 1`, as far as no signal from outside it has arrived, up to the
 particles' finite-size terms beyond `order`.
+
+With `far = :uniform` the remainder is instead `Φ_r = (1 - W)Ψ̂₀` and
+`Π_r = (1 - W)∂ₜΨ̂₀`, with `Ψ̂₀` the boosted static field
+(`particle_field(…; order = 0)`) of each particle's position and velocity
+at `t`, and `∂ₜΨ̂₀` its rate along the tangent line, with the acceleration
+and its derivatives zero, not along the motion. Beyond the window's
+outer radius the total field is then that of charges that have always
+moved on their tangents, an exact solution of the wave equation, which
+for an accelerated particle the particle field of higher order is not
+(`INSPIRAL-PLAN.md`'s M8d; "Initial data and norms" in `CODE.md`). It
+needs no past path, and it does not combine with `retarded`. At
+`a = 0` it is the default's data.
 """
 function inspiral_initial_state(p::InspiralProblem{T,K}; t::Real=0,
-                                retarded::Union{Nothing,Window}=nothing) where {T,K}
+                                retarded::Union{Nothing,Window}=nothing,
+                                far::Symbol=:particle) where {T,K}
+    far in (:particle, :uniform) ||
+        throw(ArgumentError("far is :particle or :uniform, got $(repr(far))"))
+    far === :uniform && retarded !== nothing &&
+        throw(ArgumentError("far = :uniform does not combine with a retarded window"))
     trajs = trajectories(p, nothing, t)
     fs = p.wave.fs
     retarded === nothing || (retarded = Window{T}(retarded.centre, retarded.R₁,
                                                   retarded.R₂, retarded.m))
-    data = at_physical(p.wave, RemainderData(p, trajs, t; retarded))
+    data = at_physical(p.wave, RemainderData(p, trajs, t; retarded, far))
     L = fieldlength(p)
     backend = get_backend(fs.work)
     if backend isa CPU

@@ -52,9 +52,12 @@ M3b's pulse leaves through the shells where the nested boxes' periodic
 faces send it back (`INSPIRAL-PLAN.md`'s M8b). The particles run in
 that cube, the transfer in its physical coordinates through its affine
 map, and on the nested boxes' step give their numbers there (M8c; see
-[Particles in the ball](#particles-in-the-ball)); initial data that are
-the field far from an accelerated particle are `INSPIRAL-PLAN.md`'s M8d,
-proposed. The thirteen-patch ball
+[Particles in the ball](#particles-in-the-ball)). With data that are
+the field far out, the retarded field to the sphere or uniform motion's
+field outside the window, M5's circle runs clean in the ball to
+`t = 90`, and the dispersion relation explains why error outruns light
+(M8d; [Why the error outruns light](#why-the-error-outruns-light)). The
+thirteen-patch ball
 adds six exactly radial shells outside a middle sphere, where `√g`
 factorizes and the truncation is a radial projection times an angular
 one; see [Multi-patch
@@ -126,6 +129,7 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   - [The thirteen-patch ball](#the-thirteen-patch-ball-1)
   - [Refined forests](#refined-forests-1)
   - [The RK4 limit](#the-rk4-limit)
+  - [Why the error outruns light](#why-the-error-outruns-light)
   - [The blast wave's error](#the-blast-waves-error)
   - [Adaptive refinement](#adaptive-refinement-1)
   - [Threads on Symmetry](#threads-on-symmetry)
@@ -1369,6 +1373,9 @@ metric](#truncation-with-a-metric)).
 truncation gives a clean order `P` for `u` and `v` alike. Without it,
 `u` is more accurate and often converges faster, but `v` converges
 irregularly and more slowly. The default is the paper's scheme.
+Truncation also removes a spurious branch that carries long waves at
+three times the speed of light; with it the fastest group velocity is
+1.58 ([Why the error outruns light](#why-the-error-outruns-light)).
 
 ## Time step
 
@@ -2735,12 +2742,27 @@ grow with the distance, at order 3 like `r²`, and on M5's circle at
 `r = 48` they are a hundred times the retarded field. What these data
 send in reached the centre at about twice the speed of light through
 the shells, well before a signal from them would, and swamped the
-remainder ("What the transitions send back" under "Measured results").
-Retarded data out to the sphere should avoid it on a prescribed path,
-and uniform motion's field outside the window, `Ψ̂₀` with its rate
-along the tangent line, would be an exact solution there for any motion;
-both are `INSPIRAL-PLAN.md`'s M8d **(proposed)**, and data for the
-inspiral that are the field far out are **(open)** until then. `ball_norm` and `ball_mean` place
+remainder ("What the transitions send back" under "Measured results";
+[Why the error outruns light](#why-the-error-outruns-light)). On a
+prescribed path the data can be the retarded field out to the sphere
+(`retarded` with `W_x = 1` beyond it). For any motion,
+`inspiral_initial_state(p; far = :uniform)` fills uniform motion's
+field outside the window instead: `(1 − W)Ψ̂₀`, the boosted static field
+of each particle's `z` and `v`, with its rate along the tangent line, `a`
+and its derivatives zero, not `𝒟Ψ̂₀`, which carries `a` through `v̇`.
+Beyond `R₂` that is an exact solution, the field of charges that have
+always moved on their tangents, so what starts at `t = 0` is only what
+the acceleration changes; at `a = 0` it is the default's data bit for
+bit. On M5's circle both run clean to `t = 90` with the same force on
+average over an orbit, to `6·10⁻⁴ F_RR`; the uniform start costs a
+start-up of three time units and a residual about ten times the
+retarded start's, which makes the force scatter by `1.5·10⁻² F_RR`
+(*far data that are the field* in [Particles in the
+ball](#particles-in-the-ball-1) under "Measured results"). Prescribed
+paths take the retarded field to the sphere. The inspiral, whose past
+path is not known, takes uniform motion's field or the retarded field
+of an assumed past; which is M7's choice (`INSPIRAL-PLAN.md`, "Left to
+settle later"). `ball_norm` and `ball_mean` place
 each node at its physical position, the patch from the fold's block
 tag, and weight it by `√g` from the problem's coefficient set, as
 `wave_norm` does; on a brick they are unchanged. `ball_mean` is the
@@ -3025,8 +3047,15 @@ written without the averaging and the force read both ways, are
   seven-patch ball's cube, its force every step in
   components, its face crossings, and its error against the retarded
   field; `--reading` reads the exact remainder's force without evolving
-  it; `bin/symmetry/prescribed.sh` runs it on a Symmetry AMD node, one
+  it; `--data=uniform` starts the circle from uniform motion's field
+  outside the window; `bin/symmetry/prescribed.sh` runs it on a Symmetry AMD node, one
   run per `path:hdiv:order[:tend]` of `TREEWAVEOLDG_RUNS`.
+- `bin/dispersion.jl`: the dispersion relation of the semi-discrete
+  scheme on a periodic brick, from `wave_rhs!` and `truncate_state!`
+  through the Bloch matrix, its branches' group velocities, and with
+  `--front` how far ahead of light compact data reach, on the laptop in
+  the package environment ([Why the error outruns
+  light](#why-the-error-outruns-light)).
 - `bin/ball.jl`: the seven-patch ball with nested cubes in its cube,
   included by `bin/uniform_motion.jl` and `bin/prescribed.jl` for their
   `--ball` ([Particles in the ball](#particles-in-the-ball)).
@@ -3320,8 +3349,12 @@ one thread on CI, is otherwise silent until its summary.
   not; the thirteen-patch ball has the same frame, and a patched forest
   without its geometry none; and a particle moving at `v = 0.2` to
   `t = 1/8` on the boxes' step has the boxes' error to `10⁻¹⁰` and their
-  force to `10⁻¹²`. About a minute on four threads, half of it
-  compiling the ball.
+  force to `10⁻¹²`; a circle at `v = 0.3` steps from uniform motion's
+  far data, whose remainder beyond the window is under a quarter of the
+  order-3 particle field's and whose `Π_r` there under a fiftieth, and
+  after 16 steps its force along the motion is the default start's to
+  10%. About two minutes on four threads, half of it compiling the
+  ball.
 - `prescribed_tests.jl`: the circle's and hyperbolic motion's `v`, `a`,
   `ȧ`, `ä`, `a⃛` and `a⃜` are the dual-number derivatives of their
   positions; along the exact circle at `v = 0.2` the order-3 source is
@@ -3344,7 +3377,12 @@ one thread on CI, is otherwise silent until its summary.
   hyperbolic motion at `v = 0.05` exerts less than 1% of the force along
   the acceleration it exerts with the `t′²` term put back, and that of
   the circle less than `0.1 F_RR` radially, falling from `hₑ = 1/2` to
-  `1/4`, where with the term put back it more than doubles.
+  `1/4`, where with the term put back it more than doubles; uniform
+  motion's far data (`far = :uniform`) are the default's bit for bit in
+  uniform motion, and on a circle at `v = 0.3` beyond `R₂` the boosted
+  static field of the particle's `z` and `v`, with a rate that is its
+  derivative along the tangent line to `10⁻⁷` and differs from `𝒟Ψ̂₀`;
+  they refuse a retarded window.
 - `device_tests.jl`, last, on the device `TREEWAVEOLDG_TEST_BACKEND=cuda`
   or `metal` names, loaded only then and not a test dependency, or with
   the CPU standing in, as on CI, where it checks the plumbing: the state
@@ -4012,6 +4050,101 @@ up to 7% above it in 3D, where the fine region is a single refined root
 block. `refined_tests.jl` checks the ratio for `D = 1, 2` at
 `P = 1, 2, 4` and for `D = 3` at `P = 1`.
 
+### Why the error outruns light
+
+Error in the particle runs has crossed the grid faster than light:
+about twice its speed from the periodic box's faces ([Uniform
+motion](#uniform-motion)), 1.5 times across the nested boxes' coarse
+levels ([Nested boxes](#nested-boxes-1)), 1.7 to 1.9 times through the
+ball's shells and about once on the cube's fine levels ([Particles in
+the ball](#particles-in-the-ball-1)). `bin/dispersion.jl` (`P = 3`,
+`hₑ = 1`, 2026-11-14, laptop) takes the semi-discrete operator itself,
+`wave_rhs!` followed by `truncate_state!` on a truncated state, on a
+periodic brick, cuts it into the blocks by which an element hears its
+neighbours (one on either side along each axis, none diagonally), and
+diagonalizes the Bloch matrix `A(θ) = Σ_j A_j e^{-iθ·j}`, `θ = k hₑ`.
+Its eigenvalues are `±iω` to `|Re λ| < 2·10⁻⁷`, the roundoff of a
+non-normal eigenproblem, so the scheme keeps the energy mode by mode.
+
+**One dimension, with truncation.** Two branches are frozen (`ω = 0`:
+`u`'s top mode, which truncation holds fixed, and `v`'s, which it
+removes), and three move:
+
+- **The physical branch** has `ω ≈ k` up to `kh = π`, with phase and
+  group velocities 1.00001 and 1.00007 at 32 nodes per wavelength
+  (`P + 1` nodes per element), 1.0007 and 1.005 at 16, 1.004 and 1.025
+  at 12, 1.010 and 1.060 at 10. At `kh = π` it has a gap, from 3.113
+  to 3.464.
+- **Unfolded past `π`**, it goes on as the second branch, from 3.464 at
+  `kh = π` to 7.746 at `2π`, and its slope reaches **1.584** at
+  `kh ≈ 4.58`, about 5.5 nodes per wavelength, where `ω ≈ 5.4`. At 6
+  nodes per wavelength the group velocity is 1.55.
+- **The third branch** runs from 7.746 to 8.641, with slopes below 1.
+  Its top, 8.641, is the spectral radius, which with RK4's `2√2` on the
+  imaginary axis gives `cfl ≈ 5.2`, as measured ([The RK4
+  limit](#the-rk4-limit)).
+
+**Without truncation** a spurious branch leaves `ω = 0` at `kh = 0` with
+`ω ≈ 3k`: long waves at **three times** the speed of light. The physical
+branch's fastest unfolded part is then 1.36, and the spectral radius
+9.105.
+
+**Three dimensions.** On a brick the operator is the sum of the
+dimensions' one-dimensional ones: every three-dimensional `ω²` is a sum
+`Σ_d μ_d(θ_d)` of one-dimensional branches' `ω²`, to `1.5·10⁻¹²`
+(`--D=3`). The group velocity of such a mode is a weighted mean of the
+one-dimensional ones, so no direction is faster: along `x` and along
+the diagonal the largest is 1.584 again. In units of `hₑ` the relation
+does not know the spacing, so the speed is the same at every
+resolution and, per axis, on elements of different widths along
+different axes: only how much of the data is under-resolved depends on
+`hₑ`. That is what M3 found at the box's faces, at every resolution,
+and M8c in the shells, nearly whatever their radial width. The shells
+are not a brick; their metric is not covered by this.
+
+**Ahead of the group velocity.** A semi-discrete solution has no edge
+at the fastest group velocity: `exp(tA)` reaches every element, with a
+tail that falls off quickly ahead of the front. `--front` starts `u` as
+the compact bump `(1 − (x/a)²)⁵` of half-width `a` on a periodic line of
+1024 elements, `v` as zero, takes `exp(tA)` exactly Bloch wave by Bloch
+wave (leaving RK4's own error out), and reports the farthest node where
+`|u|` exceeds `ε` times the bump's height, as a speed `(x_ε − a)/t`;
+in the continuum it is zero beyond `a + t`.
+
+| `a` | `t` | `ε = 10⁻⁴` | `10⁻⁶` | `10⁻⁸` | `10⁻¹⁰` |
+|---|---|---|---|---|---|
+| 4 | 5 | 1.40 | 2.00 | 2.60 | 3.14 |
+| 4 | 10 | 1.50 | 1.90 | 2.13 | 2.50 |
+| 4 | 20 | 1.50 | 1.79 | 1.95 | 2.15 |
+| 4 | 40 | 1.43 | 1.70 | 1.83 | 1.93 |
+| 8 | 10 | 0.93 | 1.70 | 2.10 | 2.30 |
+| 8 | 40 | 1.00 | 1.63 | 1.77 | 1.88 |
+| 16 | 10 | 0.83 | 1.20 | 1.90 | 2.17 |
+| 16 | 40 | 0.96 | 1.07 | 1.70 | 1.80 |
+
+Without truncation, at `a = 4`, the same speeds are 2.5 at `10⁻⁴` and
+3.2 to 4.1 below it.
+
+**The verdict.** The fast error is the under-resolved part of the data
+(the kinks at the box's faces, the data's jump at a coarse-fine face,
+`Ψ̂`'s growth on the coarse shells), carried at up to 1.58 times the
+speed of light, and ahead of it a dispersive tail that a small enough
+threshold sees at about twice that speed early and less later. The
+better resolved the data, the smaller the part and the later a given
+threshold sees it: on the cube's fine levels it was the speed of
+light. Nothing in the scheme bounds it by one; truncation bounds the
+group velocity by 1.58, against 3 without it. A clean time is then
+`(L/2 − r)/v` with `v` between 1.58 and about 2 for the thresholds the
+runs measure, as M3's `(L/2 − r)/2` assumed. M8d sees the tail at the
+particle: M8c's circle and the same circle from the retarded field
+everywhere part only through M8c's particle field beyond `r = 48`, and
+their forces differ by `10⁻⁸ F_RR` at `t ≈ 10`, `10⁻⁶` at 12 and
+`10⁻⁴` at 20, about 5, 4 and 2.4 times the speed of light from 48
+(*far data that are the field* in [Particles in the
+ball](#particles-in-the-ball-1)). A front of resolved data, the uniform
+start's leaving its window, crosses the cube and the shells at the
+speed of light.
+
 ### The blast wave's error
 
 `uniform_blast` with `E = 2` and `roots = 4, 8, 16` blocks per
@@ -4528,7 +4661,9 @@ distance from the nearest face:
 - **The faces' error travels at about twice the speed of light,** at
   every resolution, so it is a property of the scheme's dispersion and
   not of `hₑ`: the kinks the non-periodic initial data have at the faces
-  excite high modes, whose group velocity OLDG does not bound by one. A
+  are under-resolved, and OLDG carries such waves at up to 1.58 times
+  the speed of light and the smallest parts of them faster still ([Why
+  the error outruns light](#why-the-error-outruns-light)). A
   point at distance `r` from the centre of a box of side `L` is clean
   until about `(L/2 - r)/2`, half the time the speed of light allows.
 - **Once there it is the whole error,** `10⁴` times the discretization
@@ -5073,9 +5208,12 @@ remainder's own RMS is `7.4·10⁻⁴`:
   balls of radius 24 down to 4 time it at about twice the speed of light
   through the shells and the cube's root of width 2, and at about the
   speed of light on the level of width 1 inside.
-  The mechanism of its speed is **(open)**, and the cure is data that
-  are the field far out ([Particles in the ball](#particles-in-the-ball));
-  both are `INSPIRAL-PLAN.md`'s M8d.
+  Its speed is that of the under-resolved part of these data and of the
+  dispersive tail ahead of it ([Why the error outruns
+  light](#why-the-error-outruns-light)); the cure is data that are the
+  field far out ([Particles in the ball](#particles-in-the-ball)), with
+  which the circle runs clean to `t = 90` (*far data that are the
+  field*, below).
 
 *The particle at rest at a third sphere* (job 597912): the runs at rest
 above at `R1 = 72` (`m = 15`, 72.5 M nodes, 53.1 M in the shells), to
@@ -5089,6 +5227,70 @@ to 80 the error stays at `1.8`–`2.1·10⁻⁷` and the force at
 step took 0.52 s, against 2.30 s at `R1 = 50` on an EPYC 7543 (55 M
 nodes): about six times the 64 threads' rate per node. The run took
 4.5 hours.
+
+*Far data that are the field* (`INSPIRAL-PLAN.md`'s M8d, jobs 598636
+and 598637, one H200 each, 2026-11-14): the circle above, in the same
+cube with shells of radial width 1, now to `R1 = 100` (`m = 21`,
+178 M nodes, 132 M in the shells), to `t = 90`, before the sphere's
+under-resolved return at about 98, 23 040 steps at `dt = 1/256`. Two
+starts: the retarded field at every node (`--data=retarded`,
+`--rx1=200`, beyond the sphere), and uniform motion's field outside the
+window (`--data=uniform`, `far = :uniform`), the retarded field inside
+it. Both are measured against the retarded field, the force every step
+and the error every half time unit in balls about the centre without
+the hole about the particle; the remainder's own RMS there is
+`1.2·10⁻³` in the ball of radius 4, `7.4·10⁻⁴` in 8, `4.0·10⁻⁴` in 16,
+`2.1·10⁻⁴` in 32 and `1.0·10⁻⁴` in 64. `F_t/F_RR` over whole orbits
+(`2π/Ω = 15.7`) from `t = 3`, and the errors:
+
+| start | orbit 1 | 2 | 3 | 4 | 5 | `F_t` scatter | error in 8 at `t = 8` | 40 | 90 | in 64 at 90 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| retarded | 1.041577 | 1.041643 | 1.041679 | 1.041690 | 1.041676 | `4·10⁻³`–`1.4·10⁻³` | 6.1e-8 | 6.5e-8 | 6.1e-8 | 1.6e-8 |
+| uniform | 1.041673 | 1.041062 | 1.041977 | 1.041596 | 1.041727 | `1.5·10⁻²` | 1.1e-5 | 7.4e-7 | 5.8e-7 | 1.1e-6 |
+| M8c, `rx1 = 48` | 1.041577 | 1.043360 | – | – | – | | 6.1e-8 | 2.3e-3 | – | – |
+
+The scatter is the standard deviation of `F_t/F_RR` from step to step
+over `t = 10` to 90; the retarded start's falls from `5.8·10⁻³` on
+`t = 3` to 10 to `1.4·10⁻³` on 60 to 90.
+
+- **The retarded field everywhere runs clean to `t = 90`.** Its force
+  over each orbit is `1.04163 F_RR` to `6·10⁻⁵`, M8c's value up to
+  `t = 25`, and its errors stay within a factor of two of their level at
+  `t = 1` in every ball to the end. It is M8c's circle to
+  `5·10⁻¹² F_RR` up to `t = 10`; the two forces then part by
+  `10⁻⁸ F_RR` at `t ≈ 10`,
+  `10⁻⁶` at 12, `10⁻⁴` at 20 and `10⁻³` at 26, as M8c's particle field
+  beyond 48 arrives ([Why the error outruns
+  light](#why-the-error-outruns-light)). The radial and normal forces
+  stay below `5·10⁻² F_RR` and `3·10⁻² F_RR` at every step.
+- **Uniform motion's field far out gives the same mean force after a
+  start-up of three time units.** Radiation reaction switches on at
+  `t = 0`, and the force's means over single time units between
+  `t = 0.5` and 3 swing from `−1.4 F_RR` to `2.6 F_RR`; from `t = 3` to
+  10 it is the retarded start's to `4·10⁻³ F_RR` at every step. From
+  `t ≈ 10` on it carries
+  an excess over the retarded start's of RMS `1.5·10⁻² F_RR` and mean
+  `−3·10⁻⁷ F_RR` over `t = 10` to 90, strongest near `ω ≈ 7.5`, which
+  has not decayed by `t = 90`. Averaged over an orbit it is the retarded
+  start's force to `6·10⁻⁴ F_RR`. What carries the excess is
+  **(open)**: at `ω = 7.5` the dispersion relation's group velocity is
+  1.27 on the cube's root (`ωhₑ = 3.75`) and 1.12 in the shells
+  (`ωhₑ = 7.5`), so it is no mode the scheme traps.
+- **The data's front leaves each ball at the speed of light.** The
+  window's part of the data's free evolution vanishes once
+  `t > r + R₂`, and the uniform start's error in the ball of radius `r`,
+  about `10⁻¹` of the remainder at first, is a few `10⁻³` of it by
+  `t = 12` for `r = 8`, 20 for 16, 40 for 32 and 70 for 64, against
+  `r + R₂` = 11.75, 19.75, 35.75 and 67.75. What it leaves behind is a
+  residual of `6·10⁻⁷` to `10⁻⁶` in every ball at `t = 90`, five times
+  the retarded start's error in the ball of 4 and 70 times it in the
+  ball of 64, which has not fallen by then.
+- **The reference costs as much as the steps.** A step took 0.96 s and
+  1.01 s (the right-hand side 0.18 s and 0.19 s, the wave operator alone
+  0.10 s), 6.2 and 6.4 of the runs' 11.2 and 12.4 hours; filling the
+  retarded reference on the host's 16 threads at every half time unit
+  took most of the rest, about 95 to 110 s per fill, 0.5 to `0.6 µs`
+  per node.
 
 
 ### Prescribed paths

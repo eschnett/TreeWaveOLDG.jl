@@ -5,8 +5,8 @@
 #     julia -t N,0 --project=. bin/prescribed.jl [--path=circle] [--hdiv=8] \
 #         [--levels=5] [--w0=4] [--order=3] [--tend] [--every=0.0625] \
 #         [--fevery=1] [--cfl=0.5] [--v=0.05] [--rc=0.5] [--g=0.1] \
-#         [--data=instantaneous] [--rx1] [--rx2] [--plain] [--both] \
-#         [--cost] [--reps=3] [--ball] [--R1=50] [--hshell] \
+#         [--data=instantaneous|retarded|uniform] [--rx1] [--rx2] \
+#         [--plain] [--both] [--cost] [--reps=3] [--ball] [--R1=50] [--hshell] \
 #         [--radii=r1,r2,…] [--backend=cpu|cuda]
 #
 # Like `bin/uniform_motion.jl`, this runs against the package environment;
@@ -51,7 +51,15 @@
 # across it. With `--data=retarded` the circle starts as the hyperbolic
 # run below does, from the retarded field of the point charge on the
 # circle forever, here inside `rx1 = 24`, blended into the particle field
-# by `rx2 = 30`, and has the same reference. `--tend` defaults to 8.
+# by `rx2 = 30`, and has the same reference; with `rx1` beyond the domain
+# the data and the reference are that retarded field everywhere. With
+# `--data=uniform` the remainder starts as `(1 - W)Ψ̂₀`, the boosted static
+# field of the particle's position and velocity at `t = 0` with its rate
+# along the tangent line (`inspiral_initial_state(p; far = :uniform)`):
+# beyond the window, the field of a charge that has always moved on the
+# circle's tangent (INSPIRAL-PLAN.md's M8d). Its reference is the
+# retarded one of `rx1` and `rx2`, and `path` is `circle-uni`. `--tend`
+# defaults to 8.
 #
 # `--path=hyperbolic`: hyperbolic motion of proper acceleration `g` along
 # `y`, at rest at `c + o + (0.5, 0, 0)` at `t = 0`, always with
@@ -71,7 +79,8 @@
 #
 #     threads path hdiv levels w0 order t quantity value
 #
-# with `path` `circle-ret` for the circle from the retarded field.
+# with `path` `circle-ret` for the circle from the retarded field and
+# `circle-uni` from uniform motion's.
 # At `t = 0`: `nodes`, `nodes_level<k>` per level `k` (0 the root),
 # `steps`, `dt`, and for the circle `rr`, the radiation-reaction force
 # `(Q²/12π)ȧ·v̂` (negative), and `Omega`. Every `fevery` steps, the
@@ -85,8 +94,8 @@
 # `R₂` about `c` (`field_R2`), the L2 norm of `Π_r` alone in the shell
 # between `R₂` and `w0` (`junk`), where the start-up junk passes on its
 # way out, and how far the particle's state is from its path (`dz`); with
-# `--data=retarded` also the error against the reference, `(Φ_r, Π_r)`
-# together, in quadrature-weighted L2, in the ball `R₁` about `c` without
+# `--data=retarded` or `uniform` also the error against the reference,
+# `(Φ_r, Π_r)` together, in quadrature-weighted L2, in the ball `R₁` about `c` without
 # the ball of radius 1/4 about the particle (`err_R1`), in the whole ball
 # (`err_R1_all`), of `Φ_r` alone (`errphi_R1`), its L∞ there
 # (`errinf_R1`), in the ball of radius 1/2 about the particle (`err_z`),
@@ -320,8 +329,8 @@ function evolve(backend)
     rc = parse(Float64, option("rc", "0.5"))
     g = parse(Float64, option("g", "0.1"))
     data = option("data", path == "circle" ? "instantaneous" : "retarded")
-    data in ("instantaneous", "retarded") ||
-        error("--data is instantaneous or retarded, got $data")
+    data in ("instantaneous", "retarded", "uniform") ||
+        error("--data is instantaneous, retarded or uniform, got $data")
     path == "hyperbolic" && data != "retarded" &&
         error("hyperbolic motion starts from the retarded field")
     rx1 = parse(Float64, option("rx1", path == "circle" ? "24" : "3"))
@@ -343,14 +352,18 @@ function evolve(backend)
         "the retarded field reaches 1/g = $(1 / g) behind the particle, and the ball " *
         "of radius rx2 = $rx2 about the centre reaches about $(rx2 + 0.6) behind it; " *
         "choose a smaller g or rx2"))
-    retarded = data == "retarded" ? Window(c, rx1, rx2; continuity=4) : nothing
-    tag = (path * (path == "circle" && data == "retarded" ? "-ret" : "") *
+    # The retarded window of the data, and of the reference with
+    # `--data=uniform`.
+    retarded = data == "instantaneous" ? nothing : Window(c, rx1, rx2; continuity=4)
+    suffix = path != "circle" ? "" : data == "retarded" ? "-ret" :
+             data == "uniform" ? "-uni" : ""
+    tag = (path * suffix *
            (ball === nothing ? "" : "-ball"), hdiv, levels, w0, order)
     println(join(("threads", "path", "hdiv", "levels", "w0", "order", "t", "quantity",
                   "value"), '\t'))
 
     if "--reading" in ARGS
-        retarded === nothing && error("--reading needs --data=retarded")
+        data == "retarded" || error("--reading needs --data=retarded")
         if path == "circle"
             m = p.models[1]
             tr = p.motion.path(0.0)[1]
@@ -358,7 +371,8 @@ function evolve(backend)
         end
         return reading(path, p, retarded, path == "circle" ? 0.0 : tend, tag)
     end
-    u0 = inspiral_initial_state(p; retarded)
+    u0 = data == "uniform" ? inspiral_initial_state(p; far=:uniform) :
+         inspiral_initial_state(p; retarded)
     dt = oldg_timestep(p.wave; cfl=cfl)
     integ = inspiral_integrator(p, u0, 0.0, tend; dt=dt)
     nodes = statelength(p.wave.fs) ÷ 2
