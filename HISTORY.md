@@ -1464,6 +1464,23 @@ patches.
   `10⁻¹⁰` at 1.7 to 2.5 times the speed of light, which accounts for
   M3's twice it and M8c's 1.7 to 1.9 in the shells; the mechanism is no
   longer open.
+- 2026-11-15: M8d's two circles ran on H200s overnight (jobs 598636
+  and 598637, 11.2 and 12.4 hours). From the retarded field everywhere
+  the circle runs clean to `t = 90`, its force over each orbit
+  `1.04163 F_RR` to `6·10⁻⁵`, and it is M8c's circle until M8c's
+  particle field beyond 48 reaches the particle, at `10⁻⁸ F_RR` by
+  `t ≈ 10`, the dispersive tail seen directly. From uniform motion's
+  field far out the force comes to the retarded start's after three
+  time units and agrees with it over each orbit to `6·10⁻⁴ F_RR`, but
+  from `t ≈ 10` on carries an excess of RMS `1.5·10⁻² F_RR`, near
+  `ω ≈ 7.5`, that does not decay; the data's front leaves each ball at
+  the speed of light and leaves a residual of about `10⁻⁶` behind. Its
+  cause is open: the dispersion relation's group velocity at that
+  frequency is above 1 on the cube's root and in the shells, so it is
+  not a trapped mode. Filling the retarded reference on the host cost
+  about as much as the steps. Prescribed paths take the retarded field
+  to the sphere; the inspiral's choice, and whether to filter the fast
+  modes, which had been M8d's, are M7's.
 
 ### What the plan said of its finished milestones
 
@@ -2089,6 +2106,136 @@ Runs, beside M3b's and M4's on nested boxes:
 numbers to the digits printed, and beyond it the error and the forces
 are recorded against `R₁`. M7 then chooses its outer region (below,
 "Left to settle later").
+
+#### M8d: Far data that are the field
+
+**Status:** done (2026-11-15) on branch `inspiral-m8d-far-data`. The
+uniform start, its tests, `--data=uniform`, `SCAN=far` and
+`bin/dispersion.jl` were in on 2026-11-14, and the two runs ran on
+H200s that night (jobs 598636 and 598637; results in `CODE.md`,
+"Particles in the ball" under "Measured results"). As planned before
+the runs: it settles what M8c left open (`CODE.md`, "Particles in the ball" and "What the
+transitions send back"):
+
+- **Initial data that are not the field far out.** M8c's circle took the
+  retarded field inside `rx1 = 48` and the particle field `Ψ̂` of order
+  3 beyond 54. Far from an accelerated particle `Ψ̂`'s near-field terms
+  grow like `r²`, a hundred times the field at `r = 48`, and what they
+  sent in swamped the remainder from `t ≈ 25`. `INSPIRAL.md`'s initial
+  data, `(1 − W)Ψ̂`, would do the same to the inspiral.
+- **Error that outruns light.** That signal crossed the shells at 1.7 to
+  1.9 times the speed of light, nearly whatever their radial width, and
+  the cube's fine levels at about the speed of light. The periodic box's
+  faces send their error in at about twice it (M3), the nested boxes'
+  levels at about 1.5 times (M3b), and the sphere's under-resolved
+  return comes at `(2R₁ − R₂)/2`, not `2R₁ − R₂`. `CODE.md` puts it down
+  to high modes whose group velocity OLDG does not bound by one, which
+  nothing has checked.
+
+**The layout** is M8c's and stays fixed (the owner, 2026-11-14): the
+plan's cube (three levels, `w0 = 4`, `Lc = 16`, `d/8`, `P = 3`), shells
+of radial width 1, 16 elements per wavelength of the circle's
+`λ = 15.7`, and `R₁ = 100`, so that the sphere is causally disconnected
+from what is measured. Nothing is scanned in `R₁`, and the shells'
+resolution is M8c's rule. The runs end at `t = 90`, before the
+under-resolved return at about `(2R₁ − R₂)/2 ≈ 99`. That is about
+`1.8·10⁸` nodes and, from M8c's circles, about a second a step on an
+H200: about 23 000 steps at `dt = 1/256`, seven hours.
+
+**The data.** The circle at `v = 0.2` from two starts, beside M8c's:
+
+- **The retarded field everywhere.** The eternal circle's retarded field
+  at every node: `--data=retarded` with `rx1` beyond `R₁`, so that the
+  retarded window is 1 in the whole ball and no `Ψ̂` is left far out.
+  Inside 48 these are M8c's data, so the run repeats M8c's circle in
+  shells of width 1 (job 597910) to `t ≈ 25`, a check. It needs the
+  path at every retarded time, back to `t ≈ −R₁`, which the circle has
+  in closed form.
+- **Uniform motion's field outside the window.** `Φ_r = (1 − W)Ψ̂₀` and
+  `Π_r = (1 − W)∂ₜΨ̂₀`, with `Ψ̂₀` the boosted static field
+  (`particle_field(…; order = 0)`) of the particle's position and
+  velocity at `t = 0`, and `∂ₜΨ̂₀` its rate along the tangent line, with
+  `a` and its derivatives zero: not `particle_rate`'s `𝒟Ψ̂₀`, which
+  carries `a` through `v̇`. Beyond `R₂` the data are then the field of a
+  charge that has always moved on the circle's tangent, an exact
+  solution: the charge is seen everywhere, and what starts at `t = 0` is
+  only what the acceleration changes, radiation reaction switched on at
+  once. It needs no past path and no retarded time, so it would also do
+  for the dynamic binary.
+- **M8c's circle** from `Ψ̂` of order 3 beyond 54 (job 597910, to
+  `t = 40`) is the third point, not rerun.
+
+In the continuum both starts give the eternal circle's retarded field at
+the particle from `t ≈ 3` on. The solution is the source's part from
+`t = 0` on plus the data's free evolution. The source's part is the
+eternal field wherever the past light cone meets the path after `t = 0`,
+at the particle from `t ≈ 0.5`. The data's part vanishes there by
+Huygens' principle: the window's part once `t > |x − c| + R₂`, since it
+lies within `R₂` of the centre, and the tangent line's part since the
+past light cone meets that line after `t = 0` too. What can differ is
+numerical: the front that leaves the window, across which `Φ` is
+continuous to leading order and `Π` changes by the radiation's
+`Q(R·a)/(4πγρ²)`, about `a` times the Coulomb scale, over the window's
+transition `R₂ − R₁ = 1.25`. It is partly under-resolved on the cube's
+root and in the shells, and what the transitions send back from it is
+the measurement. A zero remainder, the particle field inside the window
+and nothing beyond, was dropped: it leaves the Coulomb field out beyond
+`R₂`, and its front would carry the whole monopole (`HISTORY.md`).
+
+Hyperbolic motion keeps its data: its retarded field does not reach
+beyond `1/g` behind the particle, and its runs end long before anything
+from `rx2` arrives. Rest and uniform motion need nothing: at `a = 0`,
+`Ψ̂` is the boosted Coulomb field, their field everywhere.
+
+**The code.**
+
+- `inspiral_initial_state(p; far)`: `far = :particle`, today's
+  `(1 − W)Ψ̂` of `p.order`, or `far = :uniform`, `(1 − W)Ψ̂₀` and its
+  rate along the tangent line, through `RemainderData` with order 0 and
+  the trajectory's uniform part.
+- `bin/prescribed.jl --data=uniform`, and `--rx1` beyond `R₁` for the
+  retarded field everywhere; the errors stay against the eternal
+  retarded field, now in any ball, the shells' included. `--radii` up to
+  64.
+- `bin/symmetry/gpu_scans.sh`: the two circles as scans of their own.
+- **The reference's cost.** It is filled on the host at every output, a
+  retarded-time solve per node, `1.8·10⁸` of them at `R₁ = 100`. Its
+  cost is measured first; if it matters, it is filled less often, only
+  on the balls measured, or on the device.
+
+Tests: at `a = 0`, `far = :uniform` gives today's data bit for bit; on
+the circle its `Π_r` beyond `R₂` is the boosted field's derivative along
+the tangent, a finite difference in `t`, and differs from `𝒟Ψ̂₀`; a
+coarse ball takes a few steps from it.
+
+**Why the error outruns light.** The dispersion relation of OLDG at
+`P = 3`, with and without truncation: the Bloch eigenproblem of the
+semi-discrete operator on a periodic uniform line, then along a diagonal
+of a periodic brick, and the group velocity of each branch against `kh`,
+in a `bin/` script on the laptop. Recorded: whether the largest group
+velocity and the wavenumbers that carry it explain the measured speeds,
+about 2 on the box's faces, 1.5 across nested levels, 1.7 to 1.9 in the
+shells and about 1 on the cube's fine levels; and whether the speed in
+the shells follows their tangential spacing, which was the same in M8c's
+three circles while their radial width changed.
+
+**Runs**, on an H200, the circle at `v = 0.2`, `d/8`, order 3, from both
+starts, to `t = 90`: the force every step, and the error against the
+eternal retarded field in the balls of radius 4, 8, 16, 32 and 64 about
+the centre every half time unit.
+
+Measured and recorded: `F_t/F_RR` and `F_r/F_RR` over windows to
+`t = 90`; when the uniform start's force comes to the retarded start's
+and how close it stays; when the front leaves each ball and what comes
+back into it; the reference's cost.
+
+**Done when** the retarded start repeats M8c's circle to `t ≈ 25` and
+its force is recorded to `t = 90`, clean or with what arrives and from
+where; the uniform start's force and errors are recorded against it;
+the dispersion relation's speeds are recorded against the measured
+ones; and `CODE.md`'s "Particles in the ball" names the far data for
+prescribed paths and records the uniform start. M7 then chooses its
+initial data (below, "Left to settle later").
 
 #### Gates of the finished milestones
 

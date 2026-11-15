@@ -408,7 +408,9 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   hundred times the field at `r = 48` on M5's circle, and what
   `(1 − W)Ψ̂` out there sends in crosses the shells at about twice the
   speed of light. A run that must stay clean takes data that are the
-  field far out ("Particles in the ball").
+  field far out: on a prescribed path the retarded field to the sphere
+  (`--data=retarded` with `--rx1` beyond `R1`), otherwise
+  `far = :uniform` ("Particles in the ball").
 - **The transfer looks for no periodic images.** The source's ball and
   every particle's support lie inside the box ("The transfer").
 - **The inspiral's state is the field's state vector followed by six
