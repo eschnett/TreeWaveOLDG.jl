@@ -37,7 +37,7 @@
 # run the particles) the field and the particles run on that device
 # (`bin/backend.jl`), from an environment that adds the device package
 # (`bin/symmetry/gpu_scans.sh` builds one); the initial remainder and the
-# retarded reference are filled on the host and copied, and the norms are
+# retarded reference are filled on the device, and the norms are
 # `ball_norm`'s on the device. `--cost` waits for the device after each
 # call.
 #

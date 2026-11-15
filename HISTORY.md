@@ -698,6 +698,16 @@ patches.
   `w(Φ_ret − Ψ̂)` of the point model, and the two particle fields differ
   far out by about `5·10⁻¹³`, so it moved the data and the reference by
   about `10⁻⁹` of the field. The exact ways out are in `PLAN.md`, B6.
+- 2026-11-15: of B6's two exact ways, Erik Schnetter chose the device
+  fill as the simpler, keeping the overlap of the fill with the steps as
+  a possible future improvement. `inspiral_initial_state` now fills in
+  the problem's own field set on every backend, where it had filled a
+  host set and copied it on a device; what kept the callback off the
+  device were two error messages built by interpolation, the order's
+  check, now made once when the callback is made, and the retarded
+  time's, now a `NaN` the fill looks for afterwards. On an H200 the
+  reference takes 2.6 s instead of 124 s and equals the host's to
+  `1.2·10⁻¹⁵` (job 599075).
 
 ## Particles
 

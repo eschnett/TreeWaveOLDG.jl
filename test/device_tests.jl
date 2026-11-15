@@ -214,7 +214,8 @@ device_close_arrays(dev, host, ::Type{T}) where {T} =
         # particles' tail copied in one piece, the passes over the ball's
         # blocks and the averaging over shared nodes as kernels, the far
         # rule on the device with the host's rules' results added there,
-        # the initial state filled on the host and copied, the forces read
+        # the initial state filled on the device, the retarded field's
+        # root-finding included, the forces read
         # from copies of the blocks around the particle, and the integrator
         # stepping the whole state there. A particle on a circle, so that
         # the lab slice's terms are not zero. On the CPU stand-in the same
@@ -228,6 +229,8 @@ device_close_arrays(dev, host, ::Type{T}) where {T} =
             p = InspiralProblem(wave, (ParticleModel(; Q=0.1, ℓ=0.02, M=1.0),),
                                 Window(c, 1.0, 1.75; continuity=4), motion; continuous)
             u = inspiral_initial_state(p)
+            ur = inspiral_initial_state(p; t=0.1, retarded=Window(c, 1.5, 2.0;
+                                                                  continuity=4))
             du = similar(u)
             inspiral_rhs!(du, u, p, 0.1)
             wave_only = similar(field_state(u, p))
@@ -238,15 +241,17 @@ device_close_arrays(dev, host, ::Type{T}) where {T} =
             integ = inspiral_integrator(p, u, 0.0, 3dt; dt=dt)
             TreeWaveOLDG.solve!(integ)
             return p, Array(u), Array(du), source, F, Array(integ.u),
-                   particle_forces(p, integ.u, 3dt)
+                   particle_forces(p, integ.u, 3dt), Array(ur)
         end
         if supports_float64(DEVICE)
             for continuous in (true, false)
-                _, uh, duh, sh, Fh, u3h, F3h = inspiral(CPU(), continuous)
-                pd, ud, dud, sd, Fd, u3d, F3d = inspiral(DEVICE, continuous)
+                _, uh, duh, sh, Fh, u3h, F3h, urh = inspiral(CPU(), continuous)
+                pd, ud, dud, sd, Fd, u3d, F3d, urd = inspiral(DEVICE, continuous)
                 L = TreeWaveOLDG.fieldlength(pd)
                 @test norm(sh) > 1e-3
                 @test device_close_arrays(ud, uh, Float64)
+                @test norm(urh - uh) > 1e-6
+                @test device_close_arrays(urd, urh, Float64)
                 @test device_close_arrays(dud, duh, Float64)
                 @test device_close_arrays(sd, sh, Float64)
                 @test dud[(L + 1):end] == duh[(L + 1):end]
@@ -262,8 +267,7 @@ device_close_arrays(dev, host, ::Type{T}) where {T} =
         # Guards the particles in the seven-patch ball (INSPIRAL-PLAN.md,
         # M8c) on a device: the transfer reads the cube's mapped block
         # origins and spacings, copied once (`ParticleFrame`), the initial
-        # remainder is filled on the host at `physical_coordinates` and
-        # copied, and `ball_norm`'s fold evaluates `physical_coordinates`
+        # remainder is filled on the device at `physical_coordinates`, and `ball_norm`'s fold evaluates `physical_coordinates`
         # and reads `√g` there. Three nested cubes in the cube of
         # half-width 8, shells to a Sommerfeld sphere at 24, a particle
         # near the origin moving along `x`, as in `ball_inspiral_tests.jl`.

@@ -196,6 +196,10 @@ trajectories(m::Prescribed, p::InspiralProblem, u, t) = m.path(t)
 # With `far = :uniform` the trajectories are their uniform parts, `z` and
 # `v` alone, and the order 0: the remainder is `(1 - W)Ψ̂₀` with `Ψ̂₀` the
 # boosted static field, and its rate is taken along the tangent line.
+#
+# It is a kernel argument, `isbits`, and builds no error message: the
+# order is checked here, and a node that no past light cone of the path
+# reaches gets `NaN`, which `inspiral_initial_state` looks for.
 struct RemainderData{T,K,R,PA,PM}
     models::NTuple{K,ParticleModel{T}}
     trajs::NTuple{K,Trajectory{T}}
@@ -215,6 +219,7 @@ function RemainderData(p, trajs, t; retarded=nothing, far::Symbol=:particle)
         trajs = map(tr -> Trajectory(; z=tr.z, v=tr.v), trajs)
         order = 0
     end
+    check_order(order)
     return RemainderData(p.models, trajs, p.window, order, retarded, p.motion.path,
                          points, T(t))
 end
@@ -226,8 +231,8 @@ function (f::RemainderData{T,K})(x, var) where {T,K}
     if !isone(W)
         for k in 1:K
             m, tr = f.models[k], f.trajs[k]
-            s += var == 1 ? particle_field(m, X, tr; order=f.order) :
-                 particle_rate(m, X, tr; order=f.order)
+            s += var == 1 ? field_of_order(m, X, tr, f.order) :
+                 rate_of_order(m, X, tr, f.order)
         end
         s *= 1 - W
     end
@@ -246,9 +251,10 @@ function retarded_part(f::RemainderData{T,K}, wx::Window, X, var) where {T,K}
         # roundoff, and the two fields' `1/r` would not cancel to it.
         r = X - tr.z
         dot(r, r) < T(1e-12) && continue
-        Φ, Π = retarded_field(f.path, k, m.Q, X, f.t)
-        s += var == 1 ? Φ - particle_field(m, X, tr; order=f.order) :
-             Π - particle_rate(m, X, tr; order=f.order)
+        Φ, Π, found = retarded_root(f.path, k, m.Q, X, f.t)
+        found || return T(NaN)
+        s += var == 1 ? Φ - field_of_order(m, X, tr, f.order) :
+             Π - rate_of_order(m, X, tr, f.order)
     end
     return w * s
 end
@@ -319,26 +325,18 @@ function inspiral_initial_state(p::InspiralProblem{T,K}; t::Real=0,
     data = at_physical(p.wave, RemainderData(p, trajs, t; retarded, far))
     L = fieldlength(p)
     backend = get_backend(fs.work)
-    if backend isa CPU
-        fill_at_nodes!(data, fs, p.wave.element)
-        u = Vector{T}(undef, L + 6K)
-        field = field_state(u, p)
-        # The field's pages are first written by their blocks' owners, as
-        # `statevector` writes them.
-        TreeAMR.zerofill!(statearray(field, fs), backend)
-        gather!(field, fs)
-    else
-        # The particle field is host code: filled on a field set of the
-        # same layout on the host, and copied.
-        hfs = wave_fieldset(T, fs.forest, 2, (0, 0, 0), state_statesparity(Val(3)),
-                            TreeWaveOLDG.order(p.wave.element), CPU())
-        fill_at_nodes!(data, hfs, p.wave.element)
-        hfield = statevector(hfs)
-        gather!(hfield, hfs)
-        u = allocate(backend, T, (L + 6K,))
-        field = field_state(u, p)
-        copyto!(field, hfield)
-    end
+    # Filled where the state lives, on a device too, in the problem's own
+    # field set, which every right-hand side scatters into anew.
+    fill_at_nodes!(data, fs, p.wave.element)
+    u = backend isa CPU ? Vector{T}(undef, L + 6K) : allocate(backend, T, (L + 6K,))
+    field = field_state(u, p)
+    # The field's pages are first written by their blocks' owners, as
+    # `statevector` writes them.
+    TreeAMR.zerofill!(statearray(field, fs), backend)
+    gather!(field, fs)
+    retarded === nothing || any(isnan, field) && throw(ArgumentError(
+        "no retarded time found at some node at t = $t: no past light cone of the " *
+        "path reaches it; keep the retarded window where every one does"))
     truncate_state!(field, p.wave)
     set_particle_states!(u, p, map(tr -> tr.z, trajs), map(tr -> tr.v, trajs))
     return u

@@ -1607,10 +1607,13 @@ no partition).
   averaging over shared nodes are kernels there. The host lists the
   nested rule's points while the device works on the far and graded
   rules, and copies the particles' six numbers each to and from the
-  device in one piece. `inspiral_initial_state` fills the field
-  on a host field set of the same layout and copies it. The result is
-  the host's to `sqrt(eps)` (a test), and on the CPU the same as before
-  to the bit.
+  device in one piece. `inspiral_initial_state` fills the field there
+  too, in the problem's own field set, the retarded field's
+  root-finding included (`RemainderData`, an `isbits` callback that
+  builds no error message: its order is checked when it is made, and a
+  node without a retarded time gets `NaN`, which the fill refuses after
+  the fact). The result is the host's to `sqrt(eps)` (a test), and on
+  the CPU the same as before to the bit.
 - **The source's coefficient tables are an array on a device.** A
   `ParticleSource` held each particle's lab-slice coefficients as
   `SVector`s, 12.9 KB per particle at order 3, and as a kernel argument
@@ -2812,8 +2815,8 @@ the retarded field in further balls about the centre. With
 `--backend=cuda` both drivers, and `bin/nested_ball.jl`'s pulse, run on a
 device ([On a device](#on-a-device)): the frame is host code and the
 plan's arrays are mapped before they are copied, so nothing in the
-kernels changes; the initial and exact remainders are filled on the host
-and copied, and `ball_norm`'s fold evaluates `physical_coordinates` and
+kernels changes; the initial and exact remainders are filled on the
+device, and `ball_norm`'s fold evaluates `physical_coordinates` and
 reads `√g` on the device. `nested_ball.jl` takes `--type=f32` as well,
 its pulse written without a `Float64` literal, and on Metal in `Float32`
 it gives the CPU's numbers to `Float32` rounding; on the CPU the three
@@ -2846,7 +2849,8 @@ M4 to M7 ([Nested boxes](#nested-boxes)). [`src/prescribed.jl`](src/prescribed.j
   normalization of "Fields and particles" (`Q/γ` in the lab), and
   `∂ₜΦ = (dΦ/ds)/(1 - R̂·v)` by a dual number in `s`. A point no past light
   cone reaches is refused: behind a particle in eternal hyperbolic motion
-  by more than `1/g`. For uniform motion it is `-Q/4π|y|`, at `t = 0` of
+  by more than `1/g`; `inspiral_initial_state` refuses a retarded window
+  that reaches such a point (a test). For uniform motion it is `-Q/4π|y|`, at `t = 0` of
   hyperbolic motion `INSPIRAL.md`'s closed form, and it solves the wave
   equation (tests).
 - **The exact remainder as initial data.** `inspiral_initial_state(p;
@@ -5310,9 +5314,13 @@ over `t = 10` to 90; the retarded start's falls from `5.8·10⁻³` on
   was its plan's pass over the forest, now built once ([On a
   device](#on-a-device)): on `cn113` (job 599012), whose host is slower,
   the projection takes 0.042 s instead of 0.092 s and a step 0.83 s
-  instead of about 1.03. Of a reference fill's 90 s, the retarded field
-  alone takes 19 s; the rest is the particle field of the window's
-  part. The shells' own stable step is 2.07 times the finest level's,
+  instead of about 1.03. The reference is now filled on the device
+  ([On a device](#on-a-device)): 2.6 s on `cn111` (job 599075) against
+  124 s on its 16 host threads, equal to the host's fill to `1.2·10⁻¹⁵`
+  where the field reaches `3.4·10⁻³`, and a step there takes 0.82 s. A
+  sample every 128 steps then costs about 110 s with its norms, against
+  about 230 s before, so such a run takes about 5.5 hours instead of 11
+  to 12. The shells' own stable step is 2.07 times the finest level's,
   so stepping them at their own rate would save at most a factor 1.9 on
   the wave operator.
 

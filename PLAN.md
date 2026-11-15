@@ -167,15 +167,18 @@ plenty of in `Float64`.
   (`SourceBall`): the plan takes 1.2 ms, and a step 0.83 s instead of
   about 1.03. The classification of the supports' elements stays a host
   loop.
-- **B6, the reference fill. (proposed)** The drivers fill the retarded
-  reference on the host, 90 to 110 s per fill on an H200 node's 16
-  threads, every 128 steps of about 0.83 s each: nearly half a run. Using
-  `Φ_ret` alone where the window vanishes is not exact, since the
-  extended particle's field there differs from the point model's by
-  about `5·10⁻¹³`, `10⁻⁹` of the field. Exact ways out: fill the next
-  reference on the host while the device steps, which hides it almost
-  entirely, or fill it on the device. Done when a run's time is its
-  steps'.
+- **B6, the reference fill. Done** (2026-11-15; `CODE.md`, "On a
+  device"). The drivers filled the retarded reference on the host, 90 to
+  124 s per fill on an H200 node's 16 threads, every 128 steps of about
+  0.83 s each: nearly half a run. Using `Φ_ret` alone where the window
+  vanishes is not exact, since the extended particle's field there
+  differs from the point model's by about `5·10⁻¹³`, `10⁻⁹` of the field.
+  Chosen by the owner as the simpler of the exact ways, the fill runs on
+  the device: 2.6 s, equal to the host's to `1.2·10⁻¹⁵`, and an M8d run
+  takes about 5.5 hours instead of 11 to 12.
+  - **Possible future improvement:** fill the next reference while the
+    device steps, on the host or on a second stream, which would hide
+    the remaining 2.6 s per sample, 2 % of a run.
 - **B3, the graded rule. Done** (2026-11-11; `CODE.md`, "On a device").
   Each band runs over its list of elements in two kernels of the far
   rule's kind, the source at the band's points and the contraction; on
