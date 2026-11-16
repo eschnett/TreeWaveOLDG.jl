@@ -754,6 +754,9 @@ frame_spacings(forest, f::ParticleFrame{D,T}) where {D,T} =
     f.scale .* block_spacings(forest, T)
 frame_blocks(forest, f::ParticleFrame) =
     f.patch == 0 ? block_patches(forest) .> 0 : block_patches(forest) .== f.patch
+# Whether the leaf `key`, of any rank, is in the frame's patch.
+frame_has(forest, f::ParticleFrame, key) =
+    f.patch == 0 ? patch(forest, key) > 0 : patch(forest, key) == f.patch
 
 # One block's origin, spacing and extent, by its key.
 frame_origin(forest, f::ParticleFrame{D,T}, key) where {D,T} =
@@ -779,10 +782,12 @@ function frame_domain(forest, f::ParticleFrame{D,T}) where {D,T}
     return ntuple(d -> (lo[d], hi[d]), D)
 end
 
-# The block that holds the physical position `x`, as `locate_point` finds
+# The leaf that holds the physical position `x`, as `locate_point` finds
 # it: on a brick at `x`, folded into the domain; in a patch at the logical
 # position `(x - origin)/scale` of the patch, or `nothing` outside it,
-# since the transfer looks across no glue.
+# since the transfer looks across no glue. It is the forest's global leaf
+# index, which under MPI is a local block only on the rank that owns it
+# (`local_block`); serially the two coincide.
 function frame_locate(forest, f::ParticleFrame{D,T}, x) where {D,T}
     f.patch == 0 && return locate_point(forest, Tuple(x))
     dom = frame_domain(forest, f)
@@ -813,7 +818,8 @@ end
 # ratio of the spacings, and the quadrature chosen for it silently too
 # coarse. The forest may be refined elsewhere ("Nested boxes" in
 # `CODE.md`). In a patch, ball and support have to lie inside it, and
-# only its blocks are looked at.
+# only its blocks are looked at. Both checks read the forest's leaves, not
+# a rank's blocks, so that under MPI every rank refuses or none does.
 function check_finest(fs::FieldSet{T,D}, ball, what,
                       frame::ParticleFrame=ParticleFrame(fs)) where {T,D}
     forest = fs.forest
@@ -821,11 +827,9 @@ function check_finest(fs::FieldSet{T,D}, ball, what,
     c, R = SVector{D,T}(Tuple(ball[1])), T(ball[2])
     check_in_patch(forest, frame, c .- R, c .+ R, what, "the source's ball of radius $R " *
                    "about $(Tuple(c))")
-    inpatch = frame_blocks(forest, frame)
-    for b in 1:nblocks(fs)
-        inpatch[b] || continue
-        key = blockkey(fs, b)
+    for key in forest.leaves
         level(key) == top && continue
+        frame_has(forest, frame, key) || continue
         lo, hi = frame_extent(forest, frame, key)
         r² = box_distance2(c, lo, hi, 1:D)
         r² < R^2 || continue
@@ -848,10 +852,10 @@ function check_finest(fs::FieldSet{T,D}, s::ParticleSupport{D}, what,
                    "the support of radius $(s.ℓ) about z = $(Tuple(s.z))")
     for corner in CartesianIndices(ntuple(_ -> 2, D))
         x = ntuple(d -> s.z[d] + (corner[d] == 1 ? -s.ℓ : s.ℓ), D)
-        b = frame_locate(forest, frame, x)
+        g = frame_locate(forest, frame, x)
         # Past the domain's faces, which `support_elements` refuses.
-        b === nothing && continue
-        key = blockkey(fs, b)
+        g === nothing && continue
+        key = forest.leaves[g]
         level(key) == top && continue
         lo, hi = frame_extent(forest, frame, key)
         r = sqrt(box_distance2(s.z, lo, hi, 1:D))
@@ -996,8 +1000,12 @@ function projection_plan(p::WaveProblem{T,D}, t::TransferTables{T,P1}, particles
     backend = get_backend(fs.work)
     rn = T(rnear) * hₑ
     rf = t.rfar * hₑ
-    near, graded, far = host_elements(fs, t, origins, spacings, mask, region, particles, rn,
-                                      rf, hₑ, Val(P1))
+    # Two supports in one element are found in a rank's own blocks; over
+    # MPI every rank refuses with the one that found it.
+    near, graded, far = agree_refusal(fs) do
+        host_elements(fs, t, origins, spacings, mask, region, particles, rn, rf, hₑ,
+                      Val(P1))
+    end
     return (; fs, backend, hₑ, rn, rf, region, particles, origins, spacings,
             sourceball.dev_origins, sourceball.dev_spacings, sourceball.active, near,
             graded,
@@ -1401,17 +1409,18 @@ function host_elements(fs::FieldSet{T,D}, t::TransferTables, origins, spacings, 
     return near, graded, far
 end
 
-# The block and element that hold the physical point `x`, and the
+# The leaf and element that hold the physical point `x`, and the
 # element's box, in the frame. A point on a face between elements belongs
 # to the upper one, as `locate_point` gives a point on a face between
-# blocks to the upper block.
+# blocks to the upper block. The leaf is the forest's global index
+# (`frame_locate`), the same on every rank.
 function locate_element(fs::FieldSet{T,D}, ::Val{P1}, x,
                         frame::ParticleFrame=ParticleFrame(fs)) where {T,D,P1}
     b = frame_locate(fs.forest, frame, x)
     b === nothing && throw(ArgumentError(
         "the point $(Tuple(x)) is outside the domain" *
         (frame.patch == 0 ? "" : " of patch $(frame.patch), where the particles run")))
-    key = blockkey(fs, b)
+    key = fs.forest.leaves[b]
     origin = frame_origin(fs.forest, frame, key)
     h = frame_spacing(fs.forest, frame, key)
     E = fs.forest.N ÷ P1
@@ -1435,11 +1444,12 @@ end
 # reconstruction continuous, as `average_shared!` does to the source. The
 # neighbours must be on the element's level, where coincident nodes have
 # equal weights and the averaging is the `⟨,⟩_w`-orthogonal projection
-# onto continuous fields.
+# onto continuous fields. `b` is a global leaf, and `ua` indexed by
+# global leaves: the state array serially, `BlockCopies` otherwise.
 function continuous_values(fs::FieldSet{T,D}, ua, b, e::NTuple{D}, var, ::Val{P1},
                            frame::ParticleFrame=ParticleFrame(fs)) where {T,D,P1}
     E = fs.forest.N ÷ P1
-    key = blockkey(fs, b)
+    key = fs.forest.leaves[b]
     lo, hi = element_box(frame_origin(fs.forest, frame, key),
                          frame_spacing(fs.forest, frame, key), e, Val(P1), Val(D))
     dom = frame_domain(fs.forest, frame)
@@ -1487,12 +1497,22 @@ ball's blocks are all on the finest level, [`check_finest`](@ref)). No
 periodic images are looked for. Built once, since the ball does not
 move, and held on the host and, for the kernels, on the field set's
 backend.
+
+Over MPI `blocks` are this rank's, as local block indices, and a face
+whose block across is another rank's is a *remote pair*: `upper` is 0
+there, and `remote` lists it, as `(d, peer, lower, b, side)`, the
+dimension, the other block's rank, the global leaf of the pair's lower
+block, this rank's block and `+1` if it is the lower one, `-1` if the
+upper, sorted so that both ranks list their common pairs in one order.
+Serially `remote` is empty.
 """
 struct SharedNodes{D,B,U}
     blocks::Vector{Int}
     upper::Vector{NTuple{D,Int}}
     dev_blocks::B                   # `blocks` as `Int32`, on the backend
     dev_upper::U                    # `upper` likewise
+    remote::Vector{NTuple{5,Int}}   # `(d, peer, lower, b, side)`
+    comm::TreeAMR.Communicator
 end
 
 function SharedNodes(fs::FieldSet{T,D}, ball,
@@ -1506,23 +1526,52 @@ function SharedNodes(fs::FieldSet{T,D}, ball,
     centre, R = SVector{D,T}(ball[1]), T(ball[2])
     meets(b) = inpatch[b] && box_distance2(centre, SVector(origins[b]),
                                            SVector(origins[b]) .+ spacings[b] * N, 1:D) < R^2
+    # The same test for a leaf of any rank, from its key: TreeAMR's
+    # `block_origins` is `block_origin` of each key, so the two agree to
+    # the bit.
+    function meets_leaf(g)
+        key = forest.leaves[g]
+        frame_has(forest, frame, key) || return false
+        lo, hi = frame_extent(forest, frame, key)
+        return box_distance2(centre, lo, hi, 1:D) < R^2
+    end
     blocks = filter(meets, collect(1:nblocks(fs)))
     member = falses(nblocks(fs))
     member[blocks] .= true
-    upper = map(blocks) do b
+    remote = NTuple{5,Int}[]
+    # The block across face `σ` of dimension `d` of block `b`, or 0: a
+    # local block index, or, for another rank's block, 0 with the pair in
+    # `remote`.
+    function across(b, d, σ)
         lo, h = SVector(origins[b]), spacings[b]
-        ntuple(Val(D)) do d
-            x = ntuple(k -> k == d ? lo[k] + h * (N + 1 // 2) : lo[k] + h * N / 2, D)
-            all(k -> dom[k][1] < x[k] < dom[k][2], 1:D) || return 0
-            bn = frame_locate(forest, frame, x)
-            (bn !== nothing && member[bn] && spacings[bn] == h) ? bn : 0
+        x = ntuple(k -> k != d ? lo[k] + h * N / 2 :
+                        σ > 0 ? lo[k] + h * (N + 1 // 2) : lo[k] - h / 2, D)
+        all(k -> dom[k][1] < x[k] < dom[k][2], 1:D) || return 0
+        g = frame_locate(forest, frame, x)
+        g === nothing && return 0
+        bn = local_block(forest, g)
+        if bn !== nothing
+            return σ > 0 && member[bn] && spacings[bn] == h ? bn : 0
         end
+        meets_leaf(g) && frame_spacing(forest, frame, forest.leaves[g]) == h ||
+            return 0
+        lower = σ > 0 ? global_leaf(forest, b) : g
+        push!(remote, (d, TreeAMR.leafowner(forest, g), lower, b, σ))
+        return 0
     end
+    upper = map(blocks) do b
+        ntuple(d -> across(b, d, 1), Val(D))
+    end
+    if TreeAMR.isdistributed(forest)
+        foreach(b -> foreach(d -> across(b, d, -1), 1:D), blocks)
+    end
+    sort!(remote)
     backend = get_backend(fs.work)
     dev_blocks = to_backend(backend, Int32.(blocks))
     dev_upper = to_backend(backend, map(u -> Int32.(u), upper))
     return SharedNodes{D,typeof(dev_blocks),typeof(dev_upper)}(blocks, upper, dev_blocks,
-                                                                dev_upper)
+                                                                dev_upper, remote,
+                                                                forest.comm)
 end
 
 """
@@ -1545,6 +1594,13 @@ coincident nodes: a block's inner faces along the dimension, and its
 upper face with the block across it, whose lower face no other block
 writes in that pass. No two items write one node, so the result does
 not depend on the order.
+
+Over MPI a face shared with another rank's block is averaged on both
+ranks: before the pass each sends the other its face, and after it each
+writes the mean, lower block's value first, into its own nodes, the
+serial pass's numbers to the bit. The messages are point to point
+between the two ranks, and a rank with no blocks in the ball sends
+none.
 """
 function average_shared!(ua, sn::SharedNodes{D}, var, ::Val{P1}) where {D,P1}
     N = size(ua, 1)
@@ -1553,11 +1609,67 @@ function average_shared!(ua, sn::SharedNodes{D}, var, ::Val{P1}) where {D,P1}
     nb = length(sn.blocks)
     nb == 0 && return ua
     for d in 1:D
+        pending = isempty(sn.remote) ? nothing : send_faces(ua, sn, var, d, backend)
         TreeAMR.launch_by_owner!(average_kernel!, backend, ua, sn.dev_blocks, sn.dev_upper,
                                  var, Val(d), Val(D), Val(P1);
                                  ndrange=(ntuple(_ -> N, D - 1)..., E, nb))
+        pending === nothing || average_remote!(ua, sn, var, d, backend, pending)
     end
     synchronize(backend)
+    return ua
+end
+
+# The face of block `b` that a remote pair along `d` shares: node `N`
+# along `d` where the block is the lower one (`side = 1`), node 1 where it
+# is the upper, as an index tuple into the state array.
+remote_face(N, d, b, side, var, ::Val{D}) where {D} =
+    (ntuple(k -> k == d ? (side > 0 ? N : 1) : (1:N), Val(D))..., var, b)
+
+# The message tag of pass `d`'s faces. The messages travel on TreeAMR's
+# own duplicate of the application's communicator, between its exchanges,
+# each of which completes before it returns.
+const SHARED_TAG = 0x5a00
+
+# Pass `d`'s messages: to every peer this rank's faces of their common
+# pairs, in `remote`'s order, and from it the peer's, into buffers of
+# their own. Started before the pass's kernel, which writes none of these
+# nodes; `own` keeps this rank's values for the means.
+function send_faces(ua, sn::SharedNodes{D}, var, d, backend) where {D}
+    synchronize(backend)
+    N = size(ua, 1)
+    T = eltype(ua)
+    pairs = filter(r -> r[1] == d, sn.remote)
+    peers = unique!(map(r -> r[2], pairs))
+    own = Dict(q => T[] for q in peers)
+    for (_, q, _, b, side) in pairs
+        append!(own[q], vec(Array(ua[remote_face(N, d, b, side, var, Val(D))...])))
+    end
+    got = Dict(q => similar(own[q]) for q in peers)
+    requests = Any[]
+    for q in peers
+        push!(requests, TreeAMR.irecv(sn.comm, got[q], q, SHARED_TAG + d))
+        push!(requests, TreeAMR.isend(sn.comm, own[q], q, SHARED_TAG + d))
+    end
+    return (; pairs, own, got, requests)
+end
+
+# After pass `d`'s kernel: each remote pair's mean, the lower block's value
+# first as the kernel takes it, written into this rank's face.
+function average_remote!(ua, sn::SharedNodes{D}, var, d, backend, pending) where {D}
+    (; pairs, own, got, requests) = pending
+    TreeAMR.waitall(sn.comm, requests)
+    synchronize(backend)
+    N = size(ua, 1)
+    n = N^(D - 1)
+    at = Dict(q => 0 for q in keys(own))
+    for (_, q, _, b, side) in pairs
+        r = (at[q] + 1):(at[q] + n)
+        at[q] += n
+        mine, theirs = view(own[q], r), view(got[q], r)
+        mean = side > 0 ? (mine .+ theirs) ./ 2 : (theirs .+ mine) ./ 2
+        face = view(ua, remote_face(N, d, b, side, var, Val(D))...)
+        face .= to_backend(backend, reshape(mean, size(face)))
+    end
     return ua
 end
 
@@ -1649,6 +1761,9 @@ so that a support straddling a face no longer reads the jump `[g_h]`
 there (CODE.md, "The averaging"). It is the adjoint of the transfer
 followed by the same averaging, [`average_shared!`](@ref), as
 [`inspiral_rhs!`](@ref) writes the source.
+
+Over MPI every rank gets the blocks it reads from the ranks that own
+them, and returns the serial number to the bit: the call is collective.
 """
 function pairing(p::WaveProblem{T,D}, t::TransferTables{T,P1}, u, K,
                  s::ParticleSupport{D}; var::Int=1,
@@ -1657,11 +1772,10 @@ function pairing(p::WaveProblem{T,D}, t::TransferTables{T,P1}, u, K,
     frame = ParticleFrame(p)
     elements = support_elements(p, s, frame)
     ua = statearray(u, p.fs)
-    get_backend(p.fs.work) isa CPU ||
-        (ua = BlockCopies(p.fs, ua, elements, var, Val(P1), frame))
+    direct(p.fs) || (ua = BlockCopies(p.fs, ua, elements, var, Val(P1), frame))
     acc = zero(K(s.z))
     for (b, e) in elements
-        key = blockkey(p.fs, b)
+        key = p.fs.forest.leaves[b]
         lo, hi = element_box(frame_origin(p.fs.forest, frame, key),
                              frame_spacing(p.fs.forest, frame, key), e, Val(P1), Val(D))
         g = continuous ? continuous_values(p.fs, ua, b, e, var, Val(P1), frame) :
@@ -1672,14 +1786,22 @@ function pairing(p::WaveProblem{T,D}, t::TransferTables{T,P1}, u, K,
     return acc
 end
 
+# Whether the pairing and the reconstruction read the state array itself,
+# indexed by global leaf: on the CPU of a serial forest, where local and
+# global coincide. Otherwise they read `BlockCopies`.
+direct(fs::FieldSet) = get_backend(fs.work) isa CPU && !TreeAMR.isdistributed(fs.forest)
+
 """
     BlockCopies(fs, ua, elements, var, Val(P1))
 
-What [`pairing`](@ref) reads of a state on a device: variable `var` of
-each block that holds one of `elements`, `(block, element)` pairs, or an
-element across one of their faces, edges or corners, copied to the host,
-one copy per block. Indexed as the state array is, `c[i..., var, b]`, for
-those blocks and that variable only.
+What [`pairing`](@ref) reads of a state on a device or over MPI: variable
+`var` of each block that holds one of `elements`, `(leaf, element)`
+pairs, or an element across one of their faces, edges or corners, copied
+to the host, one copy per block. Indexed as the state array is,
+`c[i..., var, g]`, by global leaf `g`, for those blocks and that variable
+only. Over MPI each rank copies the blocks it owns, and every rank gets
+all of them ([`gather_blocks`](@ref TreeWaveOLDG.gather_blocks)), so the
+pairing is the serial one on every rank: collective.
 """
 struct BlockCopies{T,D}
     blocks::Dict{Int,Array{T,D}}
@@ -1691,7 +1813,7 @@ function BlockCopies(fs::FieldSet{T,D}, ua, elements, var, ::Val{P1},
     needed = Set{Int}()
     dom = frame_domain(fs.forest, frame)
     for (b, e) in elements
-        key = blockkey(fs, b)
+        key = fs.forest.leaves[b]
         lo, hi = element_box(frame_origin(fs.forest, frame, key),
                              frame_spacing(fs.forest, frame, key), e, Val(P1), Val(D))
         for s in CartesianIndices(ntuple(_ -> -1:1, D))
@@ -1700,8 +1822,7 @@ function BlockCopies(fs::FieldSet{T,D}, ua, elements, var, ::Val{P1},
             push!(needed, locate_element(fs, Val(P1), x, frame)[1])
         end
     end
-    copies = Dict(b => Array(view(ua, ntuple(_ -> :, D)..., var, b)) for b in needed)
-    return BlockCopies{T,D}(copies, var)
+    return BlockCopies{T,D}(gather_blocks(fs, ua, needed, var), var)
 end
 
 @inline function Base.getindex(c::BlockCopies{T,D}, I::Vararg{Integer}) where {T,D}
@@ -1717,16 +1838,23 @@ end
 point `x`: the element's polynomial, so that the result is exact for a
 `g` that is a polynomial of degree `P` in each dimension and equals the
 stored value at a node. On a face between elements the upper element's
-polynomial is used.
+polynomial is used. Over MPI it is collective, and every rank gets the
+value.
 """
 function reconstruct(p::WaveProblem{T,D}, t::TransferTables{T,P1}, u, x;
                      var::Int=1) where {T,D,P1}
     check_tables(p, t)
     xs = SVector{D,T}(Tuple(x))
     b, e, lo, hi = locate_element(p.fs, Val(P1), xs, ParticleFrame(p))
-    g = element_values(statearray(u, p.fs), b, e, var, Val(P1))
+    g = element_values(leaf_values(p.fs, u, b, var), b, e, var, Val(P1))
     return dot(g, element_basis(t, lo, hi, xs))
 end
+
+# The state array, or on a device or over MPI a copy of variable `var` of
+# global leaf `b` alone, for `element_values`: collective over MPI.
+leaf_values(fs, u, b, var) =
+    direct(fs) ? statearray(u, fs) :
+    BlockCopies(gather_blocks(fs, statearray(u, fs), (b,), var), var)
 
 """
     reconstruct_gradient(p::WaveProblem, t::TransferTables, u, x; var = 1)
@@ -1739,7 +1867,7 @@ function reconstruct_gradient(p::WaveProblem{T,D}, t::TransferTables{T,P1}, u, x
     check_tables(p, t)
     xs = SVector{D,T}(Tuple(x))
     b, e, lo, hi = locate_element(p.fs, Val(P1), xs, ParticleFrame(p))
-    g = element_values(statearray(u, p.fs), b, e, var, Val(P1))
+    g = element_values(leaf_values(p.fs, u, b, var), b, e, var, Val(P1))
     return SVector(ntuple(d -> dot(g, element_basis(t, lo, hi, xs, d)), Val(D)))
 end
 

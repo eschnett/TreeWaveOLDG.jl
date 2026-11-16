@@ -6,6 +6,13 @@ using TreeWaveOLDG
 
 include("reference.jl")
 
+# The MPI test's `mpiexec` job, started now where the machine has room for
+# it beside the suite, so that its compilation overlaps the files below
+# rather than following them; `mpi_tests.jl` collects it, or runs it then
+# where it was not started. See `mpi_jobs.jl`.
+include("mpi_jobs.jl")
+start_mpi_job!()
+
 # Test prints a testset's results only when the outermost one ends, so
 # without these lines a run is silent from its first file to its summary,
 # which at one thread on CI takes most of an hour; with them a slow or
@@ -36,4 +43,5 @@ end
     testfile("ball_inspiral_tests.jl")
     testfile("prescribed_tests.jl")
     testfile("device_tests.jl")
+    testfile("mpi_tests.jl")
 end

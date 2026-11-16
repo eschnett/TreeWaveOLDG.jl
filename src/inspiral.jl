@@ -334,7 +334,8 @@ function inspiral_initial_state(p::InspiralProblem{T,K}; t::Real=0,
     # `statevector` writes them.
     TreeAMR.zerofill!(statearray(field, fs), backend)
     gather!(field, fs)
-    retarded === nothing || any(isnan, field) && throw(ArgumentError(
+    retarded === nothing ||
+        rank_reduce(|, fs, any(isnan, field)) && throw(ArgumentError(
         "no retarded time found at some node at t = $t: no past light cone of the " *
         "path reaches it; keep the retarded window where every one does"))
     truncate_state!(field, p.wave)

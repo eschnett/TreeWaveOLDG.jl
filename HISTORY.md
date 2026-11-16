@@ -708,6 +708,36 @@ patches.
   time's, now a `NaN` the fill looks for afterwards. On an H200 the
   reference takes 2.6 s instead of 124 s and equals the host's to
   `1.2·10⁻¹⁵` (job 599075).
+- 2026-11-16: Erik Schnetter asked that the code, the particles
+  included, work multi-threaded, on GPUs and over MPI. Threads and
+  devices were in place; nothing had run over MPI. An audit against
+  TreeAMR's "What an application must make global itself" found what a
+  distributed forest breaks here: the time step's speeds and the
+  radiative sphere's boundary energy were host reductions over a rank's
+  blocks, the transfer read `locate_point`'s global leaf index as a
+  local block (the supports, their neighbours, the averaging's faces,
+  `reconstruct`), the source's averaging paired nodes across faces two
+  ranks share, and the ball's check, the two-supports refusal and the
+  retarded data's `NaN` check were decided from a rank's own blocks.
+  Following TreeHydro's `distributed.jl`, `src/distributed.jl` adds
+  `rank_reduce`, `agree_refusal` and `gather_blocks`; the pairing reads
+  gathered copies of the support's blocks on every rank, as it already
+  did from a device; and `average_shared!` exchanges the faces of remote
+  pairs point to point, writing the serial means. The forest builders
+  and the drivers that build forests take `comm`. `test/mpi_tests.jl`,
+  after TreeHydro's, runs a workload on three ranks of three, three and
+  one threads and finds every distributed line the serial one-thread
+  line bit for bit, the particles' forces included, and the sums to
+  roundoff. On the laptop the device tests pass on Metal, and the field
+  on Metal over two ranks gave one process's state bit for bit. He asked
+  for the suite on Symmetry, and whether a multi-GPU job ran too; one
+  was added (`bin/distributed_gpu.jl`): on two H200s the field and a
+  particle on nested boxes gave one H200's state and forces bit for bit
+  (job 599625), and the CUDA device tests passed there. The suite, the
+  MPI test included, passed three ways: plain on Symmetry (job 599630,
+  52 minutes), with `--threads=4` there (599631, 24 minutes) and with
+  `--check-bounds=yes` on Nibi (27520764, 46 minutes), 9772 passing and
+  the one known broken test.
 
 ## Particles
 

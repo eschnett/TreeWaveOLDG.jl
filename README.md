@@ -156,7 +156,11 @@ The field runs on a GPU too, through KernelAbstractions: the boxes,
 refined or not, and both balls, on CUDA in `Float64` and `Float32` and on
 Metal in `Float32`, holding to the host's results; ask
 `WaveProblem(…; backend)` for one. The particles' right-hand side runs on
-a CUDA device as well, in `Float64`, forces included.
+a CUDA device as well, in `Float64`, forces included. Over MPI, the field
+and the particles both run distributed, bit for bit the serial run: build
+the forest with `comm = MPI.COMM_WORLD` and launch under `mpiexec`
+([CODE.md](CODE.md), "Running distributed"). On two H200s, one per
+rank, the field and the particles give one H200's results bit for bit.
 
 **Inconsistent:** [CODE.md](CODE.md) ("The seven-patch ball") has a
 radiative outer boundary on the seven-patch ball, an outflow condition,

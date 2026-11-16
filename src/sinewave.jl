@@ -75,7 +75,8 @@ function reflect_exact(D, L, m, t)
 end
 
 """
-    wave_forest(T, Val(D), P, E; roots=4, L=1, reflecting=false, refined=false)
+    wave_forest(T, Val(D), P, E; roots=4, L=1, reflecting=false, refined=false,
+                comm=nothing)
 
 A box of `roots^D` blocks, each holding `E^D` elements of order `P`, so
 `N = E(P+1)` points per dimension. `E` has to be even, so that a block of
@@ -104,9 +105,15 @@ forest, fixed before the run:
   way. An empty vector leaves the box uniform.
 
 A region that holds no centre of a leaf of the level below it is refused.
+
+`comm`, an MPI communicator, distributes the forest's blocks over its
+ranks, as TreeAMR's `Forest(…; comm)` does; every rank makes the same
+call. `nothing`, the default, is a serial forest ("Running distributed"
+in `CODE.md`).
 """
 function wave_forest(::Type{T}, ::Val{D}, P::Integer, E::Integer; roots=4,
-                     L=one(T), reflecting::Bool=false, refined=false) where {T,D}
+                     L=one(T), reflecting::Bool=false, refined=false,
+                     comm=nothing) where {T,D}
     N = E * (P + 1)
     iseven(E) || throw(ArgumentError(
         "E = $E elements of order P = $P per block is odd, and E must be even: a " *
@@ -117,10 +124,10 @@ function wave_forest(::Type{T}, ::Val{D}, P::Integer, E::Integer; roots=4,
     forest = if reflecting
         Forest{T}(ntuple(_ -> roots, D); N=N, periodic=periodic,
                   reflecting=ntuple(_ -> (true, true), D),
-                  extents=ntuple(_ -> (zero(T), L), D))
+                  extents=ntuple(_ -> (zero(T), L), D), comm=comm)
     else
         Forest{T}(ntuple(_ -> roots, D); N=N, periodic=periodic,
-                  extents=ntuple(_ -> (zero(T), L), D))
+                  extents=ntuple(_ -> (zero(T), L), D), comm=comm)
     end
     refined === false && return forest
     refine_regions!(forest, refinement_regions(refined, Val(D), L), roots)
@@ -215,14 +222,15 @@ a higher-order `alg`; see "Measured results" in `CODE.md`.
 
 `alg` is an explicit IMEXRungeKutta tableau. The run goes through
 [`wave_integrator`](@ref), which installs [`truncate_stage!`](@ref) as its
-stage and step limiter, so that truncation cannot be left out.
+stage and step limiter, so that truncation cannot be left out. `comm`
+distributes the run over MPI ([`wave_forest`](@ref)).
 """
 function wave_errors(::Type{T}, ::Val{D}; P::Integer, E::Integer, roots=4, L=one(T),
                      m=1, cfl=T(1//2), periods=T(1//4), alg=RK4(),
                      truncate::Bool=true, backend::Backend=CPU(),
-                     reflecting::Bool=false, refined=false) where {T,D}
+                     reflecting::Bool=false, refined=false, comm=nothing) where {T,D}
     forest = wave_forest(T, Val(D), P, E; roots=roots, L=L, reflecting=reflecting,
-                         refined=refined)
+                         refined=refined, comm=comm)
     el = Element(T, P)
     problem = WaveProblem(forest, el; truncate=truncate, backend=backend)
 
