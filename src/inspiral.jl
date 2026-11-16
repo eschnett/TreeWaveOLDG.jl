@@ -88,7 +88,8 @@ Then the window's ball and the supports must lie inside the cube, on its
 finest level, positions everywhere are physical, and the outer sphere's
 boundary is the wave problem's ("Particles in the ball" in `CODE.md`).
 """
-struct InspiralProblem{T,K,WP<:WaveProblem{T,3},TT,MO,S,SN<:SharedNodes{3}}
+struct InspiralProblem{T,K,WP<:WaveProblem{T,3},TT,MO,S,SN<:SharedNodes{3},
+                       SB<:SourceBall{3,T}}
     wave::WP
     frame::ParticleFrame{3,T}
     models::NTuple{K,ParticleModel{T}}
@@ -100,6 +101,7 @@ struct InspiralProblem{T,K,WP<:WaveProblem{T,3},TT,MO,S,SN<:SharedNodes{3}}
     scratch::S
     continuous::Bool
     shared::SN
+    sourceball::SB                      # the window's ball, for every projection
 end
 
 function InspiralProblem(wave::WaveProblem{T,3}, models::Tuple, window::Window,
@@ -115,14 +117,17 @@ function InspiralProblem(wave::WaveProblem{T,3}, models::Tuple, window::Window,
         "the motion moves $(length(trajs)) particles, and there are $K models"))
     models = map(m -> ParticleModel{T}(m.Q, m.ℓ, m.M), models)
     window = Window{T}(window.centre, window.R₁, window.R₂, window.m)
-    check_finest(wave.fs, (window.centre, window.R₂), "InspiralProblem", frame)
+    sourceball = SourceBall(wave, (window.centre, window.R₂); what="InspiralProblem")
     foreach((m, tr) -> check_finest(wave.fs, ParticleSupport(m, tr), "InspiralProblem",
                                     frame), models, trajs)
     scratch = projection_scratch(wave, tables)
     shared = SharedNodes(wave.fs, (window.centre, window.R₂), frame)
     return InspiralProblem{T,K,typeof(wave),typeof(tables),typeof(motion),typeof(scratch),
-                           typeof(shared)}(wave, frame, models, window, tables, order,
-                                           motion, T(rnear), scratch, continuous, shared)
+                           typeof(shared),typeof(sourceball)}(wave, frame, models, window,
+                                                              tables, order, motion,
+                                                              T(rnear), scratch,
+                                                              continuous, shared,
+                                                              sourceball)
 end
 
 nparticles(::InspiralProblem{T,K}) where {T,K} = K
@@ -191,6 +196,10 @@ trajectories(m::Prescribed, p::InspiralProblem, u, t) = m.path(t)
 # With `far = :uniform` the trajectories are their uniform parts, `z` and
 # `v` alone, and the order 0: the remainder is `(1 - W)Ψ̂₀` with `Ψ̂₀` the
 # boosted static field, and its rate is taken along the tangent line.
+#
+# It is a kernel argument, `isbits`, and builds no error message: the
+# order is checked here, and a node that no past light cone of the path
+# reaches gets `NaN`, which `inspiral_initial_state` looks for.
 struct RemainderData{T,K,R,PA,PM}
     models::NTuple{K,ParticleModel{T}}
     trajs::NTuple{K,Trajectory{T}}
@@ -210,6 +219,7 @@ function RemainderData(p, trajs, t; retarded=nothing, far::Symbol=:particle)
         trajs = map(tr -> Trajectory(; z=tr.z, v=tr.v), trajs)
         order = 0
     end
+    check_order(order)
     return RemainderData(p.models, trajs, p.window, order, retarded, p.motion.path,
                          points, T(t))
 end
@@ -221,8 +231,8 @@ function (f::RemainderData{T,K})(x, var) where {T,K}
     if !isone(W)
         for k in 1:K
             m, tr = f.models[k], f.trajs[k]
-            s += var == 1 ? particle_field(m, X, tr; order=f.order) :
-                 particle_rate(m, X, tr; order=f.order)
+            s += var == 1 ? field_of_order(m, X, tr, f.order) :
+                 rate_of_order(m, X, tr, f.order)
         end
         s *= 1 - W
     end
@@ -241,9 +251,10 @@ function retarded_part(f::RemainderData{T,K}, wx::Window, X, var) where {T,K}
         # roundoff, and the two fields' `1/r` would not cancel to it.
         r = X - tr.z
         dot(r, r) < T(1e-12) && continue
-        Φ, Π = retarded_field(f.path, k, m.Q, X, f.t)
-        s += var == 1 ? Φ - particle_field(m, X, tr; order=f.order) :
-             Π - particle_rate(m, X, tr; order=f.order)
+        Φ, Π, found = retarded_root(f.path, k, m.Q, X, f.t)
+        found || return T(NaN)
+        s += var == 1 ? Φ - field_of_order(m, X, tr, f.order) :
+             Π - rate_of_order(m, X, tr, f.order)
     end
     return w * s
 end
@@ -314,26 +325,18 @@ function inspiral_initial_state(p::InspiralProblem{T,K}; t::Real=0,
     data = at_physical(p.wave, RemainderData(p, trajs, t; retarded, far))
     L = fieldlength(p)
     backend = get_backend(fs.work)
-    if backend isa CPU
-        fill_at_nodes!(data, fs, p.wave.element)
-        u = Vector{T}(undef, L + 6K)
-        field = field_state(u, p)
-        # The field's pages are first written by their blocks' owners, as
-        # `statevector` writes them.
-        TreeAMR.zerofill!(statearray(field, fs), backend)
-        gather!(field, fs)
-    else
-        # The particle field is host code: filled on a field set of the
-        # same layout on the host, and copied.
-        hfs = wave_fieldset(T, fs.forest, 2, (0, 0, 0), state_statesparity(Val(3)),
-                            TreeWaveOLDG.order(p.wave.element), CPU())
-        fill_at_nodes!(data, hfs, p.wave.element)
-        hfield = statevector(hfs)
-        gather!(hfield, hfs)
-        u = allocate(backend, T, (L + 6K,))
-        field = field_state(u, p)
-        copyto!(field, hfield)
-    end
+    # Filled where the state lives, on a device too, in the problem's own
+    # field set, which every right-hand side scatters into anew.
+    fill_at_nodes!(data, fs, p.wave.element)
+    u = backend isa CPU ? Vector{T}(undef, L + 6K) : allocate(backend, T, (L + 6K,))
+    field = field_state(u, p)
+    # The field's pages are first written by their blocks' owners, as
+    # `statevector` writes them.
+    TreeAMR.zerofill!(statearray(field, fs), backend)
+    gather!(field, fs)
+    retarded === nothing || any(isnan, field) && throw(ArgumentError(
+        "no retarded time found at some node at t = $t: no past light cone of the " *
+        "path reaches it; keep the retarded window where every one does"))
     truncate_state!(field, p.wave)
     set_particle_states!(u, p, map(tr -> tr.z, trajs), map(tr -> tr.v, trajs))
     return u
@@ -372,14 +375,14 @@ function inspiral_rhs!(du, u, p::InspiralProblem{T,K}, t) where {T,K}
         TreeAMR.launch_by_owner!(ball_zero_kernel!, backend, dua, p.shared.dev_blocks;
                                  ndrange=range)
         project_source!(fdu, p.wave, p.tables, S, supports; ball, rnear=p.rnear,
-                        scratch=p.scratch, var=1)
+                        scratch=p.scratch, sourceball=p.sourceball, var=1)
         average_shared!(dua, p.shared, 1, Val(TreeWaveOLDG.order(p.wave.element) + 1))
         TreeAMR.launch_by_owner!(ball_add_kernel!, backend, dua, ua, p.shared.dev_blocks;
                                  ndrange=range)
         synchronize(backend)
     else
         project_source!(fdu, p.wave, p.tables, S, supports; ball, rnear=p.rnear,
-                        scratch=p.scratch)
+                        scratch=p.scratch, sourceball=p.sourceball)
     end
     particles = particle_state(u, p)
     set_particle_states!(du, p, map(last, particles), map(tr -> tr.a, trajs))

@@ -33,7 +33,7 @@
 # run the particles) the field and the particles run on that device
 # (`bin/backend.jl`), from an environment that adds the device package
 # (`bin/symmetry/gpu_scans.sh` builds one); the initial and exact
-# remainders are filled on the host and copied, and the norms are
+# remainders are filled on the device, and the norms are
 # `ball_norm`'s on the device. `--cost` waits for the device after each
 # call.
 #
@@ -254,7 +254,7 @@ function evolve(backend)
                 fdu, p.wave, p.tables,
                 ParticleSource(p.models, p.window, trajs; order=p.order), supports;
                 ball=(p.window.centre, p.window.R₂), rnear=p.rnear,
-                scratch=p.scratch), reps),
+                scratch=p.scratch, sourceball=p.sourceball), reps),
             "truncate" => timed(backend, () -> inspiral_stage!(u, integ, p, t), reps),
             "forces" => timed(backend, () -> particle_forces(p, u, t), reps),
             "step" => timed(backend, () -> step!(stepper), reps),

@@ -1607,10 +1607,13 @@ no partition).
   averaging over shared nodes are kernels there. The host lists the
   nested rule's points while the device works on the far and graded
   rules, and copies the particles' six numbers each to and from the
-  device in one piece. `inspiral_initial_state` fills the field
-  on a host field set of the same layout and copies it. The result is
-  the host's to `sqrt(eps)` (a test), and on the CPU the same as before
-  to the bit.
+  device in one piece. `inspiral_initial_state` fills the field there
+  too, in the problem's own field set, the retarded field's
+  root-finding included (`RemainderData`, an `isbits` callback that
+  builds no error message: its order is checked when it is made, and a
+  node without a retarded time gets `NaN`, which the fill refuses after
+  the fact). The result is the host's to `sqrt(eps)` (a test), and on
+  the CPU the same as before to the bit.
 - **The source's coefficient tables are an array on a device.** A
   `ParticleSource` held each particle's lab-slice coefficients as
   `SVector`s, 12.9 KB per particle at order 3, and as a kernel argument
@@ -1628,6 +1631,16 @@ no partition).
   gave a work item to every point of them, a fifth idle, each
   classifying its element again; the list saves 46 of the far rule's
   168 ms on an H200. On the CPU the two give the same `du` bit for bit (a test).
+- **What the projection reads of the forest is built once** (`SourceBall`,
+  which `InspiralProblem` keeps for its window's ball): the frame's block
+  origins and spacings, which blocks the ball reaches, and their copies
+  on the device. `projection_plan` built them at every call, a pass over
+  every block: 1.4 ms at `d/8`, but on M8d's ball, 43 520 blocks, 50 ms
+  of a 92 ms projection on an H200 node's host threads. Built once, the
+  plan takes 1.2 ms per call, and only the classification of the
+  supports' elements and the uploads remain. `project_source!` takes it
+  as `sourceball` and refuses one built for another ball; a test holds
+  its projection to a fresh one's bit for bit.
 - **On a device the graded rule runs as the far rule does,** each band
   over its list of elements in two kernels (`project_graded_list!`): the
   source at every point into a scratch array of its own, then the
@@ -2802,8 +2815,8 @@ the retarded field in further balls about the centre. With
 `--backend=cuda` both drivers, and `bin/nested_ball.jl`'s pulse, run on a
 device ([On a device](#on-a-device)): the frame is host code and the
 plan's arrays are mapped before they are copied, so nothing in the
-kernels changes; the initial and exact remainders are filled on the host
-and copied, and `ball_norm`'s fold evaluates `physical_coordinates` and
+kernels changes; the initial and exact remainders are filled on the
+device, and `ball_norm`'s fold evaluates `physical_coordinates` and
 reads `√g` on the device. `nested_ball.jl` takes `--type=f32` as well,
 its pulse written without a `Float64` literal, and on Metal in `Float32`
 it gives the CPU's numbers to `Float32` rounding; on the CPU the three
@@ -2836,7 +2849,8 @@ M4 to M7 ([Nested boxes](#nested-boxes)). [`src/prescribed.jl`](src/prescribed.j
   normalization of "Fields and particles" (`Q/γ` in the lab), and
   `∂ₜΦ = (dΦ/ds)/(1 - R̂·v)` by a dual number in `s`. A point no past light
   cone reaches is refused: behind a particle in eternal hyperbolic motion
-  by more than `1/g`. For uniform motion it is `-Q/4π|y|`, at `t = 0` of
+  by more than `1/g`; `inspiral_initial_state` refuses a retarded window
+  that reaches such a point (a test). For uniform motion it is `-Q/4π|y|`, at `t = 0` of
   hyperbolic motion `INSPIRAL.md`'s closed form, and it solves the wave
   equation (tests).
 - **The exact remainder as initial data.** `inspiral_initial_state(p;
@@ -5291,6 +5305,24 @@ over `t = 10` to 90; the retarded start's falls from `5.8·10⁻³` on
   retarded reference on the host's 16 threads at every half time unit
   took most of the rest, about 95 to 110 s per fill, 0.5 to `0.6 µs`
   per node.
+- **A step is the wave operator, the projection and the truncation.**
+  Phase by phase (job 598940, `cn111`, 2026-11-15), a step of 0.966 s
+  is four right-hand sides of 0.18 s, each the wave operator 0.099 s
+  (the gradient 0.043 s, the Laplacian 0.044 s, the exchanges the rest)
+  and the projection 0.083 s; four truncations of 0.056 s; and 0.01 s
+  each for the stages' arithmetic and the forces. Half the projection
+  was its plan's pass over the forest, now built once ([On a
+  device](#on-a-device)): on `cn113` (job 599012), whose host is slower,
+  the projection takes 0.042 s instead of 0.092 s and a step 0.83 s
+  instead of about 1.03. The reference is now filled on the device
+  ([On a device](#on-a-device)): 2.6 s on `cn111` (job 599075) against
+  124 s on its 16 host threads, equal to the host's fill to `1.2·10⁻¹⁵`
+  where the field reaches `3.4·10⁻³`, and a step there takes 0.82 s. A
+  sample every 128 steps then costs about 110 s with its norms, against
+  about 230 s before, so such a run takes about 5.5 hours instead of 11
+  to 12. The shells' own stable step is 2.07 times the finest level's,
+  so stepping them at their own rate would save at most a factor 1.9 on
+  the wave operator.
 
 
 ### Prescribed paths

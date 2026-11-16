@@ -125,6 +125,15 @@ function retarded_field(path, k::Integer, Q, x, t)
 end
 
 function retarded_field(path, k::Integer, Q::T, X::SVector{3,T}, t::T) where {T}
+    Φ, Π, found = retarded_root(path, k, Q, X, t)
+    found || no_retarded_time(X, t)
+    return Φ, Π
+end
+
+# `retarded_field` as `(Φ, ∂ₜΦ, found)`, with `found` false where no
+# retarded time is found, in place of the error, which a device kernel
+# cannot build.
+@inline function retarded_root(path, k::Integer, Q::T, X::SVector{3,T}, t::T) where {T}
     s = t - norm3(X - path(t)[k].z)
     # The scale of roundoff in `t - s - |x - z(s)|`, positions included.
     scale = max(abs(t), maximum(abs, X), one(T))
@@ -137,13 +146,13 @@ function retarded_field(path, k::Integer, Q::T, X::SVector{3,T}, t::T) where {T}
         (abs(Δ) <= 8eps(T) * max(scale, abs(s)) || !isfinite(s)) && break
     end
     f = t - s - norm3(X - path(s)[k].z)
-    isfinite(s) && abs(f) <= 64eps(T) * max(scale, abs(s)) ||
-        no_retarded_time(X, t)
+    found = isfinite(s) && abs(f) <= 64eps(T) * max(scale, abs(s))
     tr = path(s)[k]
     R = X - tr.z
     ds_dt = inv(1 - dot(R, tr.v) / norm3(R))
     Φ = point_potential(path, k, Q, X, s)
-    return Φ, ForwardDiff.derivative(σ -> point_potential(path, k, Q, X, σ), s) * ds_dt
+    return Φ, ForwardDiff.derivative(σ -> point_potential(path, k, Q, X, σ), s) * ds_dt,
+           found
 end
 
 @noinline no_retarded_time(X, t) = throw(ArgumentError(

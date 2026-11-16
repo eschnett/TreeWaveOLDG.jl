@@ -158,6 +158,32 @@ end
     @test ball_norm(p, one_, p.window.centre, 20.0; p=3) ≈ 1 rtol = 1e-14
 end
 
+@testset "The problem's source ball projects as a fresh one does" begin
+    # Guards the projection's cache of the forest (`SourceBall`), which
+    # `InspiralProblem` builds once for its window's ball: with it every
+    # projection must give the result of one that builds its own, bit for
+    # bit, on the ball and on the boxes, with all three rules running; and
+    # one built for another ball must be refused, since it would skip
+    # blocks the new ball meets.
+    tables = TransferTables(Float64, 3; graded=((1, 14), (2, 10)), rfar=3)
+    ball_trajs = 0.1
+    for p in (ball_problem(4; tables), centred_boxes(4; tables))
+        trajs = p.motion.path(ball_trajs)
+        S = ParticleSource(p.models, p.window, trajs)
+        supports = map(ParticleSupport, p.models, trajs)
+        ball = (p.window.centre, p.window.R₂)
+        u = inspiral_initial_state(p)
+        fresh, kept = zero(field_state(u, p)), zero(field_state(u, p))
+        project_source!(fresh, p.wave, p.tables, S, supports; ball)
+        project_source!(kept, p.wave, p.tables, S, supports; ball, sourceball=p.sourceball)
+        @test norm(fresh, Inf) > 1e-3
+        @test kept == fresh
+        @test_throws "sourceball was built for" project_source!(
+            kept, p.wave, p.tables, S, supports; ball=(ball[1], ball[2] / 2),
+            sourceball=p.sourceball)
+    end
+end
+
 @testset "The particles stay in the ball's cube" begin
     # Guards the refusal that replaces "the inspiral runs on a brick": the
     # transfer works in the cube alone and looks across no glue, so a

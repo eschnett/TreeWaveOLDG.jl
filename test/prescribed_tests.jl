@@ -204,6 +204,19 @@ end
     @test coarse.force0 < 1e-8 && fine.force0 < 1e-8
 end
 
+@testset "A retarded window past every light cone is refused" begin
+    # Guards the fill's check for nodes without a retarded time: the
+    # callback, a kernel argument on a device, cannot throw the error
+    # itself and marks them `NaN` instead, which must not reach the state.
+    # Behind the particle by more than `1/g = 5` no past light cone of
+    # hyperbolic motion reaches, and a window of radius 7 about the box's
+    # centre takes nodes there.
+    p, _ = hyperbolic_box(4)
+    c = p.window.centre
+    @test_throws "no retarded time found" inspiral_initial_state(
+        p; retarded=Window(c, 7.0, 7.5; continuity=4))
+end
+
 @testset "On a circle the remainder's force is radiation reaction" begin
     # Guards the sign and the size of the force on an accelerated
     # particle, which no uniform motion can: on a circle the remainder

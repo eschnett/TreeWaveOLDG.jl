@@ -225,6 +225,13 @@ field"). `order = 0` is the particle paper's boosted static field alone.
 """
 @inline function particle_field(m::ParticleModel, x, traj::Trajectory; order::Int=3)
     check_order(order)
+    return field_of_order(m, x, traj, order)
+end
+
+# `particle_field` and `particle_rate` of an order already checked, which
+# a device kernel calls: the check's message is built by interpolation,
+# which a kernel cannot compile.
+@inline function field_of_order(m::ParticleModel, x, traj::Trajectory, order::Int)
     Ψ = boosted_static(m, x, traj.z, traj.v)
     order >= 1 && (Ψ += near_field(m, Val(1), x, traj) + lab_slice(m, Val(1), x, traj))
     order >= 2 && (Ψ += near_field(m, Val(2), x, traj) + lab_slice(m, Val(2), x, traj))
@@ -238,8 +245,13 @@ end
 `𝒟Ψ`, the time derivative of [`particle_field`](@ref) along the
 trajectory's Taylor polynomial: a dual-number derivative in `t`.
 """
-function particle_rate(m::ParticleModel, x, traj::Trajectory{T}; order::Int=3) where {T}
-    return ForwardDiff.derivative(t -> particle_field(m, x, trajectory_at(traj, t); order),
+function particle_rate(m::ParticleModel, x, traj::Trajectory; order::Int=3)
+    check_order(order)
+    return rate_of_order(m, x, traj, order)
+end
+
+function rate_of_order(m::ParticleModel, x, traj::Trajectory{T}, order::Int) where {T}
+    return ForwardDiff.derivative(t -> field_of_order(m, x, trajectory_at(traj, t), order),
                                   zero(T))
 end
 
