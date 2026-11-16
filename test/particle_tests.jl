@@ -430,7 +430,7 @@ end
     # smooth as asked, and its closed-form gradient and Laplacian must be
     # those of W.
     for m in (2, 4, 5)
-        S(ξ) = TW.smoothstep(m, ξ)
+        S(ξ) = TW.window_step(m, ξ)
         @test S(big(0)) == 0 && S(big(1)) == 1
         for k in 1:m
             @test nth_derivative(S, big(0), k) == 0

@@ -512,7 +512,7 @@ end
 
 # S_m(ξ) = ξ^{m+1} Σₖ C(m+k, k) (1-ξ)^k for 0 ≤ ξ ≤ 1, summed upward with
 # C(m+k+1, k+1) = C(m+k, k) (m+k+1)/(k+1), exact in integers.
-function smoothstep(m, ξ)
+function window_step(m, ξ)
     y = 1 - ξ
     yᵏ = one(ξ)
     C = 1
@@ -529,7 +529,7 @@ function (w::Window)(x)
     r² = dot(x - w.centre, x - w.centre)
     r² <= w.R₁^2 && return one(r²)
     r² >= w.R₂^2 && return zero(r²)
-    return 1 - smoothstep(w.m, (sqrt(r²) - w.R₁) / (w.R₂ - w.R₁))
+    return 1 - window_step(w.m, (sqrt(r²) - w.R₁) / (w.R₂ - w.R₁))
 end
 
 """
@@ -547,7 +547,7 @@ function window_terms(w::Window, x)
     Δ = w.R₂ - w.R₁
     ξ = (r - w.R₁) / Δ
     m = w.m
-    S = smoothstep(m, ξ)
+    S = window_step(m, ξ)
     p = m == 0 ? zero(ξ) : (ξ * (1 - ξ))^(m - 1)
     S′ = m == 0 ? w.c : w.c * p * (ξ * (1 - ξ))
     S″ = w.c * m * p * (1 - 2ξ)

@@ -121,6 +121,7 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   - [Particles in the ball](#particles-in-the-ball)
   - [Prescribed paths](#prescribed-paths)
   - [Waveforms](#waveforms)
+  - [Assumed pasts](#assumed-pasts)
 - [File layout](#file-layout)
 - [Tests](#tests)
 - [Measured results](#measured-results)
@@ -3159,6 +3160,68 @@ and a matrix product on the host; on M8d's ball, 6 912 points and 28
 modes on each of six spheres, negligible beside a step. The table of
 positions and weights is 128 bytes per point at `P = 3`.
 
+**The analysis.** [`bin/waveforms.jl`](bin/waveforms.jl) reads the
+`--waves` files of a series of resolutions and prints the errors by
+radius and time, their orders, the clean windows, the arrivals per band
+of `ℓ`, the sphere's return and the orbits' amplitude and phase, against
+each file's own reference or, with `--reference=kinked`, against the
+uniform start's exact solution outside the window (M8e's numbers below
+come from it).
+
+### Assumed pasts
+
+The retarded field of any path is an exact solution of the wave equation
+with that path's source, so data need not come from the particle's true
+past, which the binary does not have: an assumed past serves, if it
+joins the motion smoothly and far enough back that what its joints send
+out never meets the particle (`INSPIRAL-PLAN.md`'s M8f). M8e's uniform
+start assumed the circle's tangent line, whose joint at `t = 0` is at the
+particle; [`src/prescribed.jl`](src/prescribed.jl) gives the circle a
+smooth one, and a smooth departure from it:
+
+- `smoothstep(n, x, d)` is the polynomial `S_n` of degree `2n + 1` that
+  rises from 0 to 1 on `[0, 1]` with its first `n` derivatives zero at
+  both ends, `n ≤ 7`, its `d`-th derivative, or with `d = -1` its
+  integral; 0 below and 1 above, continuous from the right at both ends.
+  Its integer coefficients are rounded once and held in a tuple, so a
+  kernel evaluates it; above `x = 1/2` it is evaluated from its mirror
+  image `1 − S(1 − x)`, where what vanishes at 1 is a power of `1 − x`
+  rather than a cancellation among coefficients up to 10⁴. A
+  `C^∞` step, from `e^{−1/x}`, has no closed-form integral, and the
+  position would need a quadrature in every root-finding step of the
+  retarded field.
+- `ramped_circular_motion(centre, radius, speed; past, ramp, n, depart,
+  onset, n2)` is `circular_motion`'s circle on `[−past, 0)`; before that
+  spun up from rest along the circle, `φ̇ = Ω S_n((t + past + ramp)/ramp)`,
+  so at rest before `−past − ramp`; and from `t = 0` with the radius
+  `r_c − ε·onset·I(t/onset)`, `I` the integral of `S_{n2}`, at the
+  circle's angle. At each of the four joints `a` and its first `n − 1`
+  (or `n2 − 1`) derivatives are continuous and the `n`-th jumps by the
+  step's `(n + 1)`-th derivative at 0, `(n + 1)! C(2n + 1, n)`, times
+  `r_cΩ/ramp^{n+1}` or `ε/onset^{n2+1}`. The jets through `a⃜` are
+  closed forms, by Leibniz's rule on `r(t)e^{iφ(t)}` and the recursion
+  `E′ = iφ′E` for `E = e^{iφ}`, so the source and the force have the
+  path's own `ä`; with `past = Inf` and `depart = 0` it is the circle bit
+  for bit. A charge at rest on the circle, not M8e's tangent line, is
+  the starting point, because the tangent line's charge is displaced by
+  `v(R₁ − t)` on the sphere and the sphere sends back that dipole, and
+  because a curve of constant speed and ramped curvature has no closed
+  form.
+
+`bin/prescribed.jl` takes them as `--past=spinup --T --ramp --n` and
+`--depart --onset --n2` on the circle, and `bin/symmetry/gpu_scans.sh`
+as `SCAN=past` and `SCAN=depart`. The data, the reference and
+`--reading` all take `p.motion.path`, so they follow the path with no
+change. A departure that jumps in `a` (`n2 = 0`) gives the remainder at
+`t = 0` an `r⁰` structure about the particle, `Ψ̂` reading the new `a`
+while the retarded field holds the old: the force then reads it at once,
+`F_r ≈ −2·10⁻⁷` at `t = 0` on the laptop's coarsest circle
+(`hₑ = 1/2`, `v = 0.2`) at `ε = 10⁻³`, 5 % of radiation reaction's
+`4.2·10⁻⁶`, against `−2·10⁻¹⁰` without the departure. What such a jump
+costs over the following orbits, and how smooth the switch-on must be
+for it to cost nothing, is what M8f's departure runs measure,
+**(open)** until they are in.
+
 ## File layout
 
 - `src/TreeWaveOLDG.jl`: the module and its exports.
@@ -3226,7 +3289,9 @@ positions and weights is 128 bytes per point at `P = 3`.
   hole) and `ball_mean`, both physical and `√g`-weighted on a geometry.
 - `src/prescribed.jl`: `circular_motion` and `hyperbolic_motion`, the
   retarded field of a point charge on any path by root-finding,
-  `retarded_field`, and `point_model`.
+  `retarded_field`, and `point_model`; `smoothstep` and
+  `ramped_circular_motion`, the circle with an assumed past and a
+  departure ([Assumed pasts](#assumed-pasts)).
 - `src/extraction.jl`: the waveforms, `SphereExtraction`,
   `sphere_values` and `sphere_modes`, with the seven-patch ball's inverse
   map `ball_patch_point`, `spherical_harmonics` and the sphere's rule.
@@ -3286,9 +3351,14 @@ positions and weights is 128 bytes per point at `P = 3`.
   field; `--reading` reads the exact remainder's force without evolving
   it; `--data=uniform` starts the circle from uniform motion's field
   outside the window; `--waves` writes the field's modes on spheres
-  and the retarded field's ([Waveforms](#waveforms));
+  and the retarded field's ([Waveforms](#waveforms)); `--past` and
+  `--depart` give the circle an assumed past and a departure ([Assumed
+  pasts](#assumed-pasts));
   `bin/symmetry/prescribed.sh` runs it on a Symmetry AMD node, one
   run per `path:hdiv:order[:tend]` of `TREEWAVEOLDG_RUNS`.
+- `bin/waveforms.jl`: the waveforms of a series of `--waves` files
+  against their reference or M8e's uniform start's exact solution, in
+  the package environment ([Waveforms](#waveforms)).
 - `bin/dispersion.jl`: the dispersion relation of the semi-discrete
   scheme on a periodic brick, from `wave_rhs!` and `truncate_state!`
   through the Bloch matrix, its branches' group velocities, and with
@@ -3633,7 +3703,19 @@ one thread on CI, is otherwise silent until its summary.
   uniform motion, and on a circle at `v = 0.3` beyond `R₂` the boosted
   static field of the particle's `z` and `v`, with a rate that is its
   derivative along the tangent line to `10⁻⁷` and differs from `𝒟Ψ̂₀`;
-  they refuse a retarded window.
+  they refuse a retarded window; the smoothstep is `3x² − 2x³` and
+  `6x⁵ − 15x⁴ + 10x³` at orders 1 and 2, and for `n ≤ 7` in `BigFloat`
+  0, ½ and 1 at 0, ½ and 1, its first `n` derivatives zero at 0 and of
+  order `(1 − x)^{n+1−d}` at 1, its `(n + 1)`-th
+  `(n + 1)! C(2n + 1, n)` at 0, its derivatives those of nested duals and
+  its integral an exact Gauss rule's to `10⁻⁶⁰`, on both sides of ½; the
+  ramped circle's jets are its positions' derivatives on every piece to
+  `10⁻⁶⁰` in `BigFloat`, its speed at most the circle's, and at each
+  joint `z` through `z⁽ⁿ⁺¹⁾` continuous and `a⁽ⁿ⁾` jumping by what the
+  step says, for `n = 0, 2, 4`; without a past and a departure it is
+  the circle bit for bit, and `isbits`; the spun-up past's retarded field
+  is the circle's where the retarded time is after `−T`, the charge at
+  rest's before `−T − Δ`, and between solves the wave equation.
 - `device_tests.jl`, after the others, on the device `TREEWAVEOLDG_TEST_BACKEND=cuda`
   or `metal` names, loaded only then and not a test dependency, or with
   the CPU standing in, as on CI, where it checks the plumbing: the state
@@ -3647,7 +3729,9 @@ one thread on CI, is otherwise silent until its summary.
   and initial state of a particle on a circle, with and without the
   averaging, are the host's to `sqrt(eps)` in the field, the source
   alone too, and exactly in the particles, and so are the forces and
-  the state after three RK4 steps, on a device with `Float64`; a periodic and a refined
+  the state after three RK4 steps, on a device with `Float64`; the
+  retarded field of a ramped circle, through its spin-up and its
+  departure, filled on a device with `Float64` is the host's; a periodic and a refined
   box's runs, the seven-patch plane wave with Dirichlet data and a pulse
   through the thirteen-patch ball's radiative sphere give the host's
   errors and energies to `sqrt(eps)` in the step counts the host takes;

@@ -100,7 +100,8 @@ export InspiralProblem, Prescribed, uniform_motion, field_state, particle_state,
        inspiral_integrator, particle_forces, ball_norm, ball_mean
 
 # Prescribed paths
-export circular_motion, hyperbolic_motion, retarded_field, point_model
+export circular_motion, hyperbolic_motion, retarded_field, point_model,
+       ramped_circular_motion, smoothstep
 
 # Waveforms
 export SphereExtraction, sphere_values, sphere_modes, harmonic_modes, spherical_harmonics,

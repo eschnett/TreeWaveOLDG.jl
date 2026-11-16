@@ -7,7 +7,8 @@
 #         [--fevery=1] [--cfl=0.5] [--v=0.05] [--rc=0.5] [--g=0.1] \
 #         [--data=instantaneous|retarded|uniform] [--rx1] [--rx2] \
 #         [--plain] [--both] [--cost] [--reps=3] [--ball] [--R1=50] [--hshell] \
-#         [--radii=r1,r2,…] [--backend=cpu|cuda]
+#         [--radii=r1,r2,…] [--backend=cpu|cuda] [--past=spinup] [--T=30] \
+#         [--ramp=10] [--n=4] [--depart=0] [--onset] [--n2=4]
 #
 # Like `bin/uniform_motion.jl`, this runs against the package environment;
 # `bin/symmetry/prescribed.sh` runs M4's series on a Symmetry node.
@@ -60,6 +61,18 @@
 # circle's tangent (INSPIRAL-PLAN.md's M8d). Its reference is the
 # retarded one of `rx1` and `rx2`, and `path` is `circle-uni`. `--tend`
 # defaults to 8.
+#
+# With `--past=spinup` (INSPIRAL-PLAN.md's M8f) the circle has an
+# assumed past instead of turning forever: on the circle for `t ≥ -T`,
+# and before that spun up from rest along it over `ramp`, with the
+# smoothstep of order `n`, so that `a` and its first `n - 1` derivatives
+# are continuous at the joints (`ramped_circular_motion`). It needs
+# `--data=retarded`: the data and the reference are the retarded field of
+# that past, and `path` gets `-past<n>`. With `--depart=ε` the circle's
+# radius shrinks from `t = 0` at a radial speed that rises to `ε` over
+# `onset` (default one orbit, `2π rc/v`) with the smoothstep of order
+# `n2`, and stays there; `path` gets `-dep<n2>`. The force's components
+# are then about the path's own acceleration.
 #
 # `--path=hyperbolic`: hyperbolic motion of proper acceleration `g` along
 # `y`, at rest at `c + o + (0.5, 0, 0)` at `t = 0`, always with
@@ -246,6 +259,21 @@ function reading(path, p, retarded, t, tag)
     return nothing
 end
 
+# The circle, with `--past` and `--depart` if given.
+function circle_motion(centre, rc, v)
+    past = option("past", "")
+    depart = parse(Float64, option("depart", "0"))
+    isempty(past) && iszero(depart) && return circular_motion(centre, rc, v)
+    past in ("", "spinup") || error("--past is spinup, got $past")
+    onset = option("onset", "")
+    return ramped_circular_motion(centre, rc, v;
+                                  past=isempty(past) ? Inf : parse(Float64, option("T", "30")),
+                                  ramp=parse(Float64, option("ramp", "10")),
+                                  n=parse(Int, option("n", "4")), depart,
+                                  onset=isempty(onset) ? 0.0 : parse(Float64, onset),
+                                  n2=parse(Int, option("n2", "4")))
+end
+
 function problem(path, hdiv, levels, w0, order; v, rc, g, ball=nothing, backend=CPU())
     P = 3
     if ball === nothing
@@ -258,7 +286,7 @@ function problem(path, hdiv, levels, w0, order; v, rc, g, ball=nothing, backend=
     end
     m = ParticleModel(; Q=sqrt(0.005), ℓ=1e-3, M=1.0)
     w = Window(c, 1.25, 2.5; continuity=P + 1)
-    motion = path == "circle" ? circular_motion(c + OFFSET, rc, v) :
+    motion = path == "circle" ? circle_motion(c + OFFSET, rc, v) :
              path == "hyperbolic" ?
              hyperbolic_motion(c + OFFSET + SVector(0.5, 0.0, 0.0), g; direction=(0, 1, 0)) :
              error("--path is circle or hyperbolic, got $path")
@@ -409,6 +437,13 @@ function evolve(backend)
     retarded = data == "instantaneous" ? nothing : Window(c, rx1, rx2; continuity=4)
     suffix = path != "circle" ? "" : data == "retarded" ? "-ret" :
              data == "uniform" ? "-uni" : ""
+    if path == "circle"
+        isempty(option("past", "")) || data == "retarded" ||
+            error("--past needs --data=retarded")
+        isempty(option("past", "")) || (suffix *= "-past" * option("n", "4"))
+        iszero(parse(Float64, option("depart", "0"))) ||
+            (suffix *= "-dep" * option("n2", "4"))
+    end
     tag = (path * suffix *
            (ball === nothing ? "" : "-ball"), hdiv, levels, w0, order)
     println(join(("threads", "path", "hdiv", "levels", "w0", "order", "t", "quantity",

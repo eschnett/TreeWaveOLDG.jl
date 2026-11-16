@@ -1612,6 +1612,24 @@ patches.
   `n` is what the runs vary. Switching radiation reaction on is posed as
   the force taking over from whatever held the assumed orbit, and tested
   as a prescribed departure from the circle at `t = 0`.
+- 2026-11-16: M8f built on branch `inspiral-m8f-smooth-past`
+  (`CODE.md`, "Assumed pasts"). The smoothstep is evaluated above
+  `x = 1/2` from its mirror image: from the coefficients directly, its
+  first derivative at `1 − 10⁻⁹` was `2·10⁻¹¹` at `n = 7`, the
+  roundoff of coefficients up to 10⁴, where it should be a power of the
+  distance. Both steps are continuous from the right, so that an abrupt
+  departure's `a(0)` is the one the evolution sees from the first step,
+  and the initial remainder holds the jump as the run does. The
+  ramped circle's jets are written by Leibniz's rule on `r e^{iφ}` for
+  every piece rather than per piece by hand; on `[−T, 0)` it calls the
+  circle itself, so that M8d's path is kept bit for bit. M8e's analysis
+  scripts became `bin/waveforms.jl`, which gives M8e's clean-window
+  tables digit for digit, its uniform start's reference, recomputed,
+  equal to the one M8e used. The window's step in `src/particle.jl`,
+  also called `smoothstep` until then, became `window_step`: the
+  exported `smoothstep(n::Integer, x::Real)` was the more specific
+  method and replaced it, clamped and allocating, which the window's
+  tests caught.
 
 ### What the plan said of its finished milestones
 

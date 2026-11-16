@@ -263,6 +263,32 @@ device_close_arrays(dev, host, ::Type{T}) where {T} =
         end
     end
 
+    @testset "the retarded field of a ramped circle filled on the device is the host's" begin
+        # Guards M8f's data and reference on a device: the spun-up past and
+        # the departure (`ramped_circular_motion`) evaluated in the fill's
+        # kernel, the smoothstep's coefficients and its mirror image
+        # included, with retarded times reaching back through the spin-up
+        # to the charge at rest. On the CPU stand-in the same code twice.
+        SV = TreeWaveOLDG.SVector
+        function filled(backend, motion)
+            forest = wave_forest(Float64, Val(3), 3, 2; roots=4, L=4.0)
+            wave = WaveProblem(forest, Element(Float64, 3); backend=backend)
+            c = SV(2.0, 2.0, 2.0)
+            p = InspiralProblem(wave, (ParticleModel(; Q=0.1, ℓ=0.02, M=1.0),),
+                                Window(c, 1.0, 1.75; continuity=4), motion)
+            return Array(inspiral_initial_state(p; t=0.1,
+                                                retarded=Window(c, 1.5, 2.0; continuity=4)))
+        end
+        if supports_float64(DEVICE)
+            c = SV(2.03, 2.02, 2.01)
+            ramped = ramped_circular_motion(c, 0.3, 0.2; past=0.4, ramp=0.6, n=2,
+                                            depart=0.01, onset=0.3, n2=0)
+            uh, ud = filled(CPU(), ramped), filled(DEVICE, ramped)
+            @test norm(uh - filled(CPU(), circular_motion(c, 0.3, 0.2))) > 1e-6
+            @test device_close_arrays(ud, uh, Float64)
+        end
+    end
+
     @testset "the particles in the ball's cube on the device are the host's" begin
         # Guards the particles in the seven-patch ball (INSPIRAL-PLAN.md,
         # M8c) on a device: the transfer reads the cube's mapped block

@@ -177,6 +177,15 @@ julia --project=. -t 4,0 bin/prescribed.jl --path=circle --data=retarded --rx1=1
 julia --project=. -t 4,0 bin/prescribed.jl --path=circle --data=retarded --levels=1 --hdiv=4 --rx1=3 --rx2=3.75 --reading
 ```
 
+`--waves=FILE` writes the field's modes on spheres beside the retarded
+field's; `bin/waveforms.jl` compares a series of them, given as
+`HDIV=FILE`, in seconds ("Waveforms"), and `--past` and `--depart` give
+the circle an assumed past and a departure ("Assumed pasts"):
+
+```bash
+julia --project=. -t 4,0 bin/waveforms.jl 4=waves-h4.tsv 6=waves-h6.tsv 8=waves-h8.tsv
+```
+
 Both particle drivers take `--ball`: the outermost nested cube becomes
 the seven-patch ball's cube, with shells to a Sommerfeld sphere at
 `--R1` ("Particles in the ball"). With `R1 = 3Lc` the ball keeps the

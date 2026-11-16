@@ -12,7 +12,8 @@ done (2026-11-14), merged with pull request #15. M8d, data that are the
 field far from an accelerated particle, is done (2026-11-15), merged with
 pull request #16; M8e, the waveforms, is done (2026-11-16) on branch
 `inspiral-m8e-waveforms`, its pull request not yet opened; M8f, a smooth
-past and a smooth departure, is proposed (2026-11-16). A
+past and a smooth departure, is under way (2026-11-16) on branch
+`inspiral-m8f-smooth-past`, its code and tests in, its runs not yet. A
 milestone's status line changes here when its work starts and when its
 pull request merges. A finished milestone keeps its number and one line
 saying where its results went; its earlier text, with the gates and
@@ -364,7 +365,7 @@ stepping would. Moving the projection to a GPU with the field is
 ## M8: The particles in the seven-patch ball
 
 **Status:** M8a and M8b done (2026-11-11), M8c done (2026-11-14), M8d
-done (2026-11-15), M8e done (2026-11-16), M8f proposed (2026-11-16). Not a step of
+done (2026-11-15), M8e done (2026-11-16), M8f under way (2026-11-16). Not a step of
 `INSPIRAL.md`'s "Validation": it replaces the periodic box's outer
 faces by the seven-patch ball's radiative sphere (`CODE.md`, "The
 seven-patch ball" and "The outer boundary").
@@ -443,8 +444,9 @@ under "Waveforms" in "Measured results".
 
 ### M8f: A smooth past and a smooth departure
 
-**Status:** proposed (2026-11-16), asked for by the owner after M8e,
-to be built on branch `inspiral-m8f-smooth-past` from M8e's.
+**Status:** under way (2026-11-16), asked for by the owner after M8e,
+on branch `inspiral-m8f-smooth-past` from M8e's: the code and its tests
+are in (`CODE.md`, "Assumed pasts"), the runs not yet.
 
 M8e found the circle's retarded field clean and the uniform start not.
 The difference lies in no fault of the uniform data far out, which are
