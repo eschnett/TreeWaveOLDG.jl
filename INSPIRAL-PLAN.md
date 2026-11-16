@@ -10,8 +10,8 @@ below without links.
 M8a and M8b are done (2026-11-11), M8a's gate having passed, and M8c is
 done (2026-11-14), merged with pull request #15. M8d, data that are the
 field far from an accelerated particle, is done (2026-11-15), merged with
-pull request #16; M8e, the waveforms, is started (2026-11-16) on branch
-`inspiral-m8e-waveforms`. A
+pull request #16; M8e, the waveforms, is done (2026-11-16) on branch
+`inspiral-m8e-waveforms`, its pull request not yet opened. A
 milestone's status line changes here when its work starts and when its
 pull request merges. A finished milestone keeps its number and one line
 saying where its results went; its earlier text, with the gates and
@@ -361,7 +361,7 @@ stepping would. Moving the projection to a GPU with the field is
 ## M8: The particles in the seven-patch ball
 
 **Status:** M8a and M8b done (2026-11-11), M8c done (2026-11-14), M8d
-done (2026-11-15), M8e started (2026-11-16). Not a step of
+done (2026-11-15), M8e done (2026-11-16). Not a step of
 `INSPIRAL.md`'s "Validation": it replaces the periodic box's outer
 faces by the seven-patch ball's radiative sphere (`CODE.md`, "The
 seven-patch ball" and "The outer boundary").
@@ -434,87 +434,9 @@ later").
 
 ### M8e: Waveforms
 
-**Status:** started (2026-11-16) on branch `inspiral-m8e-waveforms`,
-asked for by the owner after M8d's convergence series (`CODE.md`,
-"Particles in the ball" under "Measured results", *Its convergence*).
-
-M8d measured the field only as the L2 norm of its error in balls about
-the centre, and the force at the particle. Three questions need the
-waves themselves:
-
-- **Several orbits.** Does the resolution of M8d hold the waves over the
-  five orbits a run to `t = 90` covers, and how does their error grow
-  with the orbits, in phase and in amplitude?
-- **Clean waves.** Are the waves that leave free of what the cube's
-  coarse-fine faces (at 4 and 8) and the cube–shell faces (16 to 27.7)
-  send back, of the sphere's return, and of error ahead of light? In
-  the balls' norms the retarded start's error converges at about fourth
-  order at every time; a mode at a fixed radius says when and from
-  where anything arrives.
-- **The two starts.** In the continuum the uniform start is the eternal
-  circle's field wherever `t > |x|` (M8d), so its residual of about 1 %
-  of the field in the ball of radius 64, which does not move with the
-  resolution and grows again after `t ≈ 70`, is not the data's free
-  evolution. That the sphere sends it back, answering the uniform data's
-  large multipoles near `R₁` (the field of a charge displaced by `vR₁`
-  along the tangent), is a guess; an incoming wave in the modes, at the
-  outer radii first, would show it.
-
-**Extraction.** Spheres of radius `r` about the centre; on each,
-Gauss–Legendre in `cos θ` at `n_θ` points times `n_φ = 2n_θ` equally
-spaced angles, which integrates `Y_ℓm Ȳ_ℓ′m′` exactly for
-`ℓ + ℓ′ < 2n_θ`. The modes `Φ_ℓm`, `ℓ ≤ L`, `0 ≤ m ≤ ℓ` (the field is
-real), are that quadrature of `Φ Ȳ_ℓm`. Each point goes to its patch and
-logical position by the seven-patch ball's inverse map: a shell's point
-lies on the ray through its point on the cube's face, so its face is
-the largest coordinate's and its sign, its tangential position is the
-face point's, and its radial one inverts the blend and the grading in
-closed form; the cube's map is affine. The points are located once
-(TreeAMR's `locate` of `PatchPoint`s) and read at every sample with
-TreeAMR's `ElementPolynomial`: the element's own degree-`P` polynomial,
-which is the solution itself, from the state vector, with no ghosts, on
-the problem's backend. Beyond `R₂` the remainder is the field, so the
-modes are `Φ`'s. The reference's modes are the same quadrature of
-`retarded_field` at the same points, on the host; aliasing from
-`ℓ′ ≥ 2n_θ − ℓ` is the same in both and cancels in the error.
-
-**Its test, on its own** (`test/extraction_tests.jl`), before any run:
-
-- the quadrature recovers the modes of a sum of `r^ℓ Y_ℓm` given at the
-  points, to roundoff, and the table is orthonormal under it;
-- the inverse map: for points throughout the ball, in the cube and in
-  every shell, graded and not, on faces and edges, the forward map of
-  the `(ξ, p)` it finds is the point to roundoff, and `ξ` lies in the
-  patch's box;
-- the extraction on the grid: a smooth field filled at the nodes of a
-  small ball with refinement in its cube, on spheres inside the cube,
-  across its corners (`Lc < r < √3 Lc`) and in the shells: its modes
-  against the function's own at the points converge at order `P + 1`;
-- on a device the modes are the host's to roundoff
-  (`test/device_tests.jl`).
-
-**The runs.** M8d's circle from both starts at `d/4`, `d/6` and `d/8`,
-on M8d's layout to `t = 90`, the shells refined with the cube as in
-*Its convergence*, with spheres at `r` = 10 (the cube's root level), 20
-(across the cube–shell faces), 30, 50, 70 and 90 (the shells), `L = 6`,
-`n_θ = 24`, every `1/16`: six runs on one H200 each, about 17 GPU-hours,
-the extraction's cost negligible beside a step. Each writes its modes
-and the reference's to a file of its own beside the rows.
-
-**What tells the answers.** For each mode and radius, the error against
-the reference's, `r(Φ_ℓm − Φ_ℓm^ret)`, over time:
-
-- the waves are clean if it converges at the scheme's order at every
-  time and nothing in it reaches a radius sooner than light from the
-  transitions or from the sphere (`t ≈ 100 − r`) could bring it;
-  something the sphere sends back reaches 90 first and 10 last;
-- the orbits: its amplitude and phase parts, against
-  `|Φ_ℓm^ret|` and `Ω = 0.4`, `mΩ` for `(ℓ, m)`, orbit by orbit;
-- the starts: the same for the uniform start, and whether its residual
-  is incoming.
-
-Done when the test passes on the CPU and on a device, `gpu_scans.sh`
-runs the six, and `CODE.md` records them with the three answers.
+Done (2026-11-16): the extraction is `CODE.md`'s ("Waveforms"), and
+its runs, the three answers and the uniform start's own reference are
+under "Waveforms" in "Measured results".
 
 ## Gates and fallbacks
 
@@ -542,8 +464,15 @@ milestone named. Those of the finished milestones are in `HISTORY.md`
   residual ten times larger that scatters the force by
   `1.5·10⁻² F_RR` at `d/8`, an error of the scheme that falls with the
   resolution at only about second order, from `4.4·10⁻²` at `d/4`
-  (`CODE.md`, "Particles in the ball" under "Measured results"). The binary's retarded field needs its past path, which
-  only an assumed one, its circle forever, gives.
+  (`CODE.md`, "Particles in the ball" under "Measured results"). M8e
+  found the retarded start's waves clean to `t = 100 − r` at fourth
+  order and better, and the uniform start's not: a pulse of 17 % of the
+  dipole wave out of the window, a wake that falls at second order, and
+  from `t = 100 − r` the sphere's answer to the uniform data's
+  displaced dipole, 22 % of the dipole wave at `r = 90` by `t = 90` at
+  every resolution (`CODE.md`, "Waveforms" under "Measured results").
+  The binary's retarded field needs its past path, which only an
+  assumed one, its circle forever, gives.
 - M7: whether the fast modes are damped, now that the dispersion
   relation shows them the cause (`CODE.md`, "Why the error outruns
   light"): under-resolved waves at up to 1.58 times the speed of light,

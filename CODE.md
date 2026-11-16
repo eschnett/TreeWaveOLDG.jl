@@ -141,6 +141,7 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   - [Nested boxes](#nested-boxes-1)
   - [The radiative sphere](#the-radiative-sphere)
   - [Particles in the ball](#particles-in-the-ball-1)
+  - [Waveforms](#waveforms-1)
   - [Prescribed paths](#prescribed-paths-1)
 - [What carried over from TreeWave, and what did not](#what-carried-over-from-treewave-and-what-did-not)
 - [Possible extensions](#possible-extensions)
@@ -3142,8 +3143,9 @@ array operations on any backend, and the values come to the host, where
 values are TreeAMR's `interpolate` to `10⁻¹³`, the same nodes and weights
 summed in another order. TreeAMR's own kernel is not used: in 0.2.9 its
 evaluation of located `PatchPoint`s from a state vector does not compile
-for CUDA (a `typejoin` that allocates, job 599405), which is TreeAMR's to
-fix **(open)**. Beyond the window's `R₂` the remainder is the field, so
+for CUDA (a `typejoin` that allocates, job 599405): a reassigned
+variable captured by a closure, which TreeAMR's pull request 42 fixes,
+**(open)** until a release has it. Beyond the window's `R₂` the remainder is the field, so
 on spheres there the modes are `Φ`'s.
 
 **Its error.** A point's value converges as `O(h^{P+1})`. A mode is a
@@ -5548,9 +5550,11 @@ over `t = 10` to 90; the retarded start's falls from `5.8·10⁻³` on
   residual of `6·10⁻⁷` to `10⁻⁶` in every ball at `t = 90`, five times
   the retarded start's error in the ball of 4 and 70 times it in the
   ball of 64, which has not fallen by then. In the balls of 32 and 64 it
-  is the same at `d/4`, `d/6` and `d/8` to 13 %, so there it is the
-  difference of the two starts' solutions and not the scheme's error;
-  in the ball of 4 it falls with the resolution (*Its convergence*).
+  is the same at `d/4`, `d/6` and `d/8` to 13 %, so there it is not the
+  scheme's error: it is what the sphere sends back in answer to the
+  uniform data, not the two starts' solutions' difference, which
+  vanishes where `t > r` ([Waveforms](#waveforms-1) below); in the ball
+  of 4 it falls with the resolution (*Its convergence*).
 - **The reference costs as much as the steps.** A step took 0.96 s and
   1.01 s (the right-hand side 0.18 s and 0.19 s, the wave operator alone
   0.10 s), 6.2 and 6.4 of the runs' 11.2 and 12.4 hours; filling the
@@ -5613,10 +5617,10 @@ retarded start's scatter in the same bands:
   fall at order 3.6 to 3.8 from `d/4` to `d/6` and 3.6 to 4.2 from `d/6`
   to `d/8`, in every ball; its scatter at order 2.8 and 3.3. Its orbit
   means are `γ² = 1.041667` to `1.4·10⁻⁴` from `d/6` on.
-- **The uniform start's residual far out is the data's, near the centre
-  the scheme's.** In the balls of 32 and 64 it does not move with the
-  resolution; in the ball of 4 it falls at order 1.7 and then 2.9, and
-  there at `d/8` it is half the far residual.
+- **The uniform start's residual far out is the sphere's, near the
+  centre the scheme's.** In the balls of 32 and 64 it does not move with
+  the resolution; in the ball of 4 it falls at order 1.7 and then 2.9,
+  and there at `d/8` it is half the far residual.
 - **The uniform start's excess is the scheme's, and converges slowly.**
   It falls in every band from `d/6` to `d/8`, overall at order 1.1 and
   then 2.2, against the retarded start's 2.8 and 3.3, and at `d/8` it
@@ -5625,7 +5629,10 @@ retarded start's scatter in the same bands:
   at `d/6` and 7.5 at `d/8`, more slowly than `1/hₑ`; only `d/8`'s
   stands clearly above the band. Its orbit means stay within
   `7·10⁻⁴ F_RR` of the retarded start's at every resolution. What in the
-  uniform data excites it that the retarded data do not is **(open)**.
+  uniform data excites it that the retarded data do not is **(open)**;
+  the waveforms point at the pulse the uniform data send out of the
+  window, whose wake near the centre falls at the same order
+  ([Waveforms](#waveforms-1) below).
 - **A finer resolution needs several devices.** On the device the runs
   hold 401 bytes per node beside 4.6 GiB (71.2 GiB at `d/8`, 33.0 GiB at
   `d/6`, read while running), so `d/10`, `3.6·10⁸` nodes, would need
@@ -5633,6 +5640,110 @@ retarded start's scatter in the same bands:
   `d/12` to `t = 90` would take about 27 hours. Three quarters of
   `d/12`'s nodes are in the shells: in the ball to `R1 = 40` it would
   fit in 110 GiB, clean to `t ≈ 35`.
+
+### Waveforms
+
+`bin/symmetry/gpu_scans.sh`'s `SCAN=far` with `--waves`, jobs 599424 to
+599429, one H200 each on `cn111` and `cn113`, 2026-11-16: the runs of
+*Its convergence* again, both starts at `d/4`, `d/6` and `d/8` to
+`t = 90`, with the modes `ℓ ≤ 6` on spheres of radius 10, 20, 30, 50, 70
+and 90 every `1/16`, `nθ = 24` ([Waveforms](#waveforms)); 47 min, 2 h
+10 min and 5 h 45 min at the three resolutions. The error is
+`e = r‖Φ − Φ^ref‖`, `r` times the sphere's L2 norm of the difference over
+all modes. For scale, `r|Φ₁₁| = 1.6·10⁻³` (the wave at `Ω = 0.4`),
+`r|Φ₂₂| = 2.8·10⁻⁴`, `r|Φ₃₃| = 5.8·10⁻⁵`, and the charge's
+`r|Φ₀₀| = 1.95·10⁻²`, at every radius.
+
+The retarded start's reference is the circle's retarded field. The
+uniform start's is the retarded field of a charge that moved on the
+tangent line until `t = 0` and on the circle since: at `t = 0` every
+retarded time is negative, so it is the uniform data beyond the window,
+and it is their solution in all space but for the window's part. The
+circle forever, M8d's reference for both, differs from it wherever
+`t < r`. Its modes were read at the extraction's points after the runs,
+with `retarded_field` and a path of the two pieces.
+
+The largest `e` while nothing from the sphere can be there yet: for the
+retarded start before `t = 100 − r`; for the uniform start once the
+window's pulse has passed (`t > r + R₂ + 2`) and before the sphere's
+return could arrive at 1.58 times the speed of light
+([Why the error outruns light](#why-the-error-outruns-light)):
+
+| start | `r` | `t` | `d/4` | `d/6` | `d/8` | orders |
+|---|---|---|---|---|---|---|
+| retarded | 10 | 0–90 | 4.7e-6 | 6.9e-7 | 1.1e-7 | 4.7, 6.4 |
+| | 20 | 0–80 | 8.4e-6 | 1.5e-6 | 3.9e-7 | 4.3, 4.6 |
+| | 30 | 0–70 | 1.9e-5 | 3.4e-6 | 9.9e-7 | 4.2, 4.2 |
+| | 50 | 0–50 | 3.2e-5 | 6.4e-6 | 1.6e-6 | 4.0, 4.9 |
+| | 70 | 0–30 | 2.5e-5 | 5.2e-6 | 1.1e-6 | 3.8, 5.3 |
+| | 90 | 0–10 | 1.8e-5 | 2.8e-6 | 8.3e-7 | 4.7, 4.2 |
+| uniform | 10 | 14.5–57 | 9.4e-6 | 5.7e-6 | 3.2e-6 | 1.3, 2.0 |
+| | 20 | 24.5–50.6 | 1.5e-5 | 6.9e-6 | 4.3e-6 | 1.9, 1.7 |
+| | 30 | 34.5–44.3 | 2.2e-5 | 1.1e-5 | 5.8e-6 | 1.6, 2.3 |
+
+- **The retarded start's waves are clean until the sphere's return.**
+  Its error converges at order 3.8 to 6.4 at every radius, at `d/8`
+  below `1.6·10⁻⁶`, `10⁻³` of `r|Φ₁₁|`. Nothing arrives from the cube's
+  coarse-fine faces at 4 and 8 or from the cube–shell faces: on the
+  sphere of 20, beyond them, `e` stays flat in time and converges at
+  order 4.3 and 4.6. Nothing arrives ahead of light.
+- **The sphere sends back `4·10⁻⁴` of the dipole wave.** At
+  `t = 100 − r` exactly, at every radius, an incoming `ℓ = 1` wave at
+  `Ω` arrives in the retarded start, its `(1,1)` part `4·10⁻⁴` of
+  `|Φ₁₁|` on average and `7·10⁻⁴` at most, the same at `d/6` and
+  `d/8`: about what the first-order condition reflects of an outgoing
+  dipole at `kR₁ = 40`, `1/(2(kR₁)²) = 3·10⁻⁴`. At `d/8` it is then the
+  largest error from `r = 20` out: `e = 1.3·10⁻⁶` at 20 by `t = 90`,
+  against `3.9·10⁻⁷` before it.
+- **The phase error grows with the distance the wave has travelled, not
+  with the orbits.** The `(ℓ, ℓ)` modes' phase against the reference's,
+  averaged over each of the six orbits (period 15.7), grows while
+  `t < r`, the time the wave at `r` has crossed the grid, and then
+  stays. In `(3,3)`, at `ω = 1.2` the shortest wave looked at, it is at
+  `d/8` 2, 4, 6, 6, 6 and `5·10⁻³` rad over the orbits at `r = 50`, and
+  0.7, 3, 5, 7, 10 and `10·10⁻³` at `r = 90`, about `1.1·10⁻⁴` rad per
+  unit of distance; at `r = 90` in the last orbit it is 0.5 at `d/4` and
+  `5·10⁻²` at `d/6`, orders 5.7 and 5.6. In `(2,2)` it is
+  `5·10⁻⁴` at `d/8` at `r = 90`, in `(1,1)` `3·10⁻⁵` before the sphere's
+  return and the return's `3·10⁻⁴` after it. The amplitudes are within
+  `7·10⁻⁴` for `ℓ ≤ 3` at `d/8`. The source's phase is prescribed, so
+  nothing accumulates from orbit to orbit; in an inspiral, whose phase
+  the force sets, this bounds the field's part only.
+- **The uniform start sends a pulse out of the window.** Its data inside
+  the window, the accelerated particle field blended into uniform
+  motion's, are not the two-piece path's field there, and their free
+  evolution crosses each sphere between `t ≈ r − R₂` and `r + R₂`
+  (`R₂ = 2.5`): `r` times its amplitude is `2.7·10⁻⁴` at every radius
+  and resolution, 17 % of `r|Φ₁₁|`, in `ℓ = 0` to 3 (1.4, 2.4, 1.0 and
+  `0.4·10⁻⁴`). Ahead of it, from `t ≈ (r − R₂)/1.58` (42 at `r = 70`,
+  55 at 90), the fast modes bring about 1 % of it, falling with the
+  resolution where they start and hardly behind. Behind the pulse the
+  error near the centre is 10 to 30 times the retarded start's and
+  falls at only about second order (the table), as the uniform start's
+  excess in the force does ([Particles in the
+  ball](#particles-in-the-ball-1) above); that the excess is the pulse's
+  wake is likely but **(open)**.
+- **The sphere answers the uniform data with a dipole that grows.** At
+  `t = 100 − r` at every radius an incoming `ℓ = 1` field arrives, the
+  same at all three resolutions to 1 %, not oscillating (its
+  frequency below 0.005), and growing about linearly: `r|e₁₁|` is
+  `4·10⁻⁵` when it arrives, and by `t = 90` `1.1·10⁻⁴` at `r = 30` and
+  `3.6·10⁻⁴` at 90, 7 % and 22 % of `r|Φ₁₁|`; `ℓ = 2` carries a tenth
+  of it. On the sphere the two-piece path's field is that of the charge
+  on the tangent line, displaced from the centre by `v(R₁ − t)`, 20 at
+  `t = 0`: a slowly changing dipole of 40 times the circle's, which, as
+  a static multipole, the first-order condition does not absorb
+  ([The radiative sphere](#the-radiative-sphere) under "Measured
+  results"). The fast modes bring a
+  precursor from `t ≈ (100 − r)/1.58`, at `r = 50` from 32, up to
+  `1.3·10⁻⁵` at `d/8` and falling at about first order. This is M8d's
+  far residual.
+- **So only the retarded start gives clean waves.** At `d/8` its waves
+  hold `10⁻³` of the dipole wave to `t = 100 − r`, and the sphere's
+  return keeps them there after; the uniform start's carry its pulse,
+  a wake that falls at second order, and from `t = 100 − r` the
+  sphere's growing dipole, which no resolution removes and a larger
+  `R₁` only delays.
 
 
 ### Prescribed paths
