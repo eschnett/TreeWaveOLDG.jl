@@ -32,7 +32,8 @@ into `particle_forms.jl`, and its transfer to and from the grid in
 `transfer.jl`; the coupled problem, the remainder stepped with the
 particles, is in `inspiral.jl`, and the prescribed paths of its
 validation, with the retarded field of a point charge, in
-`prescribed.jl`. See `CODE.md` in the
+`prescribed.jl`. The field's spherical-harmonic modes on spheres, its
+waveforms, are read in `extraction.jl`. See `CODE.md` in the
 package root for the design and the measurements.
 """
 module TreeWaveOLDG
@@ -101,6 +102,10 @@ export InspiralProblem, Prescribed, uniform_motion, field_state, particle_state,
 # Prescribed paths
 export circular_motion, hyperbolic_motion, retarded_field, point_model
 
+# Waveforms
+export SphereExtraction, sphere_values, sphere_modes, harmonic_modes, spherical_harmonics,
+       ball_patch_point
+
 include("precision.jl")
 include("device.jl")
 include("distributed.jl")
@@ -119,5 +124,6 @@ include("particle.jl")
 include("transfer.jl")
 include("inspiral.jl")
 include("prescribed.jl")
+include("extraction.jl")
 
 end

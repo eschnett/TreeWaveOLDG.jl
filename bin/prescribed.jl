@@ -106,6 +106,19 @@
 # cube–shell faces send back, once it has arrived, and before what the
 # retarded data's blend at `rx1` sends in.
 #
+# With `--waves=FILE`, the waveforms (INSPIRAL-PLAN.md's M8e; `CODE.md`,
+# "Waveforms"): the modes `Φ_ℓm`, `0 ≤ m ≤ ℓ ≤ lmax` (`--lmax`, 6), on
+# spheres about `c` of the radii `--wradii` (10,20,30,50,70,90), Gauss–
+# Legendre in `cos θ` at `--ntheta` points (`2lmax + 12`) times twice as
+# many angles, read from the elements' polynomials (`SphereExtraction`),
+# every `--wevery` in time (`1/16`), go to `FILE`, one row per sample:
+# `t`, then for each radius `r` and mode the real and imaginary parts,
+# `r<r>_l<ℓ>m<m>_re` and `_im`, and with `--data=retarded` or `uniform`
+# the same of the point charge's retarded field at the same points,
+# `ref_r<r>_l<ℓ>m<m>_re` and `_im`, which is the run's reference wherever
+# the retarded window is 1 (`rx1` beyond the largest radius). Beyond
+# `R₂` the remainder is the field, so the modes are the field's.
+#
 # With `--reading` and `--data=retarded`, nothing is evolved: the force of
 # the exact remainder as the pairing reads it, at `t = 0` for the circle
 # (`Fr0`, `Ft0`, `Fn0`) and at `tend` for hyperbolic motion (`Fa0`,
@@ -310,6 +323,45 @@ function observe(path, p, c, w0, u, t, tag; retarded, radii=Float64[])
     return nothing
 end
 
+# `--waves`: the extraction's spheres and its file, with the header row
+# written; `nothing` without the option.
+function wave_writer(p, c, retarded)
+    file = option("waves", "")
+    isempty(file) && return nothing
+    ws = option("wradii", "10,20,30,50,70,90")
+    radii = [parse(Float64, strip(r)) for r in split(ws, ",")]
+    lmax = parse(Int, option("lmax", "6"))
+    nθ = parse(Int, option("ntheta", string(2lmax + 12)))
+    ex = SphereExtraction(p.wave, radii; lmax, nθ, centre=c)
+    io = open(file, "w")
+    name(r) = isinteger(r) ? string(Int(r)) : string(r)
+    cols = ["r$(name(r))_l$(l)m$(m)_$(part)" for r in radii
+            for (l, m) in harmonic_modes(lmax) for part in ("re", "im")]
+    retarded === nothing || append!(cols, "ref_" .* cols)
+    println(io, join(("t", cols...), '\t'))
+    flush(io)
+    return (; ex, io)
+end
+
+# One row of `--waves`: the state's modes, and the retarded field's.
+function write_waves(w, p, u, t, retarded)
+    w === nothing && return nothing
+    row = [t]
+    flat(modes) = vec(permutedims(hcat(real.(vec(modes)), imag.(vec(modes)))))
+    append!(row, flat(sphere_modes(w.ex, p, u)))
+    if retarded !== nothing
+        Q = p.models[1].Q
+        vals = Vector{Float64}(undef, length(w.ex.points))
+        Threads.@threads for j in eachindex(vals)
+            vals[j] = retarded_field(p.motion.path, 1, Q, w.ex.points[j], t)[1]
+        end
+        append!(row, flat(sphere_modes(w.ex, vals)))
+    end
+    println(w.io, join(row, '\t'))
+    flush(w.io)
+    return nothing
+end
+
 # The particles need `Float64`, so `--type` is not taken.
 function main()
     withbackend((backend, _) -> evolve(backend), option("backend", "cpu"), "f64")
@@ -403,6 +455,9 @@ function evolve(backend)
     hₑ = 1 / hdiv
     cell(t) = floor.(Int, (p.motion.path(t)[1].z - c) / hₑ)
     k = max(1, round(Int, every / integ.dt))
+    waves = wave_writer(p, c, retarded)
+    kw = max(1, round(Int, parse(Float64, option("wevery", "0.0625")) / integ.dt))
+    write_waves(waves, p, integ.u, integ.t, retarded)
     observe(path, p, c, w0, integ.u, integ.t, tag; retarded, radii)
     for (name, value) in force_rows(path, p, integ.u, integ.t)
         emit(tag..., integ.t, name, value)
@@ -427,7 +482,10 @@ function evolve(backend)
         end
         (integ.nstep % k == 0 || integ.nstep == integ.nsteps) &&
             observe(path, p, c, w0, integ.u, t, tag; retarded, radii)
+        (integ.nstep % kw == 0 || integ.nstep == integ.nsteps) &&
+            write_waves(waves, p, integ.u, t, retarded)
     end
+    waves === nothing || close(waves.io)
 
     "--cost" in ARGS || return nothing
     u = integ.u

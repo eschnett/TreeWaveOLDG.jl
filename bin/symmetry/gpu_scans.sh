@@ -68,7 +68,10 @@
 # resolution for a convergence series: the cube's elements are `1/HDIV`
 # on the finest level, and the shells take their default radial width,
 # twice the cube's root element width (1 at `HDIV = 8`), so that both
-# scale together; the rows then go to `far-$DATA-h$HDIV.tsv`.
+# scale together; the rows then go to `far-$DATA-h$HDIV.tsv`. Every run
+# also writes its waveforms (M8e): the modes `ℓ ≤ 6` on spheres of radius
+# 10, 20, 30, 50, 70 and 90 every `1/16`, and the retarded field's, to
+# `waves-$DATA.tsv` (`waves-$DATA-h$HDIV.tsv`).
 #
 # Run from a checkout of its own (`TREEWAVEOLDG_REPO`, default `$PWD`),
 # rsynced to the cluster without `.git` and `Manifest*.toml`. The
@@ -154,12 +157,14 @@ case $SCAN in
     far)
         data=${DATA:?set DATA to retarded or uniform}
         hdiv=${HDIV:-8}
-        out="$OUTDIR/far-$data.tsv"
-        [ "$hdiv" = 8 ] || out="$OUTDIR/far-$data-h$hdiv.tsv"
+        sfx=""
+        [ "$hdiv" = 8 ] || sfx="-h$hdiv"
+        out="$OUTDIR/far-$data$sfx.tsv"
         "${JL[@]}" "$REPO/bin/prescribed.jl" --backend=cuda --path=circle \
             --data="$data" --v=0.2 --hdiv="$hdiv" --levels=3 --w0=4 --order=3 --ball \
             --R1=100 --rx1=200 --rx2=210 --tend=90 --every=0.5 \
-            --radii=4,8,16,32,64 --cost > "$out"
+            --radii=4,8,16,32,64 --cost \
+            --waves="$OUTDIR/waves-$data$sfx.tsv" > "$out"
         ;;
     *)
         echo "unknown SCAN=$SCAN"

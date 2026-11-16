@@ -1554,6 +1554,20 @@ patches.
   than the retarded data; what in them does is still open. He asked for
   `d/12` if it fit one H200: at 401 bytes per node on the device it
   needs about 232 GiB, and `d/10` 137 of the 140, so neither ran.
+- 2026-11-16: looking at M8d's results, Erik Schnetter asked whether its
+  resolutions hold several orbits, whether its waves are clean of what
+  the grid's transitions, the sphere and error ahead of light send, and
+  whether its two starts differ; the balls' norms answered in part, and
+  he asked for waveforms, designed first as a milestone, M8e, with the
+  extraction tested on its own before any run. The modes are read from
+  the elements' own polynomials at points located once, TreeAMR's
+  `ElementPolynomial`, rather than from an interpolation through the
+  nodes of several elements, which would have read the ghosts and their
+  coarse-fine error; the seven-patch ball's map is inverted in closed
+  form, since a shell keeps each ray through its face, rather than by
+  Newton's method or TreeAMR's atlas, which would run the inverse in
+  every launch. The reference's modes are the same rule at the same
+  points, so the rule's aliasing does not enter the error.
 
 ### What the plan said of its finished milestones
 

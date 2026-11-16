@@ -120,6 +120,7 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   - [Nested boxes](#nested-boxes)
   - [Particles in the ball](#particles-in-the-ball)
   - [Prescribed paths](#prescribed-paths)
+  - [Waveforms](#waveforms)
 - [File layout](#file-layout)
 - [Tests](#tests)
 - [Measured results](#measured-results)
@@ -3094,6 +3095,58 @@ force read the other way as well; M4's read-only runs, the source
 written without the averaging and the force read both ways, are
 `--plain --both` (then `--continuous`).
 
+### Waveforms
+
+[`src/extraction.jl`](src/extraction.jl) reads the field's
+spherical-harmonic modes `Φ_ℓm`, `0 ≤ m ≤ ℓ ≤ lmax`, on spheres about a
+centre (`INSPIRAL-PLAN.md`, M8e). The modes of negative `m` follow from
+the field being real, `Φ_{ℓ,−m} = (−1)^m conj(Φ_ℓm)`.
+
+**The rule.** On each sphere Gauss–Legendre in `cos θ` at `nθ` points
+times `nφ = 2nθ` equally spaced `φ` (`sphere_rule`), which integrates
+`Y_ℓm Ȳ_ℓ′m′` exactly for `ℓ + ℓ′ < 2nθ`. A field's modes up to `lmax`
+then alias only its modes from `2nθ − lmax` on; a reference read at the
+same points aliases the same way, so the difference of the two does not.
+`spherical_harmonics` is the orthonormal set with the Condon–Shortley
+phase, by the three-term recurrence in `ℓ` from the sectoral functions.
+The default `nθ = 2lmax + 12` puts the first aliased mode at
+`ℓ = lmax + 24`, whose amplitude on M8d's circle, about `v^ℓ`, is far
+below anything measured.
+
+**The points.** `SphereExtraction` maps each point to the forest once
+and locates it there with TreeAMR's `locate`, on the problem's backend.
+On a brick a point is its own position. On the seven-patch ball
+`ball_patch_point` inverts the map in closed form: a point with every
+coordinate within `Lc` is the cube's, whose map is affine; any other lies
+in the shell of its largest coordinate and that coordinate's sign, and,
+since a shell's blend `(1 − ρ)f + ρR₁f/|f|` keeps the direction of its
+point `f` on the cube's face, on the ray through `f = x Lc/|x_k|`. The
+tangential position is `f`'s, and the radial one inverts
+`ρ = (|x| − |f|)/(R₁ − |f|)` and the grading. A point on a face between
+patches goes to the cube, or to the first shell in the order of its
+largest coordinate. Other geometries are refused: the thirteen-patch
+ball would need its own inverse, and nothing has asked for it.
+
+**The reading.** `sphere_values` reads a state vector at the located
+points with TreeAMR's `ElementPolynomial`, the containing element's own
+degree-`P` polynomial: the solution itself, which needs no ghosts and
+picks up none of the exchange's error at a coarse-fine face. It is
+discontinuous across element faces by the solution's own `O(h^{P+1})`;
+a point on a face takes the upper element. The values come to the host,
+where `sphere_modes` multiplies them by the rule's table. Beyond the
+window's `R₂` the remainder is the field, so on spheres there the modes
+are `Φ`'s.
+
+**Its error.** A point's value converges as `O(h^{P+1})`. A mode is a
+weighted sum of the values over the sphere's points, bounded by `√(4π)`
+times their largest error; the error field changes sign element by
+element, so the sum falls at order `P + 1` on average but not
+monotonically from one resolution to the next.
+
+**Cost.** One kernel launch per read for all spheres' points together,
+and a matrix product on the host; on M8d's ball, 6 912 points and 28
+modes on each of six spheres, negligible beside a step.
+
 ## File layout
 
 - `src/TreeWaveOLDG.jl`: the module and its exports.
@@ -3162,6 +3215,9 @@ written without the averaging and the force read both ways, are
 - `src/prescribed.jl`: `circular_motion` and `hyperbolic_motion`, the
   retarded field of a point charge on any path by root-finding,
   `retarded_field`, and `point_model`.
+- `src/extraction.jl`: the waveforms, `SphereExtraction`,
+  `sphere_values` and `sphere_modes`, with the seven-patch ball's inverse
+  map `ball_patch_point`, `spherical_harmonics` and the sphere's rule.
 - `derivations/`: the Wolfram Language derivations (`profile.wl`,
   `nearfield.wl`, `selfforce.wl`, and `labslice.wl`, the `t′²` term of
   `Φ_C` and M5's lab slice), each runnable alone with
@@ -3217,7 +3273,9 @@ written without the averaging and the force read both ways, are
   components, its face crossings, and its error against the retarded
   field; `--reading` reads the exact remainder's force without evolving
   it; `--data=uniform` starts the circle from uniform motion's field
-  outside the window; `bin/symmetry/prescribed.sh` runs it on a Symmetry AMD node, one
+  outside the window; `--waves` writes the field's modes on spheres
+  and the retarded field's ([Waveforms](#waveforms));
+  `bin/symmetry/prescribed.sh` runs it on a Symmetry AMD node, one
   run per `path:hdiv:order[:tend]` of `TREEWAVEOLDG_RUNS`.
 - `bin/dispersion.jl`: the dispersion relation of the semi-discrete
   scheme on a periodic brick, from `wave_rhs!` and `truncate_state!`
@@ -3360,6 +3418,17 @@ one thread on CI, is otherwise silent until its summary.
   rotating Bessel mode converges at order `P` for `P = 2, 3`; the mode
   has `∂_r u = 0` on both walls; and a forest the geometry does not map,
   a refined one, and the inspiral on patches are refused. About 25 s.
+- `extraction_tests.jl`: the waveforms — the spherical harmonics are
+  their closed forms for `ℓ ≤ 2`, the rule is orthonormal on every mode
+  to `lmax` and recovers a real field's modes to roundoff; the ball's
+  inverse map, graded and not, gives every point back through the
+  forward map to `10⁻¹³`, in the box of its patch, on faces, edges and
+  the sphere; on a refined ball, on spheres in the refined region, across
+  its coarse-fine faces, across the cube–shell faces and in the shells,
+  and on a brick, the values converge at order above `P + ½` against the
+  function filled at the nodes, and the modes' error is within `√(4π)`
+  of theirs; other geometries, radii beyond the sphere and too few
+  points are refused. About 20 s.
 - `sevenpatch_tests.jl`: the seven-patch ball — with the identity map
   as a full geometry the Cartesian path's right-hand side is the flat
   one's bit for bit, in 2D and 3D, `P = 2, 3`, and its truncation the
@@ -3571,7 +3640,8 @@ one thread on CI, is otherwise silent until its summary.
   errors and energies to `sqrt(eps)` in the step counts the host takes;
   and on the thirteen-patch ball one right-hand side, one truncation
   (per element and factored) and the energy are the host's to
-  `sqrt(eps)`, and the step is the host's exactly. In `Float64` and
+  `sqrt(eps)`, and the step is the host's exactly; the waveforms' values
+  and modes on a refined ball are the host's to `sqrt(eps)`. In `Float64` and
   `Float32` on CUDA, `Float32` on Metal; about a minute on the laptop's
   GPU.
 - `mpi_tests.jl`, last, with `mpi_jobs.jl` and `mpi_workload.jl`: a run

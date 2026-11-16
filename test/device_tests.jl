@@ -380,6 +380,31 @@ device_close_arrays(dev, host, ::Type{T}) where {T} =
             @test device_close(dev.energy, host.energy, T)
         end
 
+        @testset "the waveforms on the device are the host's ($T)" begin
+            # The points located on the device and read there by TreeAMR's
+            # element polynomial. Guards against the points failing to reach
+            # the device, being located in another element, patch or level
+            # there, or the state being read through another layout.
+            forest, geo = sevenpatch_forest(T, 3, 2; roots=(4, 2), Lc=1, R1=3,
+                                            refined=((1, 3), (1, 3), (1, 3)))
+            el = Element(T, 3)
+            mk(backend) = WaveProblem(forest, el; geometry=geo, backend=backend,
+                                      boundary=RadiativeBoundary())
+            pd, ph = mk(DEVICE), mk(CPU())
+            uh = T.(sin.(1:statelength(ph.fs)))
+            ud = similar(statevector(pd.fs))
+            copyto!(ud, uh)
+            radii = (0.3, 0.7, 1.3, 2.2)
+            exd = SphereExtraction(pd, radii; lmax=4)
+            exh = SphereExtraction(ph, radii; lmax=4)
+            for var in 1:2
+                @test device_close_arrays(sphere_values(exd, pd, ud; var),
+                                          sphere_values(exh, ph, uh; var), T)
+                @test device_close_arrays(sphere_modes(exd, pd, ud; var),
+                                          sphere_modes(exh, ph, uh; var), T)
+            end
+        end
+
         @testset "the radiative sphere on the device gives the host's ($T)" begin
             # A pulse through the thirteen-patch ball's radiative sphere.
             # Guards against the radiative kernels or the boundary's energy
