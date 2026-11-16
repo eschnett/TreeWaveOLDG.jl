@@ -111,6 +111,14 @@ end
         u = extraction_state(wave)
         ex = SphereExtraction(wave, radii; lmax=4)
         @test length(ex.points) == length(radii) * 2ex.nθ^2
+        # The gather is TreeAMR's own element polynomial at the same points,
+        # its kernel's nodes and weights summed in another order.
+        xs = [ball_patch_point(geo, x) for x in ex.points]
+        for var in 1:2
+            ref = interpolate(wave.fs, u, xs, ElementPolynomial(); vars=var:var).values
+            @test maximum(abs, vec(ref) - sphere_values(ex, wave, u; var)) <
+                  1e-13 * maximum(abs, ref)
+        end
         e1 = sphere_values(ex, wave, u) - [extraction_f(x) for x in ex.points]
         e2 = sphere_values(ex, wave, u; var=2) - [2extraction_f(x) for x in ex.points]
         push!(errs, max(maximum(abs, e1), maximum(abs, e2) / 2))

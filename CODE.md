@@ -3114,7 +3114,7 @@ The default `nθ = 2lmax + 12` puts the first aliased mode at
 below anything measured.
 
 **The points.** `SphereExtraction` maps each point to the forest once
-and locates it there with TreeAMR's `locate`, on the problem's backend.
+and locates it there with TreeAMR's `locate`, on the host.
 On a brick a point is its own position. On the seven-patch ball
 `ball_patch_point` inverts the map in closed form: a point with every
 coordinate within `Lc` is the cube's, whose map is affine; any other lies
@@ -3127,15 +3127,24 @@ patches goes to the cube, or to the first shell in the order of its
 largest coordinate. Other geometries are refused: the thirteen-patch
 ball would need its own inverse, and nothing has asked for it.
 
-**The reading.** `sphere_values` reads a state vector at the located
-points with TreeAMR's `ElementPolynomial`, the containing element's own
-degree-`P` polynomial: the solution itself, which needs no ghosts and
+**The reading.** Each point is read from the containing element's own
+degree-`P` polynomial through its Gauss–Lobatto nodes, TreeAMR's
+`ElementPolynomial`: the solution itself, which needs no ghosts and
 picks up none of the exchange's error at a coarse-fine face. It is
 discontinuous across element faces by the solution's own `O(h^{P+1})`;
-a point on a face takes the upper element. The values come to the host,
-where `sphere_modes` multiplies them by the rule's table. Beyond the
-window's `R₂` the remainder is the field, so on spheres there the modes
-are `Φ`'s.
+a point on a face takes the upper element. `SphereExtraction` asks
+TreeAMR on the host for each point's element and weights
+(`query_stencil`, `basisweights`) and keeps on the problem's backend the
+`(P+1)^D` positions of the element's nodes in a state vector and their
+weights; `sphere_values` is then a gather and a weighted sum, plain
+array operations on any backend, and the values come to the host, where
+`sphere_modes` multiplies them by the rule's table. On the CPU the
+values are TreeAMR's `interpolate` to `10⁻¹³`, the same nodes and weights
+summed in another order. TreeAMR's own kernel is not used: in 0.2.9 its
+evaluation of located `PatchPoint`s from a state vector does not compile
+for CUDA (a `typejoin` that allocates, job 599405), which is TreeAMR's to
+fix **(open)**. Beyond the window's `R₂` the remainder is the field, so
+on spheres there the modes are `Φ`'s.
 
 **Its error.** A point's value converges as `O(h^{P+1})`. A mode is a
 weighted sum of the values over the sphere's points, bounded by `√(4π)`
@@ -3143,9 +3152,10 @@ times their largest error; the error field changes sign element by
 element, so the sum falls at order `P + 1` on average but not
 monotonically from one resolution to the next.
 
-**Cost.** One kernel launch per read for all spheres' points together,
+**Cost.** A gather of `(P+1)^D` nodes per point, all spheres together,
 and a matrix product on the host; on M8d's ball, 6 912 points and 28
-modes on each of six spheres, negligible beside a step.
+modes on each of six spheres, negligible beside a step. The table of
+positions and weights is 128 bytes per point at `P = 3`.
 
 ## File layout
 
@@ -3427,7 +3437,8 @@ one thread on CI, is otherwise silent until its summary.
   its coarse-fine faces, across the cube–shell faces and in the shells,
   and on a brick, the values converge at order above `P + ½` against the
   function filled at the nodes, and the modes' error is within `√(4π)`
-  of theirs; other geometries, radii beyond the sphere and too few
+  of theirs; on the ball the values are TreeAMR's `interpolate` to
+  `10⁻¹³`; other geometries, radii beyond the sphere and too few
   points are refused. About 20 s.
 - `sevenpatch_tests.jl`: the seven-patch ball — with the identity map
   as a full geometry the Cartesian path's right-hand side is the flat

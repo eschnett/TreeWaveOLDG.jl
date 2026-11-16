@@ -1568,6 +1568,13 @@ patches.
   Newton's method or TreeAMR's atlas, which would run the inverse in
   every launch. The reference's modes are the same rule at the same
   points, so the rule's aliasing does not enter the error.
+- 2026-11-16: on CUDA (job 599405) TreeAMR 0.2.9's kernel for located
+  `PatchPoint`s read from a state vector did not compile, a `typejoin`
+  that allocates; the host and the CPU stand-in had passed. Rather than
+  wait for TreeAMR, the extraction takes each point's element and
+  weights from TreeAMR on the host and reads the state on the device by
+  a gather and a weighted sum, which the CPU holds to TreeAMR's
+  `interpolate` to `10⁻¹³`. The kernel is TreeAMR's to fix.
 
 ### What the plan said of its finished milestones
 

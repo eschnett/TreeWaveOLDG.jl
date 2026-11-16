@@ -126,13 +126,19 @@ Gauss–Legendre in `cos θ` at `nθ` points times `nφ = 2nθ` equally spaced
 field's modes up to `lmax` alias only its modes from `2nθ − lmax` on.
 
 The points are mapped to the forest once: on the seven-patch ball by
-[`ball_patch_point`](@ref), on a brick as they are, and located there
-(TreeAMR's `locate`) on the problem's backend. A regrid makes them
-stale. Other geometries are refused. `points` holds the physical points
-on the host, sphere by sphere, so that a reference's modes are the same
-quadrature of its values there (`sphere_modes(ex, values)`).
+[`ball_patch_point`](@ref), on a brick as they are. TreeAMR locates them
+on the host and gives each one's element and its weights there, those of
+its `ElementPolynomial`, the element's own degree-`P` polynomial through
+its Gauss–Lobatto nodes; what `ex` keeps on the problem's backend is, for
+each point, the `(P+1)^D` positions of those nodes in a state vector and
+their weights, so that a read is a gather and a weighted sum, plain array
+operations on any backend ([`sphere_values`](@ref)). A regrid makes them
+stale. Other geometries, and a point TreeAMR would fold across a
+reflecting face or a seam, are refused. `points` holds the physical
+points on the host, sphere by sphere, so that a reference's modes are
+the same quadrature of its values there (`sphere_modes(ex, values)`).
 """
-struct SphereExtraction{T,L}
+struct SphereExtraction{T,IA,WA}
     radii::Vector{T}
     centre::SVector{3,T}
     lmax::Int
@@ -140,7 +146,10 @@ struct SphereExtraction{T,L}
     nφ::Int
     points::Vector{SVector{3,T}}
     table::Matrix{Complex{T}}    # w_j conj(Y_ℓm) at one sphere's points
-    located::L
+    index::IA                    # each point's nodes in a state vector, var 1
+    weights::WA                  # and their weights, (P+1)^D per point
+    varstride::Int               # a variable's offset in a state vector's block
+    statelength::Int
 end
 
 function SphereExtraction(wave::WaveProblem{T}, radii; lmax::Integer=6,
@@ -165,10 +174,54 @@ function SphereExtraction(wave::WaveProblem{T}, radii; lmax::Integer=6,
             "SphereExtraction maps physical points to the forest on a brick or the " *
             "seven-patch ball only, not on a $(nameof(typeof(geo)))"))
     end
+    index, weights = element_stencils(wave.fs, xs)
     backend = get_backend(wave.fs.work)
-    located = TreeAMR.locate(T, wave.fs.forest, to_backend(backend, xs); backend=backend)
-    return SphereExtraction{T,typeof(located)}(rs, c, Int(lmax), Int(nθ), nφ, points,
-                                               table, located)
+    N = wave.fs.forest.N
+    D = length(first(xs) isa PatchPoint ? first(xs).ξ : first(xs))
+    return SphereExtraction(rs, c, Int(lmax), Int(nθ), nφ, points, table,
+                            to_backend(backend, index), to_backend(backend, weights),
+                            N^D, statelength(wave.fs))
+end
+
+# Each point's element and weights, as TreeAMR's `ElementPolynomial`
+# evaluates it from a state vector (`interpolate(fs, u, xs,
+# ElementPolynomial())`): the point located on the host, its block the
+# located leaf, its element and the offset in it by `query_stencil`, the
+# weights by `basisweights`; then the linear positions of the element's
+# `n^D` nodes in the state vector's `(N, …, N, nvars, nblocks)` layout
+# (`statearray`), for variable 1, and the products of the weights, one
+# column per point. TreeAMR's kernel reads the same nodes with the same
+# weights, summed in another order (see "Waveforms" in `CODE.md` for why
+# the extraction does not call it).
+function element_stencils(fs::FieldSet{T,D}, xs) where {T,D}
+    forest = fs.forest
+    pts = TreeAMR.locate(T, forest, xs)
+    all(pts.inside) || throw(ArgumentError("a point of the spheres lies outside the forest"))
+    all(iszero, pts.code) || throw(ArgumentError(
+        "a point of the spheres is folded across a reflecting face or a seam, whose " *
+        "parity the extraction does not apply"))
+    basis = TreeAMR.specialize_basis(ElementPolynomial(), fs)
+    n = TreeAMR.stencilwidth(basis)
+    N = forest.N
+    origins = TreeAMR.block_origins(forest, T)
+    spacings = TreeAMR.block_spacings(forest, T)
+    G, C, S = ntuple(_ -> 0, D), TreeAMR.staggers(fs), ntuple(_ -> N, D)
+    st = ntuple(d -> N^(d - 1), D)
+    block = N^D * fs.nvars
+    index = Matrix{Int}(undef, n^D, length(xs))
+    weights = Matrix{T}(undef, n^D, length(xs))
+    for j in eachindex(xs)
+        b = Int(pts.leaf[j])
+        first, ξ, _ = TreeAMR.query_stencil(basis, pts.y[j], origins[b], spacings[b],
+                                            Val(G), Val(C), Val(S))
+        W = ntuple(d -> TreeAMR.basisweights(basis, ξ[d], Val(0))[1], D)
+        corner = 1 + sum(ntuple(d -> (first[d] - 1) * st[d], D)) + (b - 1) * block
+        for (q, I) in enumerate(CartesianIndices(ntuple(_ -> n, D)))
+            index[q, j] = corner + sum(ntuple(d -> (I[d] - 1) * st[d], D))
+            weights[q, j] = prod(ntuple(d -> W[d][I[d]], D))
+        end
+    end
+    return index, weights
 end
 
 """
@@ -176,19 +229,24 @@ end
     sphere_values(ex::SphereExtraction, prob::InspiralProblem, u; var = 1)
 
 The values of variable `var` of the state vector `u` (1 for `u`, 2 for
-`v`; for an inspiral, the field's part of its state) at the points of
-`ex`, on the host, in the order of `ex.points`: the containing element's
-own degree-`P` polynomial there (TreeAMR's `ElementPolynomial`), which
-reads no ghosts.
+`v`; for an inspiral, of the field's part of its state) at the points
+of `ex`, on the host, in the order of `ex.points`: the containing
+element's own degree-`P` polynomial there, TreeAMR's `ElementPolynomial`,
+which reads no ghosts. On `u`'s backend, a gather of each point's nodes
+and a weighted sum.
 """
 function sphere_values(ex::SphereExtraction, wave::WaveProblem, u::AbstractVector;
                        var::Integer=1)
-    r = interpolate(wave.fs, u, ex.located, ElementPolynomial(); vars=var:var)
-    return vec(Array(r.values))
+    length(u) >= ex.statelength || throw(DimensionMismatch(
+        "a state vector of $(length(u)) entries for a field set of $(ex.statelength)"))
+    nodes = u[ex.index .+ (var - 1) * ex.varstride]
+    return vec(Array(sum(ex.weights .* nodes; dims=1)))
 end
 
+# The field's part of an inspiral's state comes first in it, so the
+# positions are the same in the whole state vector.
 sphere_values(ex::SphereExtraction, prob::InspiralProblem, u::AbstractVector; kwargs...) =
-    sphere_values(ex, prob.wave, field_state(u, prob); kwargs...)
+    sphere_values(ex, prob.wave, u; kwargs...)
 
 """
     sphere_modes(ex::SphereExtraction, values)
