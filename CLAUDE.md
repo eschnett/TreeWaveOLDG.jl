@@ -112,6 +112,21 @@ TREEWAVEOLDG_TEST_BACKEND=metal julia --project=<env> -t 4,0 test/device_tests.j
 julia --project=<env> -t 4,0 bin/ball_benchmark.jl --backend=metal --type=f32 --scan=2:1:4
 ```
 
+The MPI test ("Running distributed") runs as the suite's last file, its
+`mpiexec` job of three ranks started beside the suite; alone, in an
+environment of your own that `Pkg.develop`s the checkout and adds MPI,
+TreeAMR, StaticArrays, Test and IMEXRungeKutta, about two minutes:
+
+```bash
+julia --project=<env> -e 'using Test; include("test/mpi_tests.jl")'
+```
+
+On Symmetry, from a rsynced checkout, `sbatch --export=ALL,MODE=plain`
+(or `t4`, `cb`) `bin/symmetry/suite.sh` runs the suite one way per job,
+and `sbatch bin/symmetry/distributed_gpu.sh` the CUDA device tests and
+one problem on two H200s over MPI against one (`bin/distributed_gpu.jl`,
+which also takes `--backend=metal` under `mpiexec` on the laptop).
+
 The transfer's cost on the first run's source ("The transfer's cost"),
 a few minutes on four threads:
 
@@ -364,6 +379,13 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   global table, and no kernel writes a `Float64` literal, or Metal's
   `Float32` breaks ("On a device"). Run `test/device_tests.jl` on Metal
   after touching a kernel.
+- **Over MPI a leaf is not a block.** `locate_point`, and everything the
+  transfer calls a leaf, answers with the forest's global index; a block
+  index is the rank's own. A number combined on the host from per-block
+  values goes through `rank_reduce`, a refusal found in a rank's own
+  blocks through `agree_refusal`, and a read of another rank's block
+  through `gather_blocks`. The package never loads MPI ("Running
+  distributed").
 - **The `u` and `v` of a state vector interleave block by block**; use
   `statearray` and `selectdim`, not halves of the vector.
 - **A reflecting box is a TreeAMR reflection symmetry, not a boundary

@@ -103,6 +103,7 @@ export circular_motion, hyperbolic_motion, retarded_field, point_model
 
 include("precision.jl")
 include("device.jl")
+include("distributed.jl")
 include("element.jl")
 include("layout.jl")
 include("geometry.jl")

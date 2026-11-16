@@ -127,12 +127,14 @@ physical units and the element width `hₑ = (P+1)h`, the step count, the
 number of blocks, the wavenumber and the initial and final energies.
 
 The time step is [`oldg_timestep`](@ref), which on the annulus divides by
-the largest logical wave speed, at the inner wall.
+the largest logical wave speed, at the inner wall. `comm` distributes the
+run over MPI ([`wave_forest`](@ref)).
 """
 function annulus_errors(::Type{T}=Float64; P::Integer, E::Integer, roots=(2, 1),
                         r0=1, r1=2, m::Integer=1, n::Integer=1, cfl=T(1//2),
-                        tend=nothing, alg=RK4(), truncate::Bool=true) where {T}
-    forest, geo = annulus_forest(T, P, E; roots=roots, r0=r0, r1=r1)
+                        tend=nothing, alg=RK4(), truncate::Bool=true,
+                        comm=nothing) where {T}
+    forest, geo = annulus_forest(T, P, E; roots=roots, r0=r0, r1=r1, comm=comm)
     el = Element(T, P)
     problem = WaveProblem(forest, el; truncate=truncate, geometry=geo)
     k = annulus_wavenumber(m, n, r0, r1)

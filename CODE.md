@@ -107,6 +107,7 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
 - [Threads and devices](#threads-and-devices)
   - [On a device](#on-a-device)
   - [The integrator](#the-integrator)
+  - [Running distributed](#running-distributed)
 - [Particles](#particles)
   - [The particle](#the-particle)
   - [The near field](#the-near-field)
@@ -195,6 +196,12 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   refined region, is not carried over: the blast wave's ring does that.
 - **One `P` per run**, the same in every element. `P` adaptivity is out
   of scope in TreeAMR too (`P` is the field set's, `N` the forest's).
+- **Threads, devices and MPI**, the particles included: every pass runs
+  by block owner on threads, the field and the inspiral's right-hand
+  side run on a GPU, and a forest built with a communicator runs over
+  MPI, bit for bit the serial run. See [Threads and
+  devices](#threads-and-devices) and [Running
+  distributed](#running-distributed).
 - **No mesh machinery here.** The element centering, its positions and
   quadrature weights, and the coarse-fine operators are TreeAMR's; a
   change to them belongs upstream.
@@ -1548,8 +1555,9 @@ work item in place for truncation, and reads only what no other work
 item writes, so the answer does not depend on the thread count. The
 folds are TreeAMR's, which are bit-identical across thread counts on the
 CPU, and so is the integrator's stage arithmetic (below). The suite
-passes with `--threads=4`; there is no subprocess test comparing thread
-counts bit for bit, as TreeWave has **(open)**.
+passes with `--threads=4`, and the MPI test compares a run on one
+thread with the same run on ranks of three threads, bit for bit
+([Running distributed](#running-distributed)).
 
 Every pass over the mesh runs each block on the thread that owns it,
 TreeAMR's `threadchunks` partition: the kernels through `map_blocks!`,
@@ -1728,6 +1736,141 @@ The drivers step one integrator: `wave_errors` with `solve!`, and
 `uniform_blast` with `step!`, calling its observer after the steps
 nearest the snapshot times, so that watching a run does not change its
 steps.
+
+### Running distributed
+
+A run goes over MPI by passing a communicator to the forest:
+`wave_forest(…; comm = MPI.COMM_WORLD)`, or `sevenpatch_forest`,
+`thirteenpatch_forest` and `annulus_forest` likewise, after `using MPI`
+and `MPI.Init()`, launched under `mpiexec` with every rank making the
+same calls. The drivers that build a forest (`wave_errors`,
+`uniform_blast`, `adaptive_blast`, `annulus_errors`, `sevenpatch_errors`
+and `radiative_errors`) pass their own `comm` on. `nothing`, the default,
+is a serial run, and a run on one rank takes the serial code path. **The
+package never loads MPI** and names no MPI type; MPI is in
+`test/Project.toml` only. Everything else, `WaveProblem`,
+`InspiralProblem`, the integrators, the norms and energies, the
+particles' forces, takes the forest's distribution from the forest.
+
+**What TreeAMR does, and what is left here.** TreeAMR keeps the forest,
+every leaf, on every rank and gives each rank a contiguous run of the
+leaves as its blocks; the ghost exchange, the regrid, `mesh_fold` and
+`mesh_mapreduce` are collective and independent of the rank count but
+for the order of floating-point sums. So the field's kernels, the
+truncation, the exchanges, the norms and the energy's quadrature needed
+nothing. What it cannot do is this package's, in `src/distributed.jl`,
+as TreeHydro's `distributed.jl` is that package's:
+
+- *A number combined on the host from per-block values is a rank's
+  own.* Two were: the time step's largest speed and smallest spacing
+  over speed (`block_speeds`), from which each rank would have taken its
+  own step and hung in the next exchange, and the radiative sphere's
+  boundary energy. Both go through `rank_reduce`, TreeHydro's: one
+  `allgather`, folded in rank order. The step is a `min` and a `max`, so
+  it is the serial one to the bit; the energy is a sum, to roundoff.
+- *A global leaf index is not a local block.* `locate_point` answers
+  with the forest's leaf index, which serially is the block and over MPI
+  is a block only on the rank that owns it. The transfer's lookups,
+  `frame_locate` and `locate_element`, now say "leaf" and are read as
+  one: `check_finest` reads `forest.leaves`, and the pairing, the
+  continuous reconstruction and `reconstruct` index by leaf.
+- *A check of a rank's own blocks is agreed.* The source's ball's
+  check now reads every leaf rather than the rank's blocks, so every
+  rank refuses or none does; the projection's refusal of two supports in
+  one element, which only the rank holding that element finds, goes
+  through `agree_refusal`, and the retarded data's `NaN` check through
+  `rank_reduce`.
+
+**The particles.** The particles' six numbers are on every rank, and
+every rank steps them identically, since they need only the path. The
+source is projected into each rank's own blocks of the ball, as before,
+since every element's rule depends on the element alone. Two things
+reach across ranks:
+
+- *The forces read the blocks around a support.* The pairing reads, on
+  every rank, copies of the blocks that hold the support's elements and
+  their neighbours, as it already did from a device (`BlockCopies`):
+  each rank copies the ones it owns and one `allgatherv` gives every
+  rank all of them (`gather_blocks`), in leaf order, since the ranks own
+  the leaves in order. Every rank then runs the serial pairing on the
+  same numbers, so the forces are the serial ones to the bit on every
+  rank. `reconstruct` and `reconstruct_gradient` gather their one block
+  the same way. All four are collective.
+- *The averaging pairs nodes across faces that two ranks share.*
+  `SharedNodes` lists such a face as a remote pair, with the other
+  block's rank and the leaf of the pair's lower block, sorted so that
+  both ranks list their common pairs in one order. Before each
+  dimension's pass `average_shared!` sends the other rank its face nodes
+  and receives the other's, point to point; after the pass's kernel,
+  which writes none of those nodes, each rank writes the mean, the
+  lower block's value first as the kernel takes it, into its own. That
+  is the serial pass's arithmetic, so the averaged source is the serial
+  one to the bit. A rank with no blocks in the ball sends nothing.
+
+The messages travel on TreeAMR's own duplicate of the application's
+communicator, between its exchanges, each of which completes before it
+returns; `allgather`, `allgatherv`, `isend`, `irecv`, `waitall`,
+`commsize` and `leafowner` are TreeAMR's internal verbs.
+
+**The claim**, the thread claim one level up: **a distributed run is
+the serial run, its state, its step, its leaves after a regrid, every
+maximum, the particles' forces and a reconstructed value bit for bit at
+any rank count and thread count, and its sums (energies, L2 norms)
+agree to roundoff, exactly at one rank.** No sum feeds a decision: the
+step comes from a `min`, and the regrid's flags from TreeAMR's
+`max`-scaled indicator.
+
+**How it is tested.** `test/mpi_workload.jl` runs every case once under
+`mpiexec` on three ranks and three times in that launch, so that one
+compilation serves four groups: over all three ranks; over ranks 0 and 1
+while rank 2 runs the cases over a communicator of itself alone; and on
+rank 2 with no communicator. Ranks 0 and 1 run on three threads, rank 2
+on one (two programs under one `mpiexec`), so the comparison is across
+thread counts too. `test/mpi_tests.jl` compares the three distributed
+groups with the serial one, every line that is not a sum with `==`.
+The cases: a line of two leaves, which at three ranks leaves one rank
+without blocks; a refined reflecting box; the seven-patch ball's
+radiative sphere; the thirteen-patch ball's Dirichlet data and factored
+truncation; the adaptive blast, through a regrid that repartitions; and
+a particle in uniform motion on nested boxes and in the ball's cube,
+two RK4 steps each, its forces before and after and a reconstructed
+value and gradient, where at three ranks both have faces of the
+averaging that two ranks share (asserted). `runtests.jl` starts the job
+before the first file where the machine has room (at least 12 CPU
+threads and 24 GB, or `TREEWAVEOLDG_TEST_MPI_CONCURRENT=1`), and
+`mpi_tests.jl`, last, collects it; about two minutes on the laptop,
+nearly all compilation.
+
+**What is a rank's and what is the mesh's.** Over a distributed forest
+every block index, `nblocks(fs)`, `block_origins`, the state vector and
+`SharedNodes.blocks` are this rank's, while `nleaves`, `forest.leaves`,
+a leaf from `locate_point`, `mesh_fold` and everything here named
+"leaf" are the mesh's. A count of the mesh's blocks is `nleaves`, never
+`nblocks`. A check that throws must throw on every rank: decide it from
+the leaves or agree it, since a throw on one rank leaves the others
+waiting in their next collective.
+
+**Not done.**
+
+- *Several GPUs run, but no test runs them.* TreeAMR stages a device's
+  messages through the host, and the averaging's faces and the gathered
+  blocks are copied to the host here too. On two H200s, one per rank
+  (`bin/distributed_gpu.jl`, job 599625 on cn111, 2026-11-16), a
+  periodic box of 64 blocks, the seven-patch ball's radiative sphere of
+  256 and a particle on M3b's nested boxes of 176, four RK4 steps each in
+  `Float64`, gave one H200's state, step and forces bit for bit, with 32
+  faces of the averaging shared between the two devices; the CUDA device
+  tests passed in the same job. On the laptop two ranks sharing its
+  Metal GPU gave one process's field in `Float32` bit for bit. The suite
+  has no device and so no test of this, and what a step costs on
+  several devices is not measured **(open)**.
+- *The `bin/` drivers* take no communicator and run serially; a viewer
+  would draw one rank's blocks.
+- *Nothing distributed is measured.* Every rank repeats the pairing on
+  the gathered blocks, a few per particle, rather than one rank
+  computing it and broadcasting the result; which costs less at many
+  ranks, and what the `allgatherv` and the averaging's messages add to
+  a step, is not measured **(open)**.
 
 ## Particles
 
@@ -2990,6 +3133,9 @@ written without the averaging and the force read both ways, are
 - `src/precision.jl`, `src/device.jl`: `ceilint`, `floorint`, `wrap`,
   `tofloat64`, `chunk_count`, `chunk_bounds` and `to_backend`, taken from
   TreeWave.
+- `src/distributed.jl`: what a run over MPI needs of this package,
+  `rank_reduce` and `agree_refusal` (TreeHydro's), `local_block` and
+  `global_leaf`, and `gather_blocks`.
 - `src/particle_forms.jl`: generated by `derivations/generate.wl`, not
   edited by hand; the profile's radial functions, the near-field terms
   and their Laplacians, the lab slice of orders 1–3 and its Laplacians
@@ -3044,6 +3190,15 @@ written without the averaging and the force read both ways, are
   registers, local memory and time per point for variants of the call.
   `bin/symmetry/gpu.sh` runs the device tests, both benchmarks and it on
   one H200 of Symmetry, in an environment of its own that adds CUDA.
+- `bin/distributed_gpu.jl`: a periodic box, the seven-patch ball's
+  radiative sphere and, in `Float64`, a particle on nested boxes, over
+  MPI with a device per rank, against the same problems on one device:
+  whether the states are equal bit for bit, their largest difference and
+  the forces' ([Running distributed](#running-distributed)).
+  `bin/symmetry/distributed_gpu.sh` runs the CUDA device tests and then
+  it on two H200s, in an environment of its own that adds CUDA and MPI.
+- `bin/symmetry/suite.sh`: the test suite on a Symmetry AMD node, one way
+  per job (`MODE=plain`, `t4` or `cb`).
 - `bin/projection.jl`: the cost of the transfer on the first run's
   source, one tab-separated row per quantity, run in the package
   environment.
@@ -3397,7 +3552,7 @@ one thread on CI, is otherwise silent until its summary.
   static field of the particle's `z` and `v`, with a rate that is its
   derivative along the tangent line to `10⁻⁷` and differs from `𝒟Ψ̂₀`;
   they refuse a retarded window.
-- `device_tests.jl`, last, on the device `TREEWAVEOLDG_TEST_BACKEND=cuda`
+- `device_tests.jl`, after the others, on the device `TREEWAVEOLDG_TEST_BACKEND=cuda`
   or `metal` names, loaded only then and not a test dependency, or with
   the CPU standing in, as on CI, where it checks the plumbing: the state
   and the spacings come back on the device; the far rule over its list of
@@ -3419,6 +3574,17 @@ one thread on CI, is otherwise silent until its summary.
   `sqrt(eps)`, and the step is the host's exactly. In `Float64` and
   `Float32` on CUDA, `Float32` on Metal; about a minute on the laptop's
   GPU.
+- `mpi_tests.jl`, last, with `mpi_jobs.jl` and `mpi_workload.jl`: a run
+  over MPI at one, two and three ranks, on three threads and on one, is
+  the serial run on one thread, bit for bit in its state, its step, its
+  leaves after a regrid, its maxima, the particles' forces and a
+  reconstructed value, and to roundoff in its energies and L2 norms,
+  exactly at one rank: on a line with a rank without blocks, a refined
+  reflecting box, the seven- and thirteen-patch balls, the adaptive
+  blast, and a particle on nested boxes and in the ball's cube whose
+  averaging shares faces between ranks ([Running
+  distributed](#running-distributed)). About two minutes on the laptop,
+  started beside the suite where there is room.
 
 ## Measured results
 

@@ -62,7 +62,7 @@ sevenpatch_exact(geo::Geometry, wave::PlaneWave{T}, t) where {T} =
     sevenpatch_errors(T=Float64; P, E, roots=(2, 2), Lc=1, R1=3,
                       k=(1.1, -0.7, 0.5), φ=0.3, cfl=1/2, tend=1, alg=RK4(),
                       truncate=true, refined=false, grading=0, Rm=nothing,
-                      backend=CPU())
+                      backend=CPU(), comm=nothing)
 
 Evolve a plane wave ([`PlaneWave`](@ref)) on the seven-patch ball of
 [`sevenpatch_forest`](@ref) to `tend`, with the wave itself as the
@@ -78,14 +78,16 @@ cube ([`sevenpatch_forest`](@ref)), and `h` is then its finest level's;
 With a middle radius `Rm` the ball is instead the thirteen-patch one of
 [`thirteenpatch_forest`](@ref), whose `roots` are `(n, m, m′)`, and
 `grading` must be `0`. The run, and the exact solution it is compared
-with, are on `backend`.
+with, are on `backend`, and `comm` distributes it over MPI
+([`wave_forest`](@ref)).
 """
 function sevenpatch_errors(::Type{T}=Float64; P::Integer, E::Integer, roots=(2, 2),
                            Lc=1, R1=3, k=(1.1, -0.7, 0.5), φ=0.3, cfl=T(1//2), tend=1,
                            alg=RK4(), truncate::Bool=true, refined=false,
-                           grading=0, Rm=nothing, backend::Backend=CPU()) where {T}
+                           grading=0, Rm=nothing, backend::Backend=CPU(),
+                           comm=nothing) where {T}
     forest, geo = ball_forest(T, P, E; roots=roots, Lc=Lc, Rm=Rm, R1=R1, refined=refined,
-                              grading=grading)
+                              grading=grading, comm=comm)
     el = Element(T, P)
     wave = PlaneWave{T}(k, φ)
     problem = WaveProblem(forest, el; truncate=truncate, geometry=geo, boundary=wave,
@@ -115,14 +117,15 @@ function sevenpatch_errors(::Type{T}=Float64; P::Integer, E::Integer, roots=(2, 
 end
 
 # The seven-patch ball, or with a middle radius `Rm` the thirteen-patch one.
-function ball_forest(::Type{T}, P, E; roots, Lc, Rm, R1, refined, grading=0) where {T}
+function ball_forest(::Type{T}, P, E; roots, Lc, Rm, R1, refined, grading=0,
+                     comm=nothing) where {T}
     Rm === nothing &&
         return sevenpatch_forest(T, P, E; roots=roots, Lc=Lc, R1=R1, refined=refined,
-                                 grading=grading)
+                                 grading=grading, comm=comm)
     iszero(grading) || throw(ArgumentError(
         "the thirteen-patch ball's shells are not graded, got grading = $grading"))
     return thirteenpatch_forest(T, P, E; roots=roots, Lc=Lc, Rm=Rm, R1=R1,
-                                refined=refined)
+                                refined=refined, comm=comm)
 end
 
 """
@@ -184,7 +187,7 @@ end
     radiative_errors(T=Float64; P, E, roots=(2, 2), Lc=1, R1=3, w=1/2,
                      κ=1, inverse_r=true, cfl=1/2, tend=2, alg=RK4(),
                      truncate=true, refined=false, grading=0, Rm=nothing,
-                     backend=CPU())
+                     backend=CPU(), comm=nothing)
 
 Evolve an [`OutgoingPulse`](@ref) of width `w` on the seven-patch ball of
 [`sevenpatch_forest`](@ref) to `tend`, with a [`RadiativeBoundary`](@ref)
@@ -201,15 +204,16 @@ level's; `grading` grades the shells' radial elements
 ([`SevenPatchBall`](@ref)). With a middle radius `Rm` the ball is instead
 the thirteen-patch one of [`thirteenpatch_forest`](@ref), whose `roots`
 are `(n, m, m′)`, and `grading` must be `0`. The run, and the exact
-solution it is compared with, are on `backend`.
+solution it is compared with, are on `backend`, and `comm` distributes it
+over MPI ([`wave_forest`](@ref)).
 """
 function radiative_errors(::Type{T}=Float64; P::Integer, E::Integer, roots=(2, 2),
                           Lc=1, R1=3, w=T(1//2), κ=1, inverse_r::Bool=true,
                           cfl=T(1//2), tend=2, alg=RK4(), truncate::Bool=true,
                           refined=false, grading=0, Rm=nothing,
-                          backend::Backend=CPU()) where {T}
+                          backend::Backend=CPU(), comm=nothing) where {T}
     forest, geo = ball_forest(T, P, E; roots=roots, Lc=Lc, Rm=Rm, R1=R1, refined=refined,
-                              grading=grading)
+                              grading=grading, comm=comm)
     el = Element(T, P)
     pulse = OutgoingPulse{T}(w)
     problem = WaveProblem(forest, el; truncate=truncate, geometry=geo,

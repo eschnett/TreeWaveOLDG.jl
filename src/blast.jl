@@ -130,7 +130,8 @@ end
 
 """
     uniform_blast(T=Float64; P, E, roots, L=1, σ=2/25, t_end=2/5, cfl=1/2,
-                  alg=RK4(), truncate=true, observer=nothing, nsnapshots=21)
+                  alg=RK4(), truncate=true, observer=nothing, nsnapshots=21,
+                  comm=nothing)
 
 Evolve the blast wave on a uniform `roots × roots` box of `E × E` elements
 of order `P` per block, and return the L∞ and L2 errors at `t_end`
@@ -144,12 +145,16 @@ the last included, with `t` the time actually reached, `p` the
 nodes. The steps are the run's own, so watching it does not change it.
 `u` is the integrator's state, overwritten by the next step: an observer
 that keeps it must copy it. This is what the viewer in `bin/` uses.
+
+`comm` distributes the run over MPI ([`wave_forest`](@ref)); the
+observer is then called on every rank, with that rank's blocks of `u`
+and `ue`.
 """
 function uniform_blast(::Type{T}=Float64; P::Integer, E::Integer, roots::Integer,
                        L=one(T), σ=T(2//25), t_end=T(2//5), cfl=T(1//2), alg=RK4(),
                        truncate::Bool=true, observer=nothing,
-                       nsnapshots::Integer=21) where {T}
-    forest = wave_forest(T, Val(2), P, E; roots=roots, L=L)
+                       nsnapshots::Integer=21, comm=nothing) where {T}
+    forest = wave_forest(T, Val(2), P, E; roots=roots, L=L, comm=comm)
     el = Element(T, P)
     p = WaveProblem(forest, el; truncate=truncate)
     x₀ = (L / 2, L / 2)
@@ -185,7 +190,7 @@ end
     adaptive_blast(T=Float64; P, E, roots, maxlevel_cap, refine_tol, coarsen_tol,
                    chunk, buffer=nothing, L=1, σ=2/25, t_end=2/5, cfl=1/2,
                    alg=RK4(), truncate=true, maxpasses=8, observer=nothing,
-                   nsnapshots=21)
+                   nsnapshots=21, comm=nothing)
 
 The blast wave of [`uniform_blast`](@ref) on a forest that follows it: a
 `roots × roots` box of `E × E` elements of order `P` per block, refined
@@ -240,14 +245,15 @@ step nearest each of `nsnapshots` evenly spaced times, the first and the
 last included, before any regrid at that time, with the problem `p` on
 the mesh of the moment. `p.fs.forest` is the forest, which the next
 regrid changes in place, so an observer that keeps the mesh, like `u`,
-must copy what it needs.
+must copy what it needs. `comm` distributes the run, the regrids
+included, over MPI, as for [`uniform_blast`](@ref).
 """
 function adaptive_blast(::Type{T}=Float64; P::Integer, E::Integer, roots::Integer,
                         maxlevel_cap::Integer, refine_tol, coarsen_tol, chunk,
                         buffer=nothing, L=one(T), σ=T(2//25), t_end=T(2//5),
                         cfl=T(1//2), alg=RK4(), truncate::Bool=true,
                         maxpasses::Integer=8, observer=nothing,
-                        nsnapshots::Integer=21) where {T}
+                        nsnapshots::Integer=21, comm=nothing) where {T}
     check_thresholds(refine_tol, coarsen_tol)
     chunk, t_end = T(chunk), T(t_end)
     chunk > 0 || throw(ArgumentError("chunk = $chunk: the time between regrids must " *
@@ -256,7 +262,7 @@ function adaptive_blast(::Type{T}=Float64; P::Integer, E::Integer, roots::Intege
     # constant in time ("refinement.jl").
     mode = P - truncate
     check_mode(mode, P)
-    forest = wave_forest(T, Val(2), P, E; roots=roots, L=L)
+    forest = wave_forest(T, Val(2), P, E; roots=roots, L=L, comm=comm)
     el = Element(T, P)
     x₀ = (L / 2, L / 2)
     initial = blast_initial(L, x₀, σ)

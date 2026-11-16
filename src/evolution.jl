@@ -635,7 +635,8 @@ end
 
 # The largest logical wave speed `speed(I, b)` at any node `I` of any block
 # `b` of the coefficient array `c`, and the smallest over the blocks of the
-# block's logical spacing over its own largest speed. The time step is the
+# block's logical spacing over its own largest speed, over every rank's
+# blocks: a rank's own would size its own step. The time step is the
 # CFL condition of the block that binds, not of the finest spacing and the
 # fastest node, which on a refined ball lie in different blocks (the cube
 # and the shells).
@@ -651,7 +652,7 @@ function block_speeds(speed, forest::Forest{D}, c, ::Type{T}) where {D,T}
         smax = max(smax, sb)
         hspeed = min(hspeed, spacings[b] / sb)
     end
-    return smax, hspeed
+    return rank_reduce(max, forest, smax), rank_reduce(min, forest, hspeed)
 end
 
 # What every geometry refuses: a forest it does not map, refinement in a
@@ -1294,7 +1295,7 @@ function boundary_energy(p::WaveProblem{T,D}, rf::RadiativeFaces, u) where {T,D}
             total += w * sqrt(sum(abs2, S)) * ua[o..., 1, b]^2
         end
     end
-    return total * rf.invR / 2
+    return rank_reduce(+, forest, total) * rf.invR / 2
 end
 
 # One exchange of `fs`: as it always was when there are no Dirichlet data,

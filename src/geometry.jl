@@ -239,7 +239,7 @@ function check_geometry(geo::PolarAnnulus, forest::Forest{D}) where {D}
 end
 
 """
-    annulus_forest(T, P, E; roots=(2, 1), r0=1, r1=2) -> (forest, geometry)
+    annulus_forest(T, P, E; roots=(2, 1), r0=1, r1=2, comm=nothing) -> (forest, geometry)
 
 The annulus `r0 ≤ r ≤ r1` as TreeAMR's ring of four patches, each of
 `roots` roots holding `E²` elements of order `P` per block, and its
@@ -250,9 +250,10 @@ reflection symmetries, as on a reflecting box. `E` must be even, as for
 [`wave_forest`](@ref).
 
 Hand both to [`WaveProblem`](@ref): `WaveProblem(forest, el; geometry)`.
+`comm` distributes the forest over MPI, as for [`wave_forest`](@ref).
 """
 function annulus_forest(::Type{T}, P::Integer, E::Integer; roots=(2, 1), r0=1,
-                        r1=2) where {T}
+                        r1=2, comm=nothing) where {T}
     N = E * (P + 1)
     iseven(E) || throw(ArgumentError(
         "E = $E elements of order P = $P per block is odd, and E must be even: " *
@@ -262,7 +263,7 @@ function annulus_forest(::Type{T}, P::Integer, E::Integer; roots=(2, 1), r0=1,
                           (from=(mod1(p + 1, 4), 1, 1), to=(p, 1, 2), map=(1, 2))]
                          for p in 1:4])
     forest = Forest{T}([(roots=Tuple(roots),) for _ in 1:4]; N=N, glue=glue,
-                       reflecting=((false, false), (true, true)))
+                       reflecting=((false, false), (true, true)), comm=comm)
     return forest, PolarAnnulus{T}(r0, r1, Tuple(roots))
 end
 
@@ -490,8 +491,8 @@ function check_ball(forest::Forest{D}, np, roots_of, glue, name, builder) where 
 end
 
 """
-    sevenpatch_forest(T, P, E; roots=(2, 2), Lc=1, R1=3, refined=false, grading=0)
-        -> (forest, geometry)
+    sevenpatch_forest(T, P, E; roots=(2, 2), Lc=1, R1=3, refined=false, grading=0,
+                      comm=nothing) -> (forest, geometry)
 
 The ball `|x| ≤ R1` as TreeAMR's forest of seven patches, a cube of
 half-width `Lc` and six shells around it (see [`SevenPatchBall`](@ref)),
@@ -519,9 +520,10 @@ is refused: a geometry takes refinement only where its map is affine
 default, keeps them uniform.
 
 Hand both to [`WaveProblem`](@ref): `WaveProblem(forest, el; geometry, boundary)`.
+`comm` distributes the forest over MPI, as for [`wave_forest`](@ref).
 """
 function sevenpatch_forest(::Type{T}, P::Integer, E::Integer; roots=(2, 2), Lc=1,
-                           R1=3, refined=false, grading=0) where {T}
+                           R1=3, refined=false, grading=0, comm=nothing) where {T}
     N = E * (P + 1)
     iseven(E) || throw(ArgumentError(
         "E = $E elements of order P = $P per block is odd, and E must be even: " *
@@ -529,7 +531,7 @@ function sevenpatch_forest(::Type{T}, P::Integer, E::Integer; roots=(2, 2), Lc=1
         "2(P+1) = $(2(P + 1))"))
     geo = SevenPatchBall{T}(Lc, R1, Tuple(roots); grading=grading)
     forest = Forest{T}([(roots=sevenpatch_roots(geo, p),) for p in 1:7]; N=N,
-                       glue=sevenpatch_glue())
+                       glue=sevenpatch_glue(), comm=comm)
     refined === false && return forest, geo
     refine_cube!(forest, refined, geo.roots[1])
     return forest, geo
@@ -713,7 +715,7 @@ check_geometry(geo::ThirteenPatchBall, forest::Forest) =
 
 """
     thirteenpatch_forest(T, P, E; roots=(2, 1, 1), Lc=1, Rm=2, R1=3,
-                         refined=false) -> (forest, geometry)
+                         refined=false, comm=nothing) -> (forest, geometry)
 
 The ball `|x| ≤ R1` as TreeAMR's forest of thirteen patches, a cube of
 half-width `Lc`, six inner shells out to the sphere `|x| = Rm` and six
@@ -726,9 +728,10 @@ must be even, and `refined` refines the cube, as for
 [`sevenpatch_forest`](@ref).
 
 Hand both to [`WaveProblem`](@ref): `WaveProblem(forest, el; geometry, boundary)`.
+`comm` distributes the forest over MPI, as for [`wave_forest`](@ref).
 """
 function thirteenpatch_forest(::Type{T}, P::Integer, E::Integer; roots=(2, 1, 1), Lc=1,
-                              Rm=2, R1=3, refined=false) where {T}
+                              Rm=2, R1=3, refined=false, comm=nothing) where {T}
     N = E * (P + 1)
     iseven(E) || throw(ArgumentError(
         "E = $E elements of order P = $P per block is odd, and E must be even: " *
@@ -739,7 +742,7 @@ function thirteenpatch_forest(::Type{T}, P::Integer, E::Integer; roots=(2, 1, 1)
         "the inner and outer shells' radial ones, got $(repr(roots))"))
     geo = ThirteenPatchBall{T}(Lc, Rm, R1, Tuple(roots))
     forest = Forest{T}([(roots=thirteenpatch_roots(geo, p),) for p in 1:13]; N=N,
-                       glue=thirteenpatch_glue())
+                       glue=thirteenpatch_glue(), comm=comm)
     refined === false && return forest, geo
     refine_cube!(forest, refined, geo.roots[1])
     return forest, geo

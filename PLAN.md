@@ -63,8 +63,14 @@ right-hand sides are 63 %, the truncations 30 %, the stage arithmetic
     are all flat path. Done when the flat Laplacian and gradient passes
     per node fall by a measured factor on the H200 and the CPU's stay
     where they are.
-  - **Several GPUs** through MPI, which TreeAMR has, for what does not
-    fit one H200 (nested boxes at `d/16`).
+  - **Several GPUs** through MPI, for what does not fit one H200 (nested
+    boxes at `d/16`). The field and the particles now run over MPI, bit
+    for bit the serial run on the CPU (2026-11-16; `CODE.md`, "Running
+    distributed"), and on two H200s the field and a particle on nested
+    boxes give one H200's results bit for bit (job 599625). What is left
+    is the cost: done when a step of a problem that fills one H200 is
+    timed on one, two and four, with the time in the exchange, the
+    gathered blocks and the averaging's messages apart.
 - **The outer shells' truncation kernel.** 1.19 ns per node at 64
   threads, 30 times the flat box's, for about 25 multiply-adds: it is
   bound by its memory accesses. Each element's numbers in registers
@@ -212,8 +218,8 @@ plenty of in `Float64`.
   Metal cannot run them.
 
 Not planned here: nested boxes at `d/16`, 151 GB, exceed one H200's
-141 GB; they would need several GPUs through MPI, which TreeAMR has, or
-the ball's smaller layout.
+141 GB; they would need several GPUs through MPI, which now runs on the
+CPU ("Several GPUs" above), or the ball's smaller layout.
 
 ## The full geometry's cost
 
