@@ -1599,6 +1599,19 @@ patches.
   read as the two starts' solutions' difference; that difference
   vanishes where `t > r`. M8d's guess, that the sphere sends it back,
   holds.
+- 2026-11-16: Erik Schnetter asked whether a uniform motion can go
+  smoothly into a circular one, how many derivatives of `a` must then
+  vanish, and whether radiation reaction could be switched on smoothly
+  so that a retarded start stays nearly right; he asked for the test
+  designed as a milestone first, M8f. Its assumed past is the circle
+  spun up from rest, not the moving tangent line, because the line's
+  displaced charge is what the sphere sent back in M8e and because a
+  curve of constant speed and ramped curvature has no closed form; its
+  ramps are polynomial smoothsteps of order `n`, not a `C^∞` step,
+  because they keep every jet closed for the device's root-finding, and
+  `n` is what the runs vary. Switching radiation reaction on is posed as
+  the force taking over from whatever held the assumed orbit, and tested
+  as a prescribed departure from the circle at `t = 0`.
 
 ### What the plan said of its finished milestones
 
