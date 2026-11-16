@@ -5452,8 +5452,10 @@ over `t = 10` to 90; the retarded start's falls from `5.8·10⁻³` on
   an excess over the retarded start's of RMS `1.5·10⁻² F_RR` and mean
   `−3·10⁻⁷ F_RR` over `t = 10` to 90, strongest near `ω ≈ 7.5`, which
   has not decayed by `t = 90`. Averaged over an orbit it is the retarded
-  start's force to `6·10⁻⁴ F_RR`. What carries the excess is
-  **(open)**: at `ω = 7.5` the dispersion relation's group velocity is
+  start's force to `6·10⁻⁴ F_RR`. The excess is the scheme's error: it
+  falls in every band of frequency from `d/6` to `d/8`, at about second
+  order, and its peak moves with the resolution (*Its convergence*,
+  below). At `ω = 7.5` the dispersion relation's group velocity is
   1.27 on the cube's root (`ωhₑ = 3.75`) and 1.12 in the shells
   (`ωhₑ = 7.5`), so it is no mode the scheme traps.
 - **The data's front leaves each ball at the speed of light.** The
@@ -5464,7 +5466,10 @@ over `t = 10` to 90; the retarded start's falls from `5.8·10⁻³` on
   `r + R₂` = 11.75, 19.75, 35.75 and 67.75. What it leaves behind is a
   residual of `6·10⁻⁷` to `10⁻⁶` in every ball at `t = 90`, five times
   the retarded start's error in the ball of 4 and 70 times it in the
-  ball of 64, which has not fallen by then.
+  ball of 64, which has not fallen by then. In the balls of 32 and 64 it
+  is the same at `d/4`, `d/6` and `d/8` to 13 %, so there it is the
+  difference of the two starts' solutions and not the scheme's error;
+  in the ball of 4 it falls with the resolution (*Its convergence*).
 - **The reference costs as much as the steps.** A step took 0.96 s and
   1.01 s (the right-hand side 0.18 s and 0.19 s, the wave operator alone
   0.10 s), 6.2 and 6.4 of the runs' 11.2 and 12.4 hours; filling the
@@ -5485,10 +5490,68 @@ over `t = 10` to 90; the retarded start's falls from `5.8·10⁻³` on
   124 s on its 16 host threads, equal to the host's fill to `1.2·10⁻¹⁵`
   where the field reaches `3.4·10⁻³`, and a step there takes 0.82 s. A
   sample every 128 steps then costs about 110 s with its norms, against
-  about 230 s before, so such a run takes about 5.5 hours instead of 11
-  to 12. The shells' own stable step is 2.07 times the finest level's,
-  so stepping them at their own rate would save at most a factor 1.9 on
-  the wave operator.
+  about 230 s before. The retarded start's run again (job 599116,
+  `cn111`) took 5 h 37 min instead of 11 h 11 min, at 0.80 s a step,
+  and its force is the first run's to `2.5·10⁻¹¹ F_RR` to `t = 90`. The
+  shells' own stable step is 2.07 times the finest level's, so stepping
+  them at their own rate would save at most a factor 1.9 on the wave
+  operator.
+
+*Its convergence* (jobs 599121 to 599124, one H200 each, 2026-11-15):
+both starts again at `d/4` and `d/6`, to `t = 90`, beside `d/8`'s
+above; the shells' radial width is twice the cube's root element width
+at each (1.91, 1.31 and 1), so that both are refined together. The
+errors at `t = 90`; the step-to-step scatter of `F_t/F_RR` over
+`t = 10` to 90 for the retarded start, and for the uniform start the
+RMS of its excess over the retarded start's at the same resolution; and
+the range of the five orbits' means of `F_t/F_RR`:
+
+| start | `hₑ` | nodes | error in 4 | in 8 | in 32 | in 64 | scatter or excess | orbit means |
+|---|---|---|---|---|---|---|---|---|
+| retarded | `d/4` | `2.3·10⁷` | 1.83e-6 | 9.59e-7 | 2.54e-7 | 2.17e-7 | `2.1·10⁻²` | 1.04063–1.04171 |
+| | `d/6` | `7.6·10⁷` | 4.02e-7 | 2.06e-7 | 5.80e-8 | 5.10e-8 | `6.9·10⁻³` | 1.04159–1.04181 |
+| | `d/8` | `1.8·10⁸` | 1.23e-7 | 6.14e-8 | 2.04e-8 | 1.61e-8 | `2.6·10⁻³` | 1.04158–1.04169 |
+| uniform | `d/4` | | 2.63e-6 | 1.81e-6 | 1.13e-6 | 1.11e-6 | `4.4·10⁻²` | 1.03995–1.04162 |
+| | `d/6` | | 1.30e-6 | 1.14e-6 | 1.03e-6 | 1.08e-6 | `2.8·10⁻²` | 1.04132–1.04208 |
+| | `d/8` | | 5.66e-7 | 5.80e-7 | 1.00e-6 | 1.08e-6 | `1.5·10⁻²` | 1.04106–1.04198 |
+
+The uniform start's excess by band of `ω` (its RMS over `t = 10` to 90
+in `F_RR`, by Parseval over the band's Fourier modes), and the
+retarded start's scatter in the same bands:
+
+| `ω` | 0–1 | 1–3 | 3–5 | 5–9 | 9–15 | above 15 |
+|---|---|---|---|---|---|---|
+| excess, `d/4` | 1.5e-3 | 1.1e-2 | 1.8e-2 | 3.6e-2 | 1.3e-2 | 2.5e-3 |
+| `d/6` | 4.1e-4 | 8.2e-3 | 7.6e-3 | 2.2e-2 | 1.2e-2 | 2.6e-3 |
+| `d/8` | 1.3e-4 | 2.5e-3 | 5.0e-3 | 1.1e-2 | 7.9e-3 | 8.1e-4 |
+| scatter, `d/4` | 9.1e-4 | 5.8e-3 | 3.7e-3 | 2.9e-3 | 2.7e-3 | 2.0e-2 |
+| `d/6` | 1.9e-4 | 1.2e-3 | 1.4e-3 | 1.1e-3 | 8.3e-4 | 6.5e-3 |
+| `d/8` | 8.4e-5 | 1.3e-4 | 2.2e-4 | 4.0e-4 | 3.3e-4 | 2.6e-3 |
+
+- **The retarded start converges at the scheme's order.** Its errors
+  fall at order 3.6 to 3.8 from `d/4` to `d/6` and 3.6 to 4.2 from `d/6`
+  to `d/8`, in every ball; its scatter at order 2.8 and 3.3. Its orbit
+  means are `γ² = 1.041667` to `1.4·10⁻⁴` from `d/6` on.
+- **The uniform start's residual far out is the data's, near the centre
+  the scheme's.** In the balls of 32 and 64 it does not move with the
+  resolution; in the ball of 4 it falls at order 1.7 and then 2.9, and
+  there at `d/8` it is half the far residual.
+- **The uniform start's excess is the scheme's, and converges slowly.**
+  It falls in every band from `d/6` to `d/8`, overall at order 1.1 and
+  then 2.2, against the retarded start's 2.8 and 3.3, and at `d/8` it
+  is 20 to 30 times that scatter in every band from `ω = 1` to 15. Its
+  strongest peak moves up with the resolution, about 5.6 at `d/4`, 6.1
+  at `d/6` and 7.5 at `d/8`, more slowly than `1/hₑ`; only `d/8`'s
+  stands clearly above the band. Its orbit means stay within
+  `7·10⁻⁴ F_RR` of the retarded start's at every resolution. What in the
+  uniform data excites it that the retarded data do not is **(open)**.
+- **A finer resolution needs several devices.** On the device the runs
+  hold 401 bytes per node beside 4.6 GiB (71.2 GiB at `d/8`, 33.0 GiB at
+  `d/6`, read while running), so `d/10`, `3.6·10⁸` nodes, would need
+  about 137 GiB of the H200's 140, and `d/12`, `6.1·10⁸`, about 232; and
+  `d/12` to `t = 90` would take about 27 hours. Three quarters of
+  `d/12`'s nodes are in the shells: in the ball to `R1 = 40` it would
+  fit in 110 GiB, clean to `t ≈ 35`.
 
 
 ### Prescribed paths

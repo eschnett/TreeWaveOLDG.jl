@@ -13,6 +13,7 @@
 #     sbatch --export=ALL,SCAN=rest   bin/symmetry/gpu_scans.sh
 #     sbatch --export=ALL,SCAN=far,DATA=retarded bin/symmetry/gpu_scans.sh
 #     sbatch --export=ALL,SCAN=far,DATA=uniform  bin/symmetry/gpu_scans.sh
+#     sbatch --export=ALL,SCAN=far,DATA=uniform,HDIV=4 bin/symmetry/gpu_scans.sh
 #
 # Measured (2026-11-13, jobs 597907 to 597912): the tests take 5 minutes,
 # the twelve pulses 2.4 hours, the circles 3.1 to 5.3 hours and the
@@ -63,7 +64,11 @@
 # (`--data=uniform`). Both are measured against the retarded field
 # everywhere, in the balls of radius 4 to 64 every half time unit, and
 # the force every step. About 1.8·10⁸ nodes; the reference is filled on
-# the host at every output, about 2.7 µs per node on one core.
+# the device at every output, about 2.6 s. `HDIV` (default 8) changes the
+# resolution for a convergence series: the cube's elements are `1/HDIV`
+# on the finest level, and the shells take their default radial width,
+# twice the cube's root element width (1 at `HDIV = 8`), so that both
+# scale together; the rows then go to `far-$DATA-h$HDIV.tsv`.
 #
 # Run from a checkout of its own (`TREEWAVEOLDG_REPO`, default `$PWD`),
 # rsynced to the cluster without `.git` and `Manifest*.toml`. The
@@ -148,10 +153,13 @@ case $SCAN in
         ;;
     far)
         data=${DATA:?set DATA to retarded or uniform}
+        hdiv=${HDIV:-8}
+        out="$OUTDIR/far-$data.tsv"
+        [ "$hdiv" = 8 ] || out="$OUTDIR/far-$data-h$hdiv.tsv"
         "${JL[@]}" "$REPO/bin/prescribed.jl" --backend=cuda --path=circle \
-            --data="$data" --v=0.2 --hdiv=8 --levels=3 --w0=4 --order=3 --ball \
-            --R1=100 --hshell=1 --rx1=200 --rx2=210 --tend=90 --every=0.5 \
-            --radii=4,8,16,32,64 --cost > "$OUTDIR/far-$data.tsv"
+            --data="$data" --v=0.2 --hdiv="$hdiv" --levels=3 --w0=4 --order=3 --ball \
+            --R1=100 --rx1=200 --rx2=210 --tend=90 --every=0.5 \
+            --radii=4,8,16,32,64 --cost > "$out"
         ;;
     *)
         echo "unknown SCAN=$SCAN"

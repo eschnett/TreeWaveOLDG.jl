@@ -708,6 +708,10 @@ patches.
   time's, now a `NaN` the fill looks for afterwards. On an H200 the
   reference takes 2.6 s instead of 124 s and equals the host's to
   `1.2·10⁻¹⁵` (job 599075).
+- 2026-11-15: once both fixes had merged (pull request #17), Erik
+  Schnetter asked for M8d's retarded start again to time it: 5 h 37 min
+  instead of 11 h 11 min, 0.80 s a step, the force the first run's to
+  `2.5·10⁻¹¹ F_RR` (job 599116). The estimate had been about 5.5 hours.
 - 2026-11-16: Erik Schnetter asked that the code, the particles
   included, work multi-threaded, on GPUs and over MPI. Threads and
   devices were in place; nothing had run over MPI. An audit against
@@ -1534,6 +1538,22 @@ patches.
   about as much as the steps. Prescribed paths take the retarded field
   to the sphere; the inspiral's choice, and whether to filter the fast
   modes, which had been M8d's, are M7's.
+- 2026-11-15: Erik Schnetter asked for M8d's convergence test, which
+  had been proposed when he asked whether its runs had one: both starts
+  at `d/4` and `d/6` beside `d/8`, the shells refined with the cube
+  (jobs 599121 to 599124, one H200 each, `bin/symmetry/gpu_scans.sh`'s
+  new `HDIV`). The retarded start converges at order 3.6 to 4.2 in its
+  errors and about 3 in its force's scatter. The uniform start's
+  residual in the balls of 32 and 64 does not move with the resolution:
+  it is the two starts' solutions' difference, not the scheme's error.
+  Its excess in the force, whose cause
+  M8d had left open, falls in every band of frequency from `d/6` to
+  `d/8`, at about second order against the retarded start's third, and
+  its peak moves from about 5.6 at `d/4` to 7.5 at `d/8`: an error of the
+  scheme, which the uniform data excite twenty to thirty times more
+  than the retarded data; what in them does is still open. He asked for
+  `d/12` if it fit one H200: at 401 bytes per node on the device it
+  needs about 232 GiB, and `d/10` 137 of the 140, so neither ran.
 
 ### What the plan said of its finished milestones
 

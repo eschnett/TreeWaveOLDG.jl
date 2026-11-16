@@ -453,8 +453,9 @@ milestone named. Those of the finished milestones are in `HISTORY.md`
   motion's field outside the window giving the same force over an orbit
   to `6·10⁻⁴ F_RR` after a start-up of three time units, with a
   residual ten times larger that scatters the force by
-  `1.5·10⁻² F_RR` (`CODE.md`, "Particles in the ball" under "Measured
-  results"). The binary's retarded field needs its past path, which
+  `1.5·10⁻² F_RR` at `d/8`, an error of the scheme that falls with the
+  resolution at only about second order, from `4.4·10⁻²` at `d/4`
+  (`CODE.md`, "Particles in the ball" under "Measured results"). The binary's retarded field needs its past path, which
   only an assumed one, its circle forever, gives.
 - M7: whether the fast modes are damped, now that the dispersion
   relation shows them the cause (`CODE.md`, "Why the error outruns
