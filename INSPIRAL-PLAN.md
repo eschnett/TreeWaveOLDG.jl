@@ -13,7 +13,8 @@ field far from an accelerated particle, is done (2026-11-15), merged with
 pull request #16; M8e, the waveforms, is done (2026-11-16) on branch
 `inspiral-m8e-waveforms`, its pull request not yet opened; M8f, a smooth
 past and a smooth departure, is under way (2026-11-16) on branch
-`inspiral-m8f-smooth-past`, its code and tests in, its runs not yet. A
+`inspiral-m8f-smooth-past`, its code, tests and past series in, its
+departure series running. A
 milestone's status line changes here when its work starts and when its
 pull request merges. A finished milestone keeps its number and one line
 saying where its results went; its earlier text, with the gates and
@@ -446,7 +447,10 @@ under "Waveforms" in "Measured results".
 
 **Status:** under way (2026-11-16), asked for by the owner after M8e,
 on branch `inspiral-m8f-smooth-past` from M8e's: the code and its tests
-are in (`CODE.md`, "Assumed pasts"), the runs not yet.
+are in (`CODE.md`, "Assumed pasts"), and the past series (jobs 600172 to
+600182, `CODE.md`, "Assumed pasts" under "Measured results"), which
+found `n = 4` clean at `d/8`; the departure series from that past runs
+(jobs 601825 to 601832).
 
 M8e found the circle's retarded field clean and the uniform start not.
 The difference lies in no fault of the uniform data far out, which are

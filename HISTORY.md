@@ -1630,6 +1630,18 @@ patches.
   exported `smoothstep(n::Integer, x::Real)` was the more specific
   method and replaced it, clamped and allocating, which the window's
   tests caught.
+- 2026-11-17: the past series ran overnight on the H200s after the
+  branch was rebased on `main` with MPI (jobs 600171 to 600182, in an
+  environment of its own, `env-m8f`, since `SCAN=tests` re-`develop`s
+  the one it is given and `env-perf` served other checkouts). `n = 0`
+  was not clean, and `n = 4` was as clean as the circle at `d/8`
+  (`CODE.md`, "Assumed pasts" under "Measured results"). `n = 1` and 2
+  were as good as 4 at `d/6` but were not run at `d/8`, so the
+  departure series was submitted from the past of `n = 4`, as the plan
+  said, from the past that the series found clean (jobs 601825 to
+  601832). Contrary to the plan's expectation, the sphere's return was
+  not the circle's own reflection but six times it: the static dipole of
+  the charge at rest, which the sphere sees until `t = 60`.
 
 ### What the plan said of its finished milestones
 

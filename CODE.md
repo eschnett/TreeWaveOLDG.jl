@@ -143,6 +143,7 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   - [The radiative sphere](#the-radiative-sphere)
   - [Particles in the ball](#particles-in-the-ball-1)
   - [Waveforms](#waveforms-1)
+  - [Assumed pasts](#assumed-pasts-1)
   - [Prescribed paths](#prescribed-paths-1)
 - [What carried over from TreeWave, and what did not](#what-carried-over-from-treewave-and-what-did-not)
 - [Possible extensions](#possible-extensions)
@@ -3220,7 +3221,8 @@ while the retarded field holds the old: the force then reads it at once,
 `4.2·10⁻⁶`, against `−2·10⁻¹⁰` without the departure. What such a jump
 costs over the following orbits, and how smooth the switch-on must be
 for it to cost nothing, is what M8f's departure runs measure,
-**(open)** until they are in.
+**(open)** until they are in; the past's runs are in ([Assumed
+pasts](#assumed-pasts-1) under "Measured results").
 
 ## File layout
 
@@ -5829,6 +5831,101 @@ return could arrive at 1.58 times the speed of light
   sphere's growing dipole, which no resolution removes and a larger
   `R₁` only delays.
 
+### Assumed pasts
+
+`bin/symmetry/gpu_scans.sh`'s `SCAN=past`, jobs 600172 to 600182 after
+the CUDA device tests (600171), one H200 each on `cn111` and `cn113`,
+2026-11-16 and 17: *Waveforms*' retarded start with the circle spun up
+from rest instead of the circle forever ([Assumed pasts](#assumed-pasts)),
+`T = 30`, `Δ = 10`, at `n = 0` and 4 at `d/4`, `d/6` and `d/8` and
+`n = 1` and 2 at `d/4` and `d/6`; 0.80 s a step at `d/8`, as the circle's.
+Each is compared with its own retarded field (`bin/waveforms.jl`) and its
+force, step by step, with the circle's run at the same resolution, which
+shares its grid and steps. At `t = 0` the joints lie in the data between
+`r = 30` (`−T`) and 40 (`−T − Δ`), the charge at rest beyond, and they
+move out.
+
+The largest `e = r‖Φ − Φ^ref‖` in each sphere's clean window,
+`t < 100 − r`, as in *Waveforms*:
+
+| past | `r` | `d/4` | `d/6` | `d/8` | orders |
+|---|---|---|---|---|---|
+| circle | 10 | 4.7e-6 | 6.9e-7 | 1.1e-7 | 4.7, 6.4 |
+| | 30 | 1.9e-5 | 3.4e-6 | 9.9e-7 | 4.2, 4.2 |
+| | 50 | 3.2e-5 | 6.4e-6 | 1.6e-6 | 4.0, 4.9 |
+| | 70 | 2.5e-5 | 5.2e-6 | 1.1e-6 | 3.8, 5.3 |
+| `n = 0` | 10 | 6.9e-6 | 1.7e-6 | 8.1e-7 | 3.4, 2.7 |
+| | 30 | 2.5e-5 | 9.4e-6 | 6.4e-6 | 2.4, 1.3 |
+| | 50 | 5.6e-5 | 2.7e-5 | 1.9e-5 | 1.8, 1.3 |
+| | 70 | 3.4e-5 | 1.9e-5 | 1.6e-5 | 1.4, 0.7 |
+| `n = 1` | 10 | 5.8e-6 | 7.8e-7 | | 5.0 |
+| | 30 | 2.1e-5 | 3.6e-6 | | 4.3 |
+| | 50 | 3.8e-5 | 1.1e-5 | | 3.0 |
+| | 70 | 1.5e-5 | 5.5e-6 | | 2.4 |
+| `n = 2` | 10 | 5.9e-6 | 7.6e-7 | | 5.1 |
+| | 30 | 2.0e-5 | 3.4e-6 | | 4.4 |
+| | 50 | 3.9e-5 | 1.0e-5 | | 3.2 |
+| | 70 | 1.6e-5 | 2.8e-6 | | 4.3 |
+| `n = 4` | 10 | 7.1e-6 | 8.7e-7 | 1.6e-7 | 5.2, 5.9 |
+| | 30 | 1.9e-5 | 3.6e-6 | 9.4e-7 | 4.2, 4.6 |
+| | 50 | 4.7e-5 | 1.3e-5 | 4.4e-6 | 3.1, 3.8 |
+| | 70 | 2.5e-5 | 3.0e-6 | 6.6e-7 | 5.3, 5.3 |
+
+The force's excess over the circle's, the RMS of `ΔF_t/F_RR` and
+`ΔF_r/F_RR` over `t = 10` to 90 beside the circle's step-to-step scatter
+of `F_t/F_RR` ([Particles in the ball](#particles-in-the-ball-1)), and
+the five orbits' means of `F_t/F_RR` against the circle's:
+
+| `hₑ` | circle's scatter | `n = 0` | 1 | 2 | 4 | orbit means, `n = 4` − circle |
+|---|---|---|---|---|---|---|
+| `d/4` | `2.1·10⁻²` | 1.2e-2, 1.2e-2 | 9.3e-3, 1.0e-2 | 8.9e-3, 9.8e-3 | 1.0e-2, 1.1e-2 | `−8·10⁻⁴` to `3·10⁻⁴` |
+| `d/6` | `6.9·10⁻³` | 7.6e-3, 6.0e-3 | 2.9e-3, 2.3e-3 | 2.3e-3, 2.1e-3 | 3.1e-3, 2.3e-3 | `−3·10⁻⁴` to `5·10⁻⁵` |
+| `d/8` | `2.6·10⁻³` | 6.9e-3, 5.2e-3 | | | 7.3e-4, 6.6e-4 | `−2·10⁻⁵` to `1·10⁻⁵` |
+
+- **What the joints send in reaches the particle from `t ≈ 15`.** The
+  force is the circle's to `10⁻¹¹ F_RR` until `t = 10`; it departs by
+  `10⁻⁸ F_RR` from `t = 14.2`, 15.3 and 16.0 at `d/4`, `d/6` and `d/8`
+  (`n = 0`), `30 − r_c` at 2.1 to 1.8 times the speed of light, as the
+  boxes' fastest modes ([Uniform motion](#uniform-motion)), and by
+  `10⁻⁴ F_RR` from 17 to 18 at `n = 0` and 23 to 24 at `n = 4`; the
+  inner spheres' error rises from `t ≈ 12` at `r = 10`. That is the part
+  of the joints' error that the scheme sends inward: the exact field
+  carries the joints out.
+- **`n = 0` is not clean.** The jump in `a` at `−T − Δ` and `−T` is a
+  jump in the radiation field across the joints' light cones, and its
+  error converges at order 0.7 to 1.8 on the spheres it crosses and
+  hardly at all at the particle: at `d/8` the force's excess is
+  `6.9·10⁻³ F_RR`, 2.6 times the circle's scatter, the inner spheres'
+  error 3 to 8 times the circle's, and the balls' error at `t = 90`
+  3.4 times in 4 and 5.7 in 16.
+- **`n = 4` is as clean as the circle at `d/8`.** Its excess falls at
+  order 2.9 and then 5.0 to `7.3·10⁻⁴ F_RR`, 0.28 of the circle's
+  scatter, which it leaves at `2.7·10⁻³`; its orbit means are the
+  circle's to `2·10⁻⁵ F_RR`; the inner spheres' error is the circle's to
+  1.5 times at `r = 10` and equal from 20 on, and the balls' within 21 %
+  at `t = 90` from 4 to 16, 1.6 and 2.3 times in 32 and 64, which by then
+  the fast modes of the front's return from the sphere can reach. The
+  front's error on the sphere of 50
+  converges at order 3.1 and 3.8 and is still 2.8 times the circle's at
+  `d/8`; on 70 it converges at 5.3: the ramp of `Δ = 10` at `n = 4` has
+  steep higher derivatives, so at `d/4` it is no better than `n = 1` or
+  2, and better from `d/6` on.
+- **`n = 1` and 2 cannot be told from 4 at `d/6`.** Their force excess
+  is 0.3 to 0.4 of the circle's scatter there, as `n = 4`'s, and their
+  inner spheres the same. Only `n = 1`'s error ahead of the front on 70
+  converges slowly, at 2.4, as a kink in the field would; neither was run
+  at `d/8`. So `n = 4` is the answer measured, and 2 likely suffices.
+- **The sphere returns the charge at rest's dipole.** At `t = 100 − r`
+  a static `ℓ = 1` field arrives (frequency below 0.02), the same at
+  every `n` and resolution, `2.4·10⁻³` of `|Φ₁₁|` on average at `r = 50`
+  against the circle's `4·10⁻⁴` and the uniform start's `8.4·10⁻²`: the
+  sphere sees the charge at rest, `r_c` off the centre, until
+  `t = 100 − T − Δ = 60`, a static dipole the first-order condition does
+  not absorb. It does not grow; a later `T + Δ` would shorten it.
+- **For the binary:** a past at rest before `−T − Δ`, spun up with
+  `n = 4` (or likely 2) over `Δ = 10` to the orbit at `−T = −30`,
+  starts the run as cleanly as the orbit forever at `d/8`: what its
+  joints cost at the particle is below the scheme's own scatter there.
 
 ### Prescribed paths
 
