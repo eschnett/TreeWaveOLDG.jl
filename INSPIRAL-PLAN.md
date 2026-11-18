@@ -9,8 +9,11 @@ below without links.
 **Status.** M0 to M5 are done; M6a, M6b and M7 are not started; of M8,
 M8a and M8b are done (2026-11-11), M8a's gate having passed, and M8c is
 done (2026-11-14), merged with pull request #15. M8d, data that are the
-field far from an accelerated particle, is done (2026-11-15) on branch
-`inspiral-m8d-far-data`. A
+field far from an accelerated particle, is done (2026-11-15), merged with
+pull request #16; M8e, the waveforms, is done (2026-11-16) on branch
+`inspiral-m8e-waveforms`, its pull request not yet opened; M8f, a smooth
+past and a smooth departure, is done (2026-11-18) on branch
+`inspiral-m8f-smooth-past`, its pull request not yet opened. A
 milestone's status line changes here when its work starts and when its
 pull request merges. A finished milestone keeps its number and one line
 saying where its results went; its earlier text, with the gates and
@@ -44,6 +47,8 @@ finished milestones").
   - [M8b: Refinement inside the cube](#m8b-refinement-inside-the-cube)
   - [M8c: Particles in the cube](#m8c-particles-in-the-cube)
   - [M8d: Far data that are the field](#m8d-far-data-that-are-the-field)
+  - [M8e: Waveforms](#m8e-waveforms)
+  - [M8f: A smooth past and a smooth departure](#m8f-a-smooth-past-and-a-smooth-departure)
 - [Gates and fallbacks](#gates-and-fallbacks)
 - [Left to settle later](#left-to-settle-later)
 
@@ -160,6 +165,8 @@ These hold for every milestone.
 | M8b | — | `inspiral-m8b-refined-ball` | refinement inside the ball's cube, the field alone | M8a |
 | M8c | 3 and 4, in the ball | `inspiral-m8c-ball` | the particles in the cube, the transfer through its affine map | M8b, TreeAMR's patch-aware `locate_point` |
 | M8d | 4, in the ball | `inspiral-m8d-far-data` | the circle from data that are the field far out, against uniform motion's field there; why the error outruns light | M8c |
+| M8e | 4, in the ball | `inspiral-m8e-waveforms` | waveforms on spheres: their extraction and its test, M8d's circle's modes at three resolutions from both starts | M8d |
+| M8f | 4, in the ball | `inspiral-m8f-smooth-past` | the circle from the retarded field of a past spun up from rest, and a departure from it at `t = 0`, each at several smoothnesses | M8e |
 
 M1 and M2 are independent and can be developed in parallel, on their
 own branches. M8 is independent of M6 and M7 in the same way; M7 uses it
@@ -251,7 +258,10 @@ be checked with short runs.
 - **Initial data**: `Ω` from the predictor's two-body force, positions
   and velocities about the centre of mass, `Σ γₐMₐvₐ = 0`, and the fields
   as in "Initial data", with the parameters of "Parameters for a first
-  run".
+  run"; the retarded field of M8f's assumed past, the orbit spun up from
+  rest with `n = 4` over `Δ = 10` and joined at `−T = −30`, and the
+  force taking over from whatever held the orbit over one orbit with
+  `n₂ = 4` (`CODE.md`, "Assumed pasts" under "Measured results").
 - **Diagnostics** (`src/inspiral.jl` or `src/diagnostics.jl`): `d(t)`,
   phase, frequency, the eccentricity fit, the flux through spheres
   `R_ext > R₂` by a Gauss product rule on the sphere of `reconstruct`ed
@@ -358,7 +368,7 @@ stepping would. Moving the projection to a GPU with the field is
 ## M8: The particles in the seven-patch ball
 
 **Status:** M8a and M8b done (2026-11-11), M8c done (2026-11-14), M8d
-done (2026-11-15). Not a step of
+done (2026-11-15), M8e done (2026-11-16), M8f done (2026-11-18). Not a step of
 `INSPIRAL.md`'s "Validation": it replaces the periodic box's outer
 faces by the seven-patch ball's radiative sphere (`CODE.md`, "The
 seven-patch ball" and "The outer boundary").
@@ -429,6 +439,18 @@ relation under "Particles in the ball" and "Why the error outruns light"
 in "Measured results"; what it left open is M7's (below, "Left to settle
 later").
 
+### M8e: Waveforms
+
+Done (2026-11-16): the extraction is `CODE.md`'s ("Waveforms"), and
+its runs, the three answers and the uniform start's own reference are
+under "Waveforms" in "Measured results".
+
+### M8f: A smooth past and a smooth departure
+
+Done (2026-11-18): the paths are `CODE.md`'s ("Assumed pasts"), and
+the past's and the departure's runs, with what the binary's data need,
+under "Assumed pasts" in "Measured results".
+
 ## Gates and fallbacks
 
 Points where a result changes the plan. Each is taken to the owner
@@ -453,9 +475,22 @@ milestone named. Those of the finished milestones are in `HISTORY.md`
   motion's field outside the window giving the same force over an orbit
   to `6·10⁻⁴ F_RR` after a start-up of three time units, with a
   residual ten times larger that scatters the force by
-  `1.5·10⁻² F_RR` (`CODE.md`, "Particles in the ball" under "Measured
-  results"). The binary's retarded field needs its past path, which
-  only an assumed one, its circle forever, gives.
+  `1.5·10⁻² F_RR` at `d/8`, an error of the scheme that falls with the
+  resolution at only about second order, from `4.4·10⁻²` at `d/4`
+  (`CODE.md`, "Particles in the ball" under "Measured results"). M8e
+  found the retarded start's waves clean to `t = 100 − r` at fourth
+  order and better, and the uniform start's not: a pulse of 17 % of the
+  dipole wave out of the window, a wake that falls at second order, and
+  from `t = 100 − r` the sphere's answer to the uniform data's
+  displaced dipole, 22 % of the dipole wave at `r = 90` by `t = 90` at
+  every resolution (`CODE.md`, "Waveforms" under "Measured results").
+  The binary's retarded field needs its past path, which only an
+  assumed one gives. M8f found that an orbit spun up from rest with
+  `n = 4` over `Δ = 10` and joined at `−T = −30` starts as cleanly as
+  the orbit forever at `d/8`, and that the force can take over from
+  `t = 0` over one orbit with `n₂ = 4`. A ramp that ends during the
+  run with `a⃛` or below jumping sends out a pulse that no resolution
+  removes (`CODE.md`, "Assumed pasts" under "Measured results").
 - M7: whether the fast modes are damped, now that the dispersion
   relation shows them the cause (`CODE.md`, "Why the error outruns
   light"): under-resolved waves at up to 1.58 times the speed of light,

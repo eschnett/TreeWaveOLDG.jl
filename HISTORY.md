@@ -708,6 +708,10 @@ patches.
   time's, now a `NaN` the fill looks for afterwards. On an H200 the
   reference takes 2.6 s instead of 124 s and equals the host's to
   `1.2·10⁻¹⁵` (job 599075).
+- 2026-11-15: once both fixes had merged (pull request #17), Erik
+  Schnetter asked for M8d's retarded start again to time it: 5 h 37 min
+  instead of 11 h 11 min, 0.80 s a step, the force the first run's to
+  `2.5·10⁻¹¹ F_RR` (job 599116). The estimate had been about 5.5 hours.
 - 2026-11-16: Erik Schnetter asked that the code, the particles
   included, work multi-threaded, on GPUs and over MPI. Threads and
   devices were in place; nothing had run over MPI. An audit against
@@ -1534,13 +1538,138 @@ patches.
   about as much as the steps. Prescribed paths take the retarded field
   to the sphere; the inspiral's choice, and whether to filter the fast
   modes, which had been M8d's, are M7's.
+- 2026-11-15: Erik Schnetter asked for M8d's convergence test, which
+  had been proposed when he asked whether its runs had one: both starts
+  at `d/4` and `d/6` beside `d/8`, the shells refined with the cube
+  (jobs 599121 to 599124, one H200 each, `bin/symmetry/gpu_scans.sh`'s
+  new `HDIV`). The retarded start converges at order 3.6 to 4.2 in its
+  errors and about 3 in its force's scatter. The uniform start's
+  residual in the balls of 32 and 64 does not move with the resolution:
+  it is the two starts' solutions' difference, not the scheme's error.
+  Its excess in the force, whose cause
+  M8d had left open, falls in every band of frequency from `d/6` to
+  `d/8`, at about second order against the retarded start's third, and
+  its peak moves from about 5.6 at `d/4` to 7.5 at `d/8`: an error of the
+  scheme, which the uniform data excite twenty to thirty times more
+  than the retarded data; what in them does is still open. He asked for
+  `d/12` if it fit one H200: at 401 bytes per node on the device it
+  needs about 232 GiB, and `d/10` 137 of the 140, so neither ran.
+- 2026-11-16: looking at M8d's results, Erik Schnetter asked whether its
+  resolutions hold several orbits, whether its waves are clean of what
+  the grid's transitions, the sphere and error ahead of light send, and
+  whether its two starts differ; the balls' norms answered in part, and
+  he asked for waveforms, designed first as a milestone, M8e, with the
+  extraction tested on its own before any run. The modes are read from
+  the elements' own polynomials at points located once, TreeAMR's
+  `ElementPolynomial`, rather than from an interpolation through the
+  nodes of several elements, which would have read the ghosts and their
+  coarse-fine error; the seven-patch ball's map is inverted in closed
+  form, since a shell keeps each ray through its face, rather than by
+  Newton's method or TreeAMR's atlas, which would run the inverse in
+  every launch. The reference's modes are the same rule at the same
+  points, so the rule's aliasing does not enter the error.
+- 2026-11-16: on CUDA (job 599405) TreeAMR 0.2.9's kernel for located
+  `PatchPoint`s read from a state vector did not compile, a `typejoin`
+  that allocates; the host and the CPU stand-in had passed. Rather than
+  wait for TreeAMR, the extraction takes each point's element and
+  weights from TreeAMR on the host and reads the state on the device by
+  a gather and a weighted sum, which the CPU holds to TreeAMR's
+  `interpolate` to `10⁻¹³`. The kernel is TreeAMR's to fix.
+- 2026-11-16: Erik Schnetter asked about that bug, and for its fix:
+  `element_series` captured a reassigned variable in a closure, which
+  boxed it and made the weights `Any`. TreeAMR's pull request 42 fixes
+  it, with tests that the weights are inferred and that the element
+  polynomial agrees with the host on a device; until a release has it
+  the extraction keeps its gather.
+- 2026-11-16: M8e's six runs (jobs 599424 to 599429, one H200 each)
+  answered the three questions, and M8e was closed. At M8d's
+  resolutions the retarded start's waves converge at order 4 to 6 at
+  every radius, clean of anything from the transitions and of anything
+  ahead of light, until the sphere's reflection of the dipole wave,
+  `4·10⁻⁴` of it, arrives at `t = 100 − r`; their phase error grows with
+  the distance travelled, not with the orbits. The uniform start's
+  reference was taken anew, the retarded field of a charge on the
+  tangent line until `t = 0` and on the circle since, which is the
+  uniform data's solution in all space: against it the uniform start
+  sends a pulse of 17 % of the dipole wave out of the window, leaves a
+  wake near the centre that falls at about second order, and receives
+  from the sphere, from `t = 100 − r` on, a static dipole that grows to
+  22 % of the dipole wave at `r = 90` by `t = 90`, the same at every
+  resolution. That is M8d's far residual, which *Its convergence* had
+  read as the two starts' solutions' difference; that difference
+  vanishes where `t > r`. M8d's guess, that the sphere sends it back,
+  holds.
+- 2026-11-16: Erik Schnetter asked whether a uniform motion can go
+  smoothly into a circular one, how many derivatives of `a` must then
+  vanish, and whether radiation reaction could be switched on smoothly
+  so that a retarded start stays nearly right; he asked for the test
+  designed as a milestone first, M8f. Its assumed past is the circle
+  spun up from rest, not the moving tangent line, because the line's
+  displaced charge is what the sphere sent back in M8e and because a
+  curve of constant speed and ramped curvature has no closed form; its
+  ramps are polynomial smoothsteps of order `n`, not a `C^∞` step,
+  because they keep every jet closed for the device's root-finding, and
+  `n` is what the runs vary. Switching radiation reaction on is posed as
+  the force taking over from whatever held the assumed orbit, and tested
+  as a prescribed departure from the circle at `t = 0`.
+- 2026-11-16: M8f built on branch `inspiral-m8f-smooth-past`
+  (`CODE.md`, "Assumed pasts"). The smoothstep is evaluated above
+  `x = 1/2` from its mirror image: from the coefficients directly, its
+  first derivative at `1 − 10⁻⁹` was `2·10⁻¹¹` at `n = 7`, the
+  roundoff of coefficients up to 10⁴, where it should be a power of the
+  distance. Both steps are continuous from the right, so that an abrupt
+  departure's `a(0)` is the one the evolution sees from the first step,
+  and the initial remainder holds the jump as the run does. The
+  ramped circle's jets are written by Leibniz's rule on `r e^{iφ}` for
+  every piece rather than per piece by hand; on `[−T, 0)` it calls the
+  circle itself, so that M8d's path is kept bit for bit. M8e's analysis
+  scripts became `bin/waveforms.jl`, which gives M8e's clean-window
+  tables digit for digit, its uniform start's reference, recomputed,
+  equal to the one M8e used. The window's step in `src/particle.jl`,
+  also called `smoothstep` until then, became `window_step`: the
+  exported `smoothstep(n::Integer, x::Real)` was the more specific
+  method and replaced it, clamped and allocating, which the window's
+  tests caught.
+- 2026-11-17: the past series ran overnight on the H200s after the
+  branch was rebased on `main` with MPI (jobs 600171 to 600182, in an
+  environment of its own, `env-m8f`, since `SCAN=tests` re-`develop`s
+  the one it is given and `env-perf` served other checkouts). `n = 0`
+  was not clean, and `n = 4` was as clean as the circle at `d/8`
+  (`CODE.md`, "Assumed pasts" under "Measured results"). `n = 1` and 2
+  were as good as 4 at `d/6` but were not run at `d/8`, so the
+  departure series was submitted from the past of `n = 4`, as the plan
+  said, from the past that the series found clean (jobs 601825 to
+  601832). Contrary to the plan's expectation, the sphere's return was
+  not the circle's own reflection but six times it: the static dipole of
+  the charge at rest, which the sphere sees until `t = 60`.
+- 2026-11-18: the departure series (jobs 601825 to 601832) closed M8f
+  (`CODE.md`, "Assumed pasts" under "Measured results").
+  - **The method.** It was analysed without the plan's `--reading`
+    runs. From the ramp's end on, every `n₂` follows the same path, so
+    the differences between runs at one resolution are error alone.
+    Inside the ramp the force's difference between resolutions is
+    dominated by face crossings at different times, which readings
+    would have had to match step by step at thousands of times.
+  - **Where the error appears.** The plan expected an abrupt start to
+    show as a pulse at `t = 0`. There, the data take the jump, and
+    only the field's own kink is left, converging at order 1. What
+    showed was the ramp's end at `t = Δ₂`: a pulse from the window's
+    shell that has the same size at every resolution, at `n₂ = 0` and
+    at 2. The account that fits is an impulse in time in `□(WΨ̂)`,
+    which the stages miss whenever `ä` or `a⃛` or below jumps during
+    the run.
+  - **What it means for the binary.** `n₂ = 4` over one orbit was
+    clean, and it is what the binary's take-over takes. `n₂ = 0`
+    also left a force error from `t ≈ 30` on at every resolution, half
+    the circle's scatter at `d/8`, which was not traced further.
 
 ### What the plan said of its finished milestones
 
 `INSPIRAL-PLAN.md` keeps one line for each finished milestone. Its
 earlier text for M0 to M5 is here, as it stood when M5 was done, and
 for M8a and M8b as it stood when M8c started, and for M8c as it stood
-when it was closed and M8d planned, with
+when it was closed and M8d planned, and for M8d, M8e and M8f as they
+stood when each was closed, with
 the parts of its status, decisions, gates and items left to settle that
 only those milestones used. Why nested boxes, and the estimate for their
 layouts, went to `CODE.md` ("Nested boxes").
@@ -2289,6 +2418,243 @@ the dispersion relation's speeds are recorded against the measured
 ones; and `CODE.md`'s "Particles in the ball" names the far data for
 prescribed paths and records the uniform start. M7 then chooses its
 initial data (below, "Left to settle later").
+
+#### M8e: Waveforms
+
+**Status:** done (2026-11-16) on branch `inspiral-m8e-waveforms`;
+its runs are jobs 599424 to 599429, and their results are in `CODE.md`
+("Waveforms" under "Measured results"). As planned before the runs:
+
+M8d measured the field only as the L2 norm of its error in balls about
+the centre, and the force at the particle. Three questions need the
+waves themselves:
+
+- **Several orbits.** Does the resolution of M8d hold the waves over the
+  five orbits a run to `t = 90` covers, and how does their error grow
+  with the orbits, in phase and in amplitude?
+- **Clean waves.** Are the waves that leave free of what the cube's
+  coarse-fine faces (at 4 and 8) and the cube–shell faces (16 to 27.7)
+  send back, of the sphere's return, and of error ahead of light? In
+  the balls' norms the retarded start's error converges at about fourth
+  order at every time; a mode at a fixed radius says when and from
+  where anything arrives.
+- **The two starts.** In the continuum the uniform start is the eternal
+  circle's field wherever `t > |x|` (M8d), so its residual of about 1 %
+  of the field in the ball of radius 64, which does not move with the
+  resolution and grows again after `t ≈ 70`, is not the data's free
+  evolution. That the sphere sends it back, answering the uniform data's
+  large multipoles near `R₁` (the field of a charge displaced by `vR₁`
+  along the tangent), is a guess; an incoming wave in the modes, at the
+  outer radii first, would show it.
+
+**Extraction.** Spheres of radius `r` about the centre; on each,
+Gauss–Legendre in `cos θ` at `n_θ` points times `n_φ = 2n_θ` equally
+spaced angles, which integrates `Y_ℓm Ȳ_ℓ′m′` exactly for
+`ℓ + ℓ′ < 2n_θ`. The modes `Φ_ℓm`, `ℓ ≤ L`, `0 ≤ m ≤ ℓ` (the field is
+real), are that quadrature of `Φ Ȳ_ℓm`. Each point goes to its patch and
+logical position by the seven-patch ball's inverse map: a shell's point
+lies on the ray through its point on the cube's face, so its face is
+the largest coordinate's and its sign, its tangential position is the
+face point's, and its radial one inverts the blend and the grading in
+closed form; the cube's map is affine. The points are located once
+(TreeAMR's `locate` of `PatchPoint`s) and read at every sample with
+TreeAMR's `ElementPolynomial`: the element's own degree-`P` polynomial,
+which is the solution itself, from the state vector, with no ghosts, on
+the problem's backend. Beyond `R₂` the remainder is the field, so the
+modes are `Φ`'s. The reference's modes are the same quadrature of
+`retarded_field` at the same points, on the host; aliasing from
+`ℓ′ ≥ 2n_θ − ℓ` is the same in both and cancels in the error.
+
+**Its test, on its own** (`test/extraction_tests.jl`), before any run:
+
+- the quadrature recovers the modes of a sum of `r^ℓ Y_ℓm` given at the
+  points, to roundoff, and the table is orthonormal under it;
+- the inverse map: for points throughout the ball, in the cube and in
+  every shell, graded and not, on faces and edges, the forward map of
+  the `(ξ, p)` it finds is the point to roundoff, and `ξ` lies in the
+  patch's box;
+- the extraction on the grid: a smooth field filled at the nodes of a
+  small ball with refinement in its cube, on spheres inside the cube,
+  across its corners (`Lc < r < √3 Lc`) and in the shells: its modes
+  against the function's own at the points converge at order `P + 1`;
+- on a device the modes are the host's to roundoff
+  (`test/device_tests.jl`).
+
+**The runs.** M8d's circle from both starts at `d/4`, `d/6` and `d/8`,
+on M8d's layout to `t = 90`, the shells refined with the cube as in
+*Its convergence*, with spheres at `r` = 10 (the cube's root level), 20
+(across the cube–shell faces), 30, 50, 70 and 90 (the shells), `L = 6`,
+`n_θ = 24`, every `1/16`: six runs on one H200 each, about 17 GPU-hours,
+the extraction's cost negligible beside a step. Each writes its modes
+and the reference's to a file of its own beside the rows.
+
+**What tells the answers.** For each mode and radius, the error against
+the reference's, `r(Φ_ℓm − Φ_ℓm^ret)`, over time:
+
+- the waves are clean if it converges at the scheme's order at every
+  time and nothing in it reaches a radius sooner than light from the
+  transitions or from the sphere (`t ≈ 100 − r`) could bring it;
+  something the sphere sends back reaches 90 first and 10 last;
+- the orbits: its amplitude and phase parts, against
+  `|Φ_ℓm^ret|` and `Ω = 0.4`, `mΩ` for `(ℓ, m)`, orbit by orbit;
+- the starts: the same for the uniform start, and whether its residual
+  is incoming.
+
+Done when the test passes on the CPU and on a device, `gpu_scans.sh`
+runs the six, and `CODE.md` records them with the three answers.
+
+#### M8f: A smooth past and a smooth departure
+
+**Status:** done (2026-11-18) on branch `inspiral-m8f-smooth-past`;
+its runs are jobs 600172 to 600182 and 601825 to 601832, and their
+results are in `CODE.md` ("Assumed pasts" under "Measured results").
+As planned before the runs:
+
+M8e found the circle's retarded field clean and the uniform start not.
+The difference lies in no fault of the uniform data far out, which are
+exact: it lies in the path those data assume. They are the retarded
+field of a charge on the tangent line until `t = 0` and on the circle
+since, a path whose acceleration jumps at `t = 0`, at the particle; and
+inside the window they are the circle's near field, not that path's. A
+past need not be the true one: the retarded field of any path is an
+exact solution with that path's source. What makes data clean is that
+the assumed past joins the motion smoothly, and far enough back that
+what its joints send out never meets the particle. The binary has no
+known past; it can have an assumed one, its orbit for a while, reached
+smoothly from rest, and from `t = 0` the force can take over smoothly
+from whatever held that orbit. M8f tests both halves on prescribed
+paths, where the reference is exact.
+
+**Questions.**
+
+- **The past.** Do data that are the retarded field of a circle spun up
+  from rest, on the circle for a time `T` before `t = 0`, give waves as
+  clean as the circle forever, with no pulse out of the window, no wake
+  at second order, and from the sphere no more than the circle's own
+  reflection? How smooth must the spin-up be: with how many of `a`,
+  `ȧ`, `ä`, … continuous does its front, a shell of radius `T` to
+  `T + Δ` at `t = 0`, leave at the scheme's order, and how much of it
+  runs ahead of light or back in toward the particle?
+- **The departure.** On the binary, the force takes over at `t = 0`
+  from what held the assumed orbit; on a prescribed path that is a
+  departure from the circle at `t = 0`. Does a departure whose
+  acceleration's derivatives are continuous through order `n₂ − 1` send
+  nothing measurable, and an abrupt one, a jump in `a` like switching
+  radiation reaction on at once, something measurable? Of what size,
+  and for which `n₂` is it gone?
+
+**The steps.** Both ramps use the smoothstep of order `n`, the
+polynomial `S_n` of degree `2n + 1` that rises from 0 at `x = 0` to 1 at
+`x = 1` with its first `n` derivatives zero at both ends; `S_0(x) = x`.
+Its integral and all its derivatives are closed forms, so every path
+below has exact jets and runs in a device kernel. A smooth step of class
+`C^∞` (from `e^{−1/x}`) would need a quadrature in the path, on every
+root-finding step on the device; `n` up to 6 is expected to be enough,
+and the runs say whether it is.
+
+**The spun-up past.** The circle of M8d, `z = c + r_c(cos φ, sin φ)`,
+with `φ̇ = Ω` for `s ≥ −T` and `φ̇ = Ω S_n((s + T + Δ)/Δ)` before, so at
+rest at its point of the circle before `s = −T − Δ`. Then `a` and its
+first `n − 1` derivatives are continuous at both joints and its `n`-th
+jumps (`n = 0`: `a` itself jumps). The speed stays below `v`. It is a
+uniform motion, at rest, joined smoothly to the circle; the moving
+tangent line M8e's uniform start assumed is not taken, because its
+charge, displaced by `v(R₁ − t)` on the sphere, is what the sphere sent
+back (22 % of the dipole wave by `t = 90`), while a charge at rest on
+the circle has the circle's own static dipole; and because a curve of
+constant speed and ramped curvature has no closed form, so its position
+would need a quadrature. For `t ≥ 0` the path is the circle's, with its
+exact jets, so the particle field, the window and the force are M8d's;
+the past enters only through `retarded_field`, which needs `z` and `v`
+and differentiates them.
+
+**The departure.** From `t = 0` the radius shrinks:
+`r(t) = r_c − εΔ₂ I_n(t/Δ₂)`, with `I_n` the integral of `S_n`, so the
+radial speed rises to `−ε` over `Δ₂` and stays there, at the angular
+velocity `Ω`; the jets through `a⃜` follow from Leibniz's rule in closed
+form. `a` and its first `n₂ − 1` derivatives are continuous at `t = 0`
+and its `n₂`-th jumps, by `ε/Δ₂^{n₂+1}` times a number of order one;
+the same happens again at `t = Δ₂`, where the ramp ends.
+`ε = 10⁻³` and `Δ₂ = 2π/Ω`, one orbit: the radius falls from 0.5 to
+about 0.41 by `t = 90`, inside M8d's window, and the jump in `a` at
+`n₂ = 0`, `6·10⁻⁵`, is fifteen times the radiation reaction's
+acceleration, `F_RR/M = 4·10⁻⁶`, large enough to see and small enough to
+be a realistic switch-on's scale. The data are the spun-up past's, with
+`n = 6`, or the circle forever if the past's runs have shown them equal.
+
+**The code.**
+
+- `src/prescribed.jl`: `smoothstep(n, x)` and its integral; a path
+  `RampedCircle` (the spun-up past, `T`, `Δ`, `n`; the departure, `ε`,
+  `Δ₂`, `n₂`), with exact jets for `s ≥ 0` and `z`, `v` before, and a
+  constructor beside `circular_motion`. `ε = 0` is the circle for
+  `s ≥ 0`, `T = ∞` the circle before.
+- `bin/prescribed.jl`: `--past=spinup --T --ramp --n` and
+  `--depart=ε --onset --n2` on `--path=circle --data=retarded`. The
+  reference, the waves' reference and `--reading` all take
+  `p.motion.path`, so they follow the path with no change.
+- `bin/waveforms.jl`: M8e's analysis made a script, the errors by
+  radius and time, their orders, the clean windows, the arrivals, and
+  the orbits' amplitude and phase from the `--waves` files, with the
+  two-piece reference of M8e's uniform start as an option, so that
+  M8e's numbers can be made again.
+- `bin/symmetry/gpu_scans.sh`: `SCAN=past` and `SCAN=depart`, with
+  `N`, `T`, `RAMP` and `N2`.
+
+**Its test, on its own** (`test/prescribed_tests.jl`), before any run:
+
+- `smoothstep`: the values, the vanishing derivatives at both ends to
+  roundoff, and the integral against a quadrature;
+- the path's jets are the derivatives of its `z`, by `ForwardDiff` in
+  `BigFloat`, on each piece and at the joints; at a joint the
+  derivatives below `n` agree on both sides and the `n`-th does not; the
+  speed stays below 1; with `ε = 0` and `T = ∞` it is `CirclePath` bit
+  for bit;
+- `retarded_field` of the spun-up past equals the circle forever's to
+  roundoff wherever the retarded time is after `−T`, and is the static
+  charge's where it is before `−T − Δ`;
+- on a device the reference filled from it is the host's
+  (`test/device_tests.jl`).
+
+**The runs.** On M8d's ball (`R₁ = 100`, three levels, `w0 = 4`) to
+`t = 90`, with M8e's spheres and modes and `--every=0.5` for the norms:
+
+- the past: `T = 30`, `Δ = 10`, so that the front starts in the shells
+  beyond the cube's corners and crosses the spheres of 50, 70 and 90,
+  while those of 10 and 20 see what it sends back in; `n` = 0, 1, 2
+  and 4 at `d/4` and `d/6`, and `n` = 0 and 4 at `d/8`, ten runs;
+- the departure: from the past that the first series found clean,
+  `n₂` = 0, 2 and 4 at `d/4` and `d/6`, and 0 and 4 at `d/8`, eight
+  runs.
+
+Eighteen runs, about 45 GPU-hours on H200s at M8e's 47 min, 2 h 10 min
+and 5 h 45 min: two nights on six GPUs, since the departure starts from
+the past's answer; the force every step as in M8d.
+
+**What tells the answers.**
+
+- The past is as clean as the circle forever if, against its own
+  retarded field, the errors on the spheres of 10 and 20 and in the
+  balls are the retarded start's of M8e to their scatter, the force's
+  orbit means and scatter M8d's, and the front's error converges at the
+  scheme's order on the spheres it crosses. The smallest `n` for which
+  it does is the answer to "how many derivatives"; below it, the order
+  on the front falls, and what arrives ahead of it at up to 1.58 times
+  the speed of light, or behind it on the inner spheres, says what the
+  joint costs.
+- From the sphere: the static `ℓ = 1` field that arrives at
+  `t = 100 − r` against M8e's two starts, expected at the circle's own
+  reflection, not growing.
+- The departure: its error against the path's retarded field on the
+  spheres, which an abrupt start should show as an outgoing pulse from
+  `t = 0` at `r = t`, and the force against `--reading`'s, the exact
+  remainder's, step by step over the first orbits. Clean if neither
+  shows anything at `n₂` beyond what `n₂ = ∞`, the circle, shows.
+
+Done when the tests pass on the CPU and on a device, the runs are in,
+and `CODE.md` records them with what the binary's initial data need: the
+`n`, `T` and `Δ` of its assumed past, and the `n₂` and `Δ₂` of the
+force's take-over, for M6b to take.
 
 #### Gates of the finished milestones
 

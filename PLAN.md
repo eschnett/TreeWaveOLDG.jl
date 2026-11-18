@@ -64,13 +64,14 @@ right-hand sides are 63 %, the truncations 30 %, the stage arithmetic
     per node fall by a measured factor on the H200 and the CPU's stay
     where they are.
   - **Several GPUs** through MPI, for what does not fit one H200 (nested
-    boxes at `d/16`). The field and the particles now run over MPI, bit
-    for bit the serial run on the CPU (2026-11-16; `CODE.md`, "Running
-    distributed"), and on two H200s the field and a particle on nested
-    boxes give one H200's results bit for bit (job 599625). What is left
-    is the cost: done when a step of a problem that fills one H200 is
-    timed on one, two and four, with the time in the exchange, the
-    gathered blocks and the averaging's messages apart.
+    boxes at `d/16`; M8d's ball at `d/12`, about 232 GiB, and at
+    `d/10`, 137 GiB of the H200's 140). The field and the particles now
+    run over MPI, bit for bit the serial run on the CPU (2026-11-16;
+    `CODE.md`, "Running distributed"), and on two H200s the field and a
+    particle on nested boxes give one H200's results bit for bit (job
+    599625). What is left is the cost: done when a step of a problem that
+    fills one H200 is timed on one, two and four, with the time in the
+    exchange, the gathered blocks and the averaging's messages apart.
 - **The outer shells' truncation kernel.** 1.19 ns per node at 64
   threads, 30 times the flat box's, for about 25 multiply-adds: it is
   bound by its memory accesses. Each element's numbers in registers
@@ -181,7 +182,7 @@ plenty of in `Float64`.
   differs from the point model's by about `5·10⁻¹³`, `10⁻⁹` of the field.
   Chosen by the owner as the simpler of the exact ways, the fill runs on
   the device: 2.6 s, equal to the host's to `1.2·10⁻¹⁵`, and an M8d run
-  takes about 5.5 hours instead of 11 to 12.
+  took 5 h 37 min instead of 11 h 11 min (job 599116).
   - **Possible future improvement:** fill the next reference while the
     device steps, on the host or on a second stream, which would hide
     the remaining 2.6 s per sample, 2 % of a run.

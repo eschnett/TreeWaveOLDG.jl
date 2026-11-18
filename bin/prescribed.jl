@@ -7,7 +7,8 @@
 #         [--fevery=1] [--cfl=0.5] [--v=0.05] [--rc=0.5] [--g=0.1] \
 #         [--data=instantaneous|retarded|uniform] [--rx1] [--rx2] \
 #         [--plain] [--both] [--cost] [--reps=3] [--ball] [--R1=50] [--hshell] \
-#         [--radii=r1,r2,…] [--backend=cpu|cuda]
+#         [--radii=r1,r2,…] [--backend=cpu|cuda] [--past=spinup] [--T=30] \
+#         [--ramp=10] [--n=4] [--depart=0] [--onset] [--n2=4]
 #
 # Like `bin/uniform_motion.jl`, this runs against the package environment;
 # `bin/symmetry/prescribed.sh` runs M4's series on a Symmetry node.
@@ -61,6 +62,18 @@
 # retarded one of `rx1` and `rx2`, and `path` is `circle-uni`. `--tend`
 # defaults to 8.
 #
+# With `--past=spinup` (INSPIRAL-PLAN.md's M8f) the circle has an
+# assumed past instead of turning forever: on the circle for `t ≥ -T`,
+# and before that spun up from rest along it over `ramp`, with the
+# smoothstep of order `n`, so that `a` and its first `n - 1` derivatives
+# are continuous at the joints (`ramped_circular_motion`). It needs
+# `--data=retarded`: the data and the reference are the retarded field of
+# that past, and `path` gets `-past<n>`. With `--depart=ε` the circle's
+# radius shrinks from `t = 0` at a radial speed that rises to `ε` over
+# `onset` (default one orbit, `2π rc/v`) with the smoothstep of order
+# `n2`, and stays there; `path` gets `-dep<n2>`. The force's components
+# are then about the path's own acceleration.
+#
 # `--path=hyperbolic`: hyperbolic motion of proper acceleration `g` along
 # `y`, at rest at `c + o + (0.5, 0, 0)` at `t = 0`, always with
 # `--data=retarded`. Inside the ball of radius `rx1 = 3` about `c` the
@@ -105,6 +118,19 @@
 # in the ball of radius 4 or 8, what the coarse–fine faces and the
 # cube–shell faces send back, once it has arrived, and before what the
 # retarded data's blend at `rx1` sends in.
+#
+# With `--waves=FILE`, the waveforms (INSPIRAL-PLAN.md's M8e; `CODE.md`,
+# "Waveforms"): the modes `Φ_ℓm`, `0 ≤ m ≤ ℓ ≤ lmax` (`--lmax`, 6), on
+# spheres about `c` of the radii `--wradii` (10,20,30,50,70,90), Gauss–
+# Legendre in `cos θ` at `--ntheta` points (`2lmax + 12`) times twice as
+# many angles, read from the elements' polynomials (`SphereExtraction`),
+# every `--wevery` in time (`1/16`), go to `FILE`, one row per sample:
+# `t`, then for each radius `r` and mode the real and imaginary parts,
+# `r<r>_l<ℓ>m<m>_re` and `_im`, and with `--data=retarded` or `uniform`
+# the same of the point charge's retarded field at the same points,
+# `ref_r<r>_l<ℓ>m<m>_re` and `_im`, which is the run's reference wherever
+# the retarded window is 1 (`rx1` beyond the largest radius). Beyond
+# `R₂` the remainder is the field, so the modes are the field's.
 #
 # With `--reading` and `--data=retarded`, nothing is evolved: the force of
 # the exact remainder as the pairing reads it, at `t = 0` for the circle
@@ -233,6 +259,21 @@ function reading(path, p, retarded, t, tag)
     return nothing
 end
 
+# The circle, with `--past` and `--depart` if given.
+function circle_motion(centre, rc, v)
+    past = option("past", "")
+    depart = parse(Float64, option("depart", "0"))
+    isempty(past) && iszero(depart) && return circular_motion(centre, rc, v)
+    past in ("", "spinup") || error("--past is spinup, got $past")
+    onset = option("onset", "")
+    return ramped_circular_motion(centre, rc, v;
+                                  past=isempty(past) ? Inf : parse(Float64, option("T", "30")),
+                                  ramp=parse(Float64, option("ramp", "10")),
+                                  n=parse(Int, option("n", "4")), depart,
+                                  onset=isempty(onset) ? 0.0 : parse(Float64, onset),
+                                  n2=parse(Int, option("n2", "4")))
+end
+
 function problem(path, hdiv, levels, w0, order; v, rc, g, ball=nothing, backend=CPU())
     P = 3
     if ball === nothing
@@ -245,7 +286,7 @@ function problem(path, hdiv, levels, w0, order; v, rc, g, ball=nothing, backend=
     end
     m = ParticleModel(; Q=sqrt(0.005), ℓ=1e-3, M=1.0)
     w = Window(c, 1.25, 2.5; continuity=P + 1)
-    motion = path == "circle" ? circular_motion(c + OFFSET, rc, v) :
+    motion = path == "circle" ? circle_motion(c + OFFSET, rc, v) :
              path == "hyperbolic" ?
              hyperbolic_motion(c + OFFSET + SVector(0.5, 0.0, 0.0), g; direction=(0, 1, 0)) :
              error("--path is circle or hyperbolic, got $path")
@@ -310,6 +351,45 @@ function observe(path, p, c, w0, u, t, tag; retarded, radii=Float64[])
     return nothing
 end
 
+# `--waves`: the extraction's spheres and its file, with the header row
+# written; `nothing` without the option.
+function wave_writer(p, c, retarded)
+    file = option("waves", "")
+    isempty(file) && return nothing
+    ws = option("wradii", "10,20,30,50,70,90")
+    radii = [parse(Float64, strip(r)) for r in split(ws, ",")]
+    lmax = parse(Int, option("lmax", "6"))
+    nθ = parse(Int, option("ntheta", string(2lmax + 12)))
+    ex = SphereExtraction(p.wave, radii; lmax, nθ, centre=c)
+    io = open(file, "w")
+    name(r) = isinteger(r) ? string(Int(r)) : string(r)
+    cols = ["r$(name(r))_l$(l)m$(m)_$(part)" for r in radii
+            for (l, m) in harmonic_modes(lmax) for part in ("re", "im")]
+    retarded === nothing || append!(cols, "ref_" .* cols)
+    println(io, join(("t", cols...), '\t'))
+    flush(io)
+    return (; ex, io)
+end
+
+# One row of `--waves`: the state's modes, and the retarded field's.
+function write_waves(w, p, u, t, retarded)
+    w === nothing && return nothing
+    row = [t]
+    flat(modes) = vec(permutedims(hcat(real.(vec(modes)), imag.(vec(modes)))))
+    append!(row, flat(sphere_modes(w.ex, p, u)))
+    if retarded !== nothing
+        Q = p.models[1].Q
+        vals = Vector{Float64}(undef, length(w.ex.points))
+        Threads.@threads for j in eachindex(vals)
+            vals[j] = retarded_field(p.motion.path, 1, Q, w.ex.points[j], t)[1]
+        end
+        append!(row, flat(sphere_modes(w.ex, vals)))
+    end
+    println(w.io, join(row, '\t'))
+    flush(w.io)
+    return nothing
+end
+
 # The particles need `Float64`, so `--type` is not taken.
 function main()
     withbackend((backend, _) -> evolve(backend), option("backend", "cpu"), "f64")
@@ -357,6 +437,13 @@ function evolve(backend)
     retarded = data == "instantaneous" ? nothing : Window(c, rx1, rx2; continuity=4)
     suffix = path != "circle" ? "" : data == "retarded" ? "-ret" :
              data == "uniform" ? "-uni" : ""
+    if path == "circle"
+        isempty(option("past", "")) || data == "retarded" ||
+            error("--past needs --data=retarded")
+        isempty(option("past", "")) || (suffix *= "-past" * option("n", "4"))
+        iszero(parse(Float64, option("depart", "0"))) ||
+            (suffix *= "-dep" * option("n2", "4"))
+    end
     tag = (path * suffix *
            (ball === nothing ? "" : "-ball"), hdiv, levels, w0, order)
     println(join(("threads", "path", "hdiv", "levels", "w0", "order", "t", "quantity",
@@ -403,6 +490,9 @@ function evolve(backend)
     hₑ = 1 / hdiv
     cell(t) = floor.(Int, (p.motion.path(t)[1].z - c) / hₑ)
     k = max(1, round(Int, every / integ.dt))
+    waves = wave_writer(p, c, retarded)
+    kw = max(1, round(Int, parse(Float64, option("wevery", "0.0625")) / integ.dt))
+    write_waves(waves, p, integ.u, integ.t, retarded)
     observe(path, p, c, w0, integ.u, integ.t, tag; retarded, radii)
     for (name, value) in force_rows(path, p, integ.u, integ.t)
         emit(tag..., integ.t, name, value)
@@ -427,7 +517,10 @@ function evolve(backend)
         end
         (integ.nstep % k == 0 || integ.nstep == integ.nsteps) &&
             observe(path, p, c, w0, integ.u, t, tag; retarded, radii)
+        (integ.nstep % kw == 0 || integ.nstep == integ.nsteps) &&
+            write_waves(waves, p, integ.u, t, retarded)
     end
+    waves === nothing || close(waves.io)
 
     "--cost" in ARGS || return nothing
     u = integ.u

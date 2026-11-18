@@ -13,6 +13,9 @@
 #     sbatch --export=ALL,SCAN=rest   bin/symmetry/gpu_scans.sh
 #     sbatch --export=ALL,SCAN=far,DATA=retarded bin/symmetry/gpu_scans.sh
 #     sbatch --export=ALL,SCAN=far,DATA=uniform  bin/symmetry/gpu_scans.sh
+#     sbatch --export=ALL,SCAN=far,DATA=uniform,HDIV=4 bin/symmetry/gpu_scans.sh
+#     sbatch --export=ALL,SCAN=past,N=4,HDIV=6 bin/symmetry/gpu_scans.sh
+#     sbatch --export=ALL,SCAN=depart,N=4,N2=0,HDIV=6 bin/symmetry/gpu_scans.sh
 #
 # Measured (2026-11-13, jobs 597907 to 597912): the tests take 5 minutes,
 # the twelve pulses 2.4 hours, the circles 3.1 to 5.3 hours and the
@@ -63,7 +66,29 @@
 # (`--data=uniform`). Both are measured against the retarded field
 # everywhere, in the balls of radius 4 to 64 every half time unit, and
 # the force every step. About 1.8·10⁸ nodes; the reference is filled on
-# the host at every output, about 2.7 µs per node on one core.
+# the device at every output, about 2.6 s. `HDIV` (default 8) changes the
+# resolution for a convergence series: the cube's elements are `1/HDIV`
+# on the finest level, and the shells take their default radial width,
+# twice the cube's root element width (1 at `HDIV = 8`), so that both
+# scale together; the rows then go to `far-$DATA-h$HDIV.tsv`. Every run
+# also writes its waveforms (M8e): the modes `ℓ ≤ 6` on spheres of radius
+# 10, 20, 30, 50, 70 and 90 every `1/16`, and the retarded field's, to
+# `waves-$DATA.tsv` (`waves-$DATA-h$HDIV.tsv`).
+#
+# `SCAN=past`: INSPIRAL-PLAN.md's M8f, `SCAN=far`'s retarded run with an
+# assumed past in place of the circle forever: on the circle from
+# `t = -T` (default 30), spun up from rest before that over `RAMP`
+# (default 10) with the smoothstep of order `N` (default 4)
+# (`--past=spinup`). Its data and reference are that past's retarded
+# field; the rows go to `past-n$N-h$HDIV.tsv`, the waveforms to
+# `waves-past-n$N-h$HDIV.tsv`. `bin/waveforms.jl` compares them.
+#
+# `SCAN=depart`: M8f's departure, the same with the radius shrinking from
+# `t = 0` at a radial speed that rises to `DEPART` (default `10⁻³`) over
+# one orbit with the smoothstep of order `N2` (default 4)
+# (`--depart`); from the past of order `N`, or from the circle forever
+# with `N=none`. The rows go to `depart-n2$N2-n$N-h$HDIV.tsv`, the
+# waveforms to `waves-depart-n2$N2-n$N-h$HDIV.tsv`.
 #
 # Run from a checkout of its own (`TREEWAVEOLDG_REPO`, default `$PWD`),
 # rsynced to the cluster without `.git` and `Manifest*.toml`. The
@@ -86,12 +111,12 @@ export PATH="$HOME/.juliaup/bin:$PATH"
 REPO="${TREEWAVEOLDG_REPO:-$PWD}"
 SCRATCH=/mnt/beegfs/eschnetter/claude/treewaveoldg-inspiral
 ENVDIR="${TREEWAVEOLDG_GPU_ENV:-$SCRATCH/env-gpu-scans}"
-SCAN="${SCAN:?set SCAN to tests, pulses, circle, rest or far}"
+SCAN="${SCAN:?set SCAN to tests, pulses, circle, rest, far, past or depart}"
 OUTDIR="${TREEWAVEOLDG_OUT:-$SCRATCH/gpu-scans-$SCAN-${SLURM_JOB_ID:-local}}"
 mkdir -p "$ENVDIR" "$OUTDIR"
 
 . "$REPO/bin/symmetry/simwatch.sh"
-simwatch_begin "$OUTDIR" "TreeWaveOLDG GPU scan: $SCAN${DATA:+ $DATA}" 2
+simwatch_begin "$OUTDIR" "TreeWaveOLDG GPU scan: $SCAN${DATA:+ $DATA}${N:+ n=$N}${N2:+ n2=$N2}${HDIV:+ d/$HDIV}" 2
 
 echo "# $(hostname) $(date -Iseconds) SCAN=$SCAN"
 nvidia-smi --query-gpu=name,memory.total --format=csv
@@ -148,10 +173,33 @@ case $SCAN in
         ;;
     far)
         data=${DATA:?set DATA to retarded or uniform}
+        hdiv=${HDIV:-8}
+        sfx=""
+        [ "$hdiv" = 8 ] || sfx="-h$hdiv"
+        out="$OUTDIR/far-$data$sfx.tsv"
         "${JL[@]}" "$REPO/bin/prescribed.jl" --backend=cuda --path=circle \
-            --data="$data" --v=0.2 --hdiv=8 --levels=3 --w0=4 --order=3 --ball \
-            --R1=100 --hshell=1 --rx1=200 --rx2=210 --tend=90 --every=0.5 \
-            --radii=4,8,16,32,64 --cost > "$OUTDIR/far-$data.tsv"
+            --data="$data" --v=0.2 --hdiv="$hdiv" --levels=3 --w0=4 --order=3 --ball \
+            --R1=100 --rx1=200 --rx2=210 --tend=90 --every=0.5 \
+            --radii=4,8,16,32,64 --cost \
+            --waves="$OUTDIR/waves-$data$sfx.tsv" > "$out"
+        ;;
+    past|depart)
+        hdiv=${HDIV:-8}
+        n=${N:-4}
+        args=()
+        name="n$n-h$hdiv"
+        if [ "$n" != none ]; then
+            args+=(--past=spinup --T="${T:-30}" --ramp="${RAMP:-10}" --n="$n")
+        fi
+        if [ "$SCAN" = depart ]; then
+            args+=(--depart="${DEPART:-1e-3}" --n2="${N2:-4}")
+            name="n2${N2:-4}-$name"
+        fi
+        "${JL[@]}" "$REPO/bin/prescribed.jl" --backend=cuda --path=circle \
+            --data=retarded --v=0.2 --hdiv="$hdiv" --levels=3 --w0=4 --order=3 --ball \
+            --R1=100 --rx1=200 --rx2=210 --tend=90 --every=0.5 \
+            --radii=4,8,16,32,64 --cost "${args[@]}" \
+            --waves="$OUTDIR/waves-$SCAN-$name.tsv" > "$OUTDIR/$SCAN-$name.tsv"
         ;;
     *)
         echo "unknown SCAN=$SCAN"

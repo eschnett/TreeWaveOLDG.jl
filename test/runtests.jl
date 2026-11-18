@@ -33,6 +33,7 @@ end
     testfile("refined_tests.jl")
     testfile("annulus_tests.jl")
     testfile("sevenpatch_tests.jl")
+    testfile("extraction_tests.jl")
     testfile("thirteenpatch_tests.jl")
     testfile("adaptive_tests.jl")
     testfile("blast_tests.jl")

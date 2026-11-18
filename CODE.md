@@ -120,6 +120,8 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   - [Nested boxes](#nested-boxes)
   - [Particles in the ball](#particles-in-the-ball)
   - [Prescribed paths](#prescribed-paths)
+  - [Waveforms](#waveforms)
+  - [Assumed pasts](#assumed-pasts)
 - [File layout](#file-layout)
 - [Tests](#tests)
 - [Measured results](#measured-results)
@@ -140,6 +142,8 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   - [Nested boxes](#nested-boxes-1)
   - [The radiative sphere](#the-radiative-sphere)
   - [Particles in the ball](#particles-in-the-ball-1)
+  - [Waveforms](#waveforms-1)
+  - [Assumed pasts](#assumed-pasts-1)
   - [Prescribed paths](#prescribed-paths-1)
 - [What carried over from TreeWave, and what did not](#what-carried-over-from-treewave-and-what-did-not)
 - [Possible extensions](#possible-extensions)
@@ -3094,6 +3098,136 @@ force read the other way as well; M4's read-only runs, the source
 written without the averaging and the force read both ways, are
 `--plain --both` (then `--continuous`).
 
+### Waveforms
+
+[`src/extraction.jl`](src/extraction.jl) reads the field's
+spherical-harmonic modes `Φ_ℓm`, `0 ≤ m ≤ ℓ ≤ lmax`, on spheres about a
+centre (`INSPIRAL-PLAN.md`, M8e). The modes of negative `m` follow from
+the field being real, `Φ_{ℓ,−m} = (−1)^m conj(Φ_ℓm)`.
+
+**The rule.** On each sphere Gauss–Legendre in `cos θ` at `nθ` points
+times `nφ = 2nθ` equally spaced `φ` (`sphere_rule`), which integrates
+`Y_ℓm Ȳ_ℓ′m′` exactly for `ℓ + ℓ′ < 2nθ`. A field's modes up to `lmax`
+then alias only its modes from `2nθ − lmax` on; a reference read at the
+same points aliases the same way, so the difference of the two does not.
+`spherical_harmonics` is the orthonormal set with the Condon–Shortley
+phase, by the three-term recurrence in `ℓ` from the sectoral functions.
+The default `nθ = 2lmax + 12` puts the first aliased mode at
+`ℓ = lmax + 24`, whose amplitude on M8d's circle, about `v^ℓ`, is far
+below anything measured.
+
+**The points.** `SphereExtraction` maps each point to the forest once
+and locates it there with TreeAMR's `locate`, on the host.
+On a brick a point is its own position. On the seven-patch ball
+`ball_patch_point` inverts the map in closed form: a point with every
+coordinate within `Lc` is the cube's, whose map is affine; any other lies
+in the shell of its largest coordinate and that coordinate's sign, and,
+since a shell's blend `(1 − ρ)f + ρR₁f/|f|` keeps the direction of its
+point `f` on the cube's face, on the ray through `f = x Lc/|x_k|`. The
+tangential position is `f`'s, and the radial one inverts
+`ρ = (|x| − |f|)/(R₁ − |f|)` and the grading. A point on a face between
+patches goes to the cube, or to the first shell in the order of its
+largest coordinate. Other geometries are refused: the thirteen-patch
+ball would need its own inverse, and nothing has asked for it.
+
+**The reading.** Each point is read from the containing element's own
+degree-`P` polynomial through its Gauss–Lobatto nodes, TreeAMR's
+`ElementPolynomial`: the solution itself, which needs no ghosts and
+picks up none of the exchange's error at a coarse-fine face. It is
+discontinuous across element faces by the solution's own `O(h^{P+1})`;
+a point on a face takes the upper element. `SphereExtraction` asks
+TreeAMR on the host for each point's element and weights
+(`query_stencil`, `basisweights`) and keeps on the problem's backend the
+`(P+1)^D` positions of the element's nodes in a state vector and their
+weights; `sphere_values` is then a gather and a weighted sum, plain
+array operations on any backend, and the values come to the host, where
+`sphere_modes` multiplies them by the rule's table. On the CPU the
+values are TreeAMR's `interpolate` to `10⁻¹³`, the same nodes and weights
+summed in another order. TreeAMR's own kernel is not used: in 0.2.9 its
+evaluation of located `PatchPoint`s from a state vector does not compile
+for CUDA (a `typejoin` that allocates, job 599405): a reassigned
+variable captured by a closure, which TreeAMR's pull request 42 fixes,
+**(open)** until a release has it. Beyond the window's `R₂` the remainder is the field, so
+on spheres there the modes are `Φ`'s.
+
+**Its error.** A point's value converges as `O(h^{P+1})`. A mode is a
+weighted sum of the values over the sphere's points, bounded by `√(4π)`
+times their largest error; the error field changes sign element by
+element, so the sum falls at order `P + 1` on average but not
+monotonically from one resolution to the next.
+
+**Cost.** A gather of `(P+1)^D` nodes per point, all spheres together,
+and a matrix product on the host; on M8d's ball, 6 912 points and 28
+modes on each of six spheres, negligible beside a step. The table of
+positions and weights is 128 bytes per point at `P = 3`.
+
+**The analysis.** [`bin/waveforms.jl`](bin/waveforms.jl) reads the
+`--waves` files of a series of resolutions and prints the errors by
+radius and time, their orders, the clean windows, the arrivals per band
+of `ℓ`, the sphere's return and the orbits' amplitude and phase, against
+each file's own reference or, with `--reference=kinked`, against the
+uniform start's exact solution outside the window (M8e's numbers below
+come from it).
+
+### Assumed pasts
+
+The retarded field of any path is an exact solution of the wave equation
+with that path's source, so data need not come from the particle's true
+past, which the binary does not have: an assumed past serves, if it
+joins the motion smoothly and far enough back that what its joints send
+out never meets the particle (`INSPIRAL-PLAN.md`'s M8f). M8e's uniform
+start assumed the circle's tangent line, whose joint at `t = 0` is at the
+particle; [`src/prescribed.jl`](src/prescribed.jl) gives the circle a
+smooth one, and a smooth departure from it:
+
+- `smoothstep(n, x, d)` is the polynomial `S_n` of degree `2n + 1` that
+  rises from 0 to 1 on `[0, 1]` with its first `n` derivatives zero at
+  both ends, `n ≤ 7`, its `d`-th derivative, or with `d = -1` its
+  integral; 0 below and 1 above, continuous from the right at both ends.
+  Its integer coefficients are rounded once and held in a tuple, so a
+  kernel evaluates it; above `x = 1/2` it is evaluated from its mirror
+  image `1 − S(1 − x)`, where what vanishes at 1 is a power of `1 − x`
+  rather than a cancellation among coefficients up to 10⁴. A
+  `C^∞` step, from `e^{−1/x}`, has no closed-form integral, and the
+  position would need a quadrature in every root-finding step of the
+  retarded field.
+- `ramped_circular_motion(centre, radius, speed; past, ramp, n, depart,
+  onset, n2)` is `circular_motion`'s circle on `[−past, 0)`; before that
+  spun up from rest along the circle, `φ̇ = Ω S_n((t + past + ramp)/ramp)`,
+  so at rest before `−past − ramp`; and from `t = 0` with the radius
+  `r_c − ε·onset·I(t/onset)`, `I` the integral of `S_{n2}`, at the
+  circle's angle. At each of the four joints `a` and its first `n − 1`
+  (or `n2 − 1`) derivatives are continuous and the `n`-th jumps by the
+  step's `(n + 1)`-th derivative at 0, `(n + 1)! C(2n + 1, n)`, times
+  `r_cΩ/ramp^{n+1}` or `ε/onset^{n2+1}`. The jets through `a⃜` are
+  closed forms, by Leibniz's rule on `r(t)e^{iφ(t)}` and the recursion
+  `E′ = iφ′E` for `E = e^{iφ}`, so the source and the force have the
+  path's own `ä`; with `past = Inf` and `depart = 0` it is the circle bit
+  for bit. A charge at rest on the circle, not M8e's tangent line, is
+  the starting point, because the tangent line's charge is displaced by
+  `v(R₁ − t)` on the sphere and the sphere sends back that dipole, and
+  because a curve of constant speed and ramped curvature has no closed
+  form.
+
+`bin/prescribed.jl` takes them as `--past=spinup --T --ramp --n` and
+`--depart --onset --n2` on the circle, and `bin/symmetry/gpu_scans.sh`
+as `SCAN=past` and `SCAN=depart`. The data, the reference and
+`--reading` all take `p.motion.path`, so they follow the path with no
+change. A departure that jumps in `a` (`n2 = 0`) gives the remainder at
+`t = 0` an `r⁰` structure about the particle, `Ψ̂` reading the new `a`
+while the retarded field holds the old: the force then reads it at once,
+`F_r ≈ −2·10⁻⁷` at `t = 0` on the laptop's coarsest circle
+(`hₑ = 1/2`, `v = 0.2`) at `ε = 10⁻³`, 5 % of radiation reaction's
+`4.2·10⁻⁶`, against `−2·10⁻¹⁰` without the departure. That is the
+exact remainder's, and the evolution takes it as it is. A joint during
+the run is different. The source is the residual of `WΨ̂` along the
+jets at each stage, and `Ψ̂` and `∂_tΨ̂` hold the jets through `a⃛`. So a
+jump in any of them puts an impulse in time into `□(WΨ̂)` that no stage
+sees, and the window sends out a pulse that no resolution removes. A
+ramp that ends during the run needs `n₂ ≥ 4`, and `n₂ = 4` over one orbit
+is clean ([Assumed pasts](#assumed-pasts-1) under "Measured results",
+with the past's runs).
+
 ## File layout
 
 - `src/TreeWaveOLDG.jl`: the module and its exports.
@@ -3161,7 +3295,12 @@ written without the averaging and the force read both ways, are
   hole) and `ball_mean`, both physical and `√g`-weighted on a geometry.
 - `src/prescribed.jl`: `circular_motion` and `hyperbolic_motion`, the
   retarded field of a point charge on any path by root-finding,
-  `retarded_field`, and `point_model`.
+  `retarded_field`, and `point_model`; `smoothstep` and
+  `ramped_circular_motion`, the circle with an assumed past and a
+  departure ([Assumed pasts](#assumed-pasts)).
+- `src/extraction.jl`: the waveforms, `SphereExtraction`,
+  `sphere_values` and `sphere_modes`, with the seven-patch ball's inverse
+  map `ball_patch_point`, `spherical_harmonics` and the sphere's rule.
 - `derivations/`: the Wolfram Language derivations (`profile.wl`,
   `nearfield.wl`, `selfforce.wl`, and `labslice.wl`, the `t′²` term of
   `Φ_C` and M5's lab slice), each runnable alone with
@@ -3217,8 +3356,15 @@ written without the averaging and the force read both ways, are
   components, its face crossings, and its error against the retarded
   field; `--reading` reads the exact remainder's force without evolving
   it; `--data=uniform` starts the circle from uniform motion's field
-  outside the window; `bin/symmetry/prescribed.sh` runs it on a Symmetry AMD node, one
+  outside the window; `--waves` writes the field's modes on spheres
+  and the retarded field's ([Waveforms](#waveforms)); `--past` and
+  `--depart` give the circle an assumed past and a departure ([Assumed
+  pasts](#assumed-pasts));
+  `bin/symmetry/prescribed.sh` runs it on a Symmetry AMD node, one
   run per `path:hdiv:order[:tend]` of `TREEWAVEOLDG_RUNS`.
+- `bin/waveforms.jl`: the waveforms of a series of `--waves` files
+  against their reference or M8e's uniform start's exact solution, in
+  the package environment ([Waveforms](#waveforms)).
 - `bin/dispersion.jl`: the dispersion relation of the semi-discrete
   scheme on a periodic brick, from `wave_rhs!` and `truncate_state!`
   through the Bloch matrix, its branches' group velocities, and with
@@ -3360,6 +3506,18 @@ one thread on CI, is otherwise silent until its summary.
   rotating Bessel mode converges at order `P` for `P = 2, 3`; the mode
   has `∂_r u = 0` on both walls; and a forest the geometry does not map,
   a refined one, and the inspiral on patches are refused. About 25 s.
+- `extraction_tests.jl`: the waveforms — the spherical harmonics are
+  their closed forms for `ℓ ≤ 2`, the rule is orthonormal on every mode
+  to `lmax` and recovers a real field's modes to roundoff; the ball's
+  inverse map, graded and not, gives every point back through the
+  forward map to `10⁻¹³`, in the box of its patch, on faces, edges and
+  the sphere; on a refined ball, on spheres in the refined region, across
+  its coarse-fine faces, across the cube–shell faces and in the shells,
+  and on a brick, the values converge at order above `P + ½` against the
+  function filled at the nodes, and the modes' error is within `√(4π)`
+  of theirs; on the ball the values are TreeAMR's `interpolate` to
+  `10⁻¹³`; other geometries, radii beyond the sphere and too few
+  points are refused. About 20 s.
 - `sevenpatch_tests.jl`: the seven-patch ball — with the identity map
   as a full geometry the Cartesian path's right-hand side is the flat
   one's bit for bit, in 2D and 3D, `P = 2, 3`, and its truncation the
@@ -3551,7 +3709,19 @@ one thread on CI, is otherwise silent until its summary.
   uniform motion, and on a circle at `v = 0.3` beyond `R₂` the boosted
   static field of the particle's `z` and `v`, with a rate that is its
   derivative along the tangent line to `10⁻⁷` and differs from `𝒟Ψ̂₀`;
-  they refuse a retarded window.
+  they refuse a retarded window; the smoothstep is `3x² − 2x³` and
+  `6x⁵ − 15x⁴ + 10x³` at orders 1 and 2, and for `n ≤ 7` in `BigFloat`
+  0, ½ and 1 at 0, ½ and 1, its first `n` derivatives zero at 0 and of
+  order `(1 − x)^{n+1−d}` at 1, its `(n + 1)`-th
+  `(n + 1)! C(2n + 1, n)` at 0, its derivatives those of nested duals and
+  its integral an exact Gauss rule's to `10⁻⁶⁰`, on both sides of ½; the
+  ramped circle's jets are its positions' derivatives on every piece to
+  `10⁻⁶⁰` in `BigFloat`, its speed at most the circle's, and at each
+  joint `z` through `z⁽ⁿ⁺¹⁾` continuous and `a⁽ⁿ⁾` jumping by what the
+  step says, for `n = 0, 2, 4`; without a past and a departure it is
+  the circle bit for bit, and `isbits`; the spun-up past's retarded field
+  is the circle's where the retarded time is after `−T`, the charge at
+  rest's before `−T − Δ`, and between solves the wave equation.
 - `device_tests.jl`, after the others, on the device `TREEWAVEOLDG_TEST_BACKEND=cuda`
   or `metal` names, loaded only then and not a test dependency, or with
   the CPU standing in, as on CI, where it checks the plumbing: the state
@@ -3565,13 +3735,16 @@ one thread on CI, is otherwise silent until its summary.
   and initial state of a particle on a circle, with and without the
   averaging, are the host's to `sqrt(eps)` in the field, the source
   alone too, and exactly in the particles, and so are the forces and
-  the state after three RK4 steps, on a device with `Float64`; a periodic and a refined
+  the state after three RK4 steps, on a device with `Float64`; the
+  retarded field of a ramped circle, through its spin-up and its
+  departure, filled on a device with `Float64` is the host's; a periodic and a refined
   box's runs, the seven-patch plane wave with Dirichlet data and a pulse
   through the thirteen-patch ball's radiative sphere give the host's
   errors and energies to `sqrt(eps)` in the step counts the host takes;
   and on the thirteen-patch ball one right-hand side, one truncation
   (per element and factored) and the energy are the host's to
-  `sqrt(eps)`, and the step is the host's exactly. In `Float64` and
+  `sqrt(eps)`, and the step is the host's exactly; the waveforms' values
+  and modes on a refined ball are the host's to `sqrt(eps)`. In `Float64` and
   `Float32` on CUDA, `Float32` on Metal; about a minute on the laptop's
   GPU.
 - `mpi_tests.jl`, last, with `mpi_jobs.jl` and `mpi_workload.jl`: a run
@@ -5452,8 +5625,10 @@ over `t = 10` to 90; the retarded start's falls from `5.8·10⁻³` on
   an excess over the retarded start's of RMS `1.5·10⁻² F_RR` and mean
   `−3·10⁻⁷ F_RR` over `t = 10` to 90, strongest near `ω ≈ 7.5`, which
   has not decayed by `t = 90`. Averaged over an orbit it is the retarded
-  start's force to `6·10⁻⁴ F_RR`. What carries the excess is
-  **(open)**: at `ω = 7.5` the dispersion relation's group velocity is
+  start's force to `6·10⁻⁴ F_RR`. The excess is the scheme's error: it
+  falls in every band of frequency from `d/6` to `d/8`, at about second
+  order, and its peak moves with the resolution (*Its convergence*,
+  below). At `ω = 7.5` the dispersion relation's group velocity is
   1.27 on the cube's root (`ωhₑ = 3.75`) and 1.12 in the shells
   (`ωhₑ = 7.5`), so it is no mode the scheme traps.
 - **The data's front leaves each ball at the speed of light.** The
@@ -5464,7 +5639,12 @@ over `t = 10` to 90; the retarded start's falls from `5.8·10⁻³` on
   `r + R₂` = 11.75, 19.75, 35.75 and 67.75. What it leaves behind is a
   residual of `6·10⁻⁷` to `10⁻⁶` in every ball at `t = 90`, five times
   the retarded start's error in the ball of 4 and 70 times it in the
-  ball of 64, which has not fallen by then.
+  ball of 64, which has not fallen by then. In the balls of 32 and 64 it
+  is the same at `d/4`, `d/6` and `d/8` to 13 %, so there it is not the
+  scheme's error: it is what the sphere sends back in answer to the
+  uniform data, not the two starts' solutions' difference, which
+  vanishes where `t > r` ([Waveforms](#waveforms-1) below); in the ball
+  of 4 it falls with the resolution (*Its convergence*).
 - **The reference costs as much as the steps.** A step took 0.96 s and
   1.01 s (the right-hand side 0.18 s and 0.19 s, the wave operator alone
   0.10 s), 6.2 and 6.4 of the runs' 11.2 and 12.4 hours; filling the
@@ -5485,11 +5665,363 @@ over `t = 10` to 90; the retarded start's falls from `5.8·10⁻³` on
   124 s on its 16 host threads, equal to the host's fill to `1.2·10⁻¹⁵`
   where the field reaches `3.4·10⁻³`, and a step there takes 0.82 s. A
   sample every 128 steps then costs about 110 s with its norms, against
-  about 230 s before, so such a run takes about 5.5 hours instead of 11
-  to 12. The shells' own stable step is 2.07 times the finest level's,
-  so stepping them at their own rate would save at most a factor 1.9 on
-  the wave operator.
+  about 230 s before. The retarded start's run again (job 599116,
+  `cn111`) took 5 h 37 min instead of 11 h 11 min, at 0.80 s a step,
+  and its force is the first run's to `2.5·10⁻¹¹ F_RR` to `t = 90`. The
+  shells' own stable step is 2.07 times the finest level's, so stepping
+  them at their own rate would save at most a factor 1.9 on the wave
+  operator.
 
+*Its convergence* (jobs 599121 to 599124, one H200 each, 2026-11-15):
+both starts again at `d/4` and `d/6`, to `t = 90`, beside `d/8`'s
+above; the shells' radial width is twice the cube's root element width
+at each (1.91, 1.31 and 1), so that both are refined together. The
+errors at `t = 90`; the step-to-step scatter of `F_t/F_RR` over
+`t = 10` to 90 for the retarded start, and for the uniform start the
+RMS of its excess over the retarded start's at the same resolution; and
+the range of the five orbits' means of `F_t/F_RR`:
+
+| start | `hₑ` | nodes | error in 4 | in 8 | in 32 | in 64 | scatter or excess | orbit means |
+|---|---|---|---|---|---|---|---|---|
+| retarded | `d/4` | `2.3·10⁷` | 1.83e-6 | 9.59e-7 | 2.54e-7 | 2.17e-7 | `2.1·10⁻²` | 1.04063–1.04171 |
+| | `d/6` | `7.6·10⁷` | 4.02e-7 | 2.06e-7 | 5.80e-8 | 5.10e-8 | `6.9·10⁻³` | 1.04159–1.04181 |
+| | `d/8` | `1.8·10⁸` | 1.23e-7 | 6.14e-8 | 2.04e-8 | 1.61e-8 | `2.6·10⁻³` | 1.04158–1.04169 |
+| uniform | `d/4` | | 2.63e-6 | 1.81e-6 | 1.13e-6 | 1.11e-6 | `4.4·10⁻²` | 1.03995–1.04162 |
+| | `d/6` | | 1.30e-6 | 1.14e-6 | 1.03e-6 | 1.08e-6 | `2.8·10⁻²` | 1.04132–1.04208 |
+| | `d/8` | | 5.66e-7 | 5.80e-7 | 1.00e-6 | 1.08e-6 | `1.5·10⁻²` | 1.04106–1.04198 |
+
+The uniform start's excess by band of `ω` (its RMS over `t = 10` to 90
+in `F_RR`, by Parseval over the band's Fourier modes), and the
+retarded start's scatter in the same bands:
+
+| `ω` | 0–1 | 1–3 | 3–5 | 5–9 | 9–15 | above 15 |
+|---|---|---|---|---|---|---|
+| excess, `d/4` | 1.5e-3 | 1.1e-2 | 1.8e-2 | 3.6e-2 | 1.3e-2 | 2.5e-3 |
+| `d/6` | 4.1e-4 | 8.2e-3 | 7.6e-3 | 2.2e-2 | 1.2e-2 | 2.6e-3 |
+| `d/8` | 1.3e-4 | 2.5e-3 | 5.0e-3 | 1.1e-2 | 7.9e-3 | 8.1e-4 |
+| scatter, `d/4` | 9.1e-4 | 5.8e-3 | 3.7e-3 | 2.9e-3 | 2.7e-3 | 2.0e-2 |
+| `d/6` | 1.9e-4 | 1.2e-3 | 1.4e-3 | 1.1e-3 | 8.3e-4 | 6.5e-3 |
+| `d/8` | 8.4e-5 | 1.3e-4 | 2.2e-4 | 4.0e-4 | 3.3e-4 | 2.6e-3 |
+
+- **The retarded start converges at the scheme's order.** Its errors
+  fall at order 3.6 to 3.8 from `d/4` to `d/6` and 3.6 to 4.2 from `d/6`
+  to `d/8`, in every ball; its scatter at order 2.8 and 3.3. Its orbit
+  means are `γ² = 1.041667` to `1.4·10⁻⁴` from `d/6` on.
+- **The uniform start's residual far out is the sphere's, near the
+  centre the scheme's.** In the balls of 32 and 64 it does not move with
+  the resolution; in the ball of 4 it falls at order 1.7 and then 2.9,
+  and there at `d/8` it is half the far residual.
+- **The uniform start's excess is the scheme's, and converges slowly.**
+  It falls in every band from `d/6` to `d/8`, overall at order 1.1 and
+  then 2.2, against the retarded start's 2.8 and 3.3, and at `d/8` it
+  is 20 to 30 times that scatter in every band from `ω = 1` to 15. Its
+  strongest peak moves up with the resolution, about 5.6 at `d/4`, 6.1
+  at `d/6` and 7.5 at `d/8`, more slowly than `1/hₑ`; only `d/8`'s
+  stands clearly above the band. Its orbit means stay within
+  `7·10⁻⁴ F_RR` of the retarded start's at every resolution. What in the
+  uniform data excites it that the retarded data do not is **(open)**;
+  the waveforms point at the pulse the uniform data send out of the
+  window, whose wake near the centre falls at the same order
+  ([Waveforms](#waveforms-1) below).
+- **A finer resolution needs several devices.** On the device the runs
+  hold 401 bytes per node beside 4.6 GiB (71.2 GiB at `d/8`, 33.0 GiB at
+  `d/6`, read while running), so `d/10`, `3.6·10⁸` nodes, would need
+  about 137 GiB of the H200's 140, and `d/12`, `6.1·10⁸`, about 232; and
+  `d/12` to `t = 90` would take about 27 hours. Three quarters of
+  `d/12`'s nodes are in the shells: in the ball to `R1 = 40` it would
+  fit in 110 GiB, clean to `t ≈ 35`.
+
+### Waveforms
+
+`bin/symmetry/gpu_scans.sh`'s `SCAN=far` with `--waves`, jobs 599424 to
+599429, one H200 each on `cn111` and `cn113`, 2026-11-16: the runs of
+*Its convergence* again, both starts at `d/4`, `d/6` and `d/8` to
+`t = 90`, with the modes `ℓ ≤ 6` on spheres of radius 10, 20, 30, 50, 70
+and 90 every `1/16`, `nθ = 24` ([Waveforms](#waveforms)); 47 min, 2 h
+10 min and 5 h 45 min at the three resolutions. The error is
+`e = r‖Φ − Φ^ref‖`, `r` times the sphere's L2 norm of the difference over
+all modes. For scale, `r|Φ₁₁| = 1.6·10⁻³` (the wave at `Ω = 0.4`),
+`r|Φ₂₂| = 2.8·10⁻⁴`, `r|Φ₃₃| = 5.8·10⁻⁵`, and the charge's
+`r|Φ₀₀| = 1.95·10⁻²`, at every radius.
+
+The retarded start's reference is the circle's retarded field. The
+uniform start's is the retarded field of a charge that moved on the
+tangent line until `t = 0` and on the circle since: at `t = 0` every
+retarded time is negative, so it is the uniform data beyond the window,
+and it is their solution in all space but for the window's part. The
+circle forever, M8d's reference for both, differs from it wherever
+`t < r`. Its modes were read at the extraction's points after the runs,
+with `retarded_field` and a path of the two pieces.
+
+The largest `e` while nothing from the sphere can be there yet: for the
+retarded start before `t = 100 − r`; for the uniform start once the
+window's pulse has passed (`t > r + R₂ + 2`) and before the sphere's
+return could arrive at 1.58 times the speed of light
+([Why the error outruns light](#why-the-error-outruns-light)):
+
+| start | `r` | `t` | `d/4` | `d/6` | `d/8` | orders |
+|---|---|---|---|---|---|---|
+| retarded | 10 | 0–90 | 4.7e-6 | 6.9e-7 | 1.1e-7 | 4.7, 6.4 |
+| | 20 | 0–80 | 8.4e-6 | 1.5e-6 | 3.9e-7 | 4.3, 4.6 |
+| | 30 | 0–70 | 1.9e-5 | 3.4e-6 | 9.9e-7 | 4.2, 4.2 |
+| | 50 | 0–50 | 3.2e-5 | 6.4e-6 | 1.6e-6 | 4.0, 4.9 |
+| | 70 | 0–30 | 2.5e-5 | 5.2e-6 | 1.1e-6 | 3.8, 5.3 |
+| | 90 | 0–10 | 1.8e-5 | 2.8e-6 | 8.3e-7 | 4.7, 4.2 |
+| uniform | 10 | 14.5–57 | 9.4e-6 | 5.7e-6 | 3.2e-6 | 1.3, 2.0 |
+| | 20 | 24.5–50.6 | 1.5e-5 | 6.9e-6 | 4.3e-6 | 1.9, 1.7 |
+| | 30 | 34.5–44.3 | 2.2e-5 | 1.1e-5 | 5.8e-6 | 1.6, 2.3 |
+
+- **The retarded start's waves are clean until the sphere's return.**
+  Its error converges at order 3.8 to 6.4 at every radius, at `d/8`
+  below `1.6·10⁻⁶`, `10⁻³` of `r|Φ₁₁|`. Nothing arrives from the cube's
+  coarse-fine faces at 4 and 8 or from the cube–shell faces: on the
+  sphere of 20, beyond them, `e` stays flat in time and converges at
+  order 4.3 and 4.6. Nothing arrives ahead of light.
+- **The sphere sends back `4·10⁻⁴` of the dipole wave.** At
+  `t = 100 − r` exactly, at every radius, an incoming `ℓ = 1` wave at
+  `Ω` arrives in the retarded start, its `(1,1)` part `4·10⁻⁴` of
+  `|Φ₁₁|` on average and `7·10⁻⁴` at most, the same at `d/6` and
+  `d/8`: about what the first-order condition reflects of an outgoing
+  dipole at `kR₁ = 40`, `1/(2(kR₁)²) = 3·10⁻⁴`. At `d/8` it is then the
+  largest error from `r = 20` out: `e = 1.3·10⁻⁶` at 20 by `t = 90`,
+  against `3.9·10⁻⁷` before it.
+- **The phase error grows with the distance the wave has travelled, not
+  with the orbits.** The `(ℓ, ℓ)` modes' phase against the reference's,
+  averaged over each of the six orbits (period 15.7), grows while
+  `t < r`, the time the wave at `r` has crossed the grid, and then
+  stays. In `(3,3)`, at `ω = 1.2` the shortest wave looked at, it is at
+  `d/8` 2, 4, 6, 6, 6 and `5·10⁻³` rad over the orbits at `r = 50`, and
+  0.7, 3, 5, 7, 10 and `10·10⁻³` at `r = 90`, about `1.1·10⁻⁴` rad per
+  unit of distance; at `r = 90` in the last orbit it is 0.5 at `d/4` and
+  `5·10⁻²` at `d/6`, orders 5.7 and 5.6. In `(2,2)` it is
+  `5·10⁻⁴` at `d/8` at `r = 90`, in `(1,1)` `3·10⁻⁵` before the sphere's
+  return and the return's `3·10⁻⁴` after it. The amplitudes are within
+  `7·10⁻⁴` for `ℓ ≤ 3` at `d/8`. The source's phase is prescribed, so
+  nothing accumulates from orbit to orbit; in an inspiral, whose phase
+  the force sets, this bounds the field's part only.
+- **The uniform start sends a pulse out of the window.** Its data inside
+  the window, the accelerated particle field blended into uniform
+  motion's, are not the two-piece path's field there, and their free
+  evolution crosses each sphere between `t ≈ r − R₂` and `r + R₂`
+  (`R₂ = 2.5`): `r` times its amplitude is `2.7·10⁻⁴` at every radius
+  and resolution, 17 % of `r|Φ₁₁|`, in `ℓ = 0` to 3 (1.4, 2.4, 1.0 and
+  `0.4·10⁻⁴`). Ahead of it, from `t ≈ (r − R₂)/1.58` (42 at `r = 70`,
+  55 at 90), the fast modes bring about 1 % of it, falling with the
+  resolution where they start and hardly behind. Behind the pulse the
+  error near the centre is 10 to 30 times the retarded start's and
+  falls at only about second order (the table), as the uniform start's
+  excess in the force does ([Particles in the
+  ball](#particles-in-the-ball-1) above); that the excess is the pulse's
+  wake is likely but **(open)**.
+- **The sphere answers the uniform data with a dipole that grows.** At
+  `t = 100 − r` at every radius an incoming `ℓ = 1` field arrives, the
+  same at all three resolutions to 1 %, not oscillating (its
+  frequency below 0.005), and growing about linearly: `r|e₁₁|` is
+  `4·10⁻⁵` when it arrives, and by `t = 90` `1.1·10⁻⁴` at `r = 30` and
+  `3.6·10⁻⁴` at 90, 7 % and 22 % of `r|Φ₁₁|`; `ℓ = 2` carries a tenth
+  of it. On the sphere the two-piece path's field is that of the charge
+  on the tangent line, displaced from the centre by `v(R₁ − t)`, 20 at
+  `t = 0`: a slowly changing dipole of 40 times the circle's, which, as
+  a static multipole, the first-order condition does not absorb
+  ([The radiative sphere](#the-radiative-sphere) under "Measured
+  results"). The fast modes bring a
+  precursor from `t ≈ (100 − r)/1.58`, at `r = 50` from 32, up to
+  `1.3·10⁻⁵` at `d/8` and falling at about first order. This is M8d's
+  far residual.
+- **So only the retarded start gives clean waves.** At `d/8` its waves
+  hold `10⁻³` of the dipole wave to `t = 100 − r`, and the sphere's
+  return keeps them there after; the uniform start's carry its pulse,
+  a wake that falls at second order, and from `t = 100 − r` the
+  sphere's growing dipole, which no resolution removes and a larger
+  `R₁` only delays.
+
+### Assumed pasts
+
+`bin/symmetry/gpu_scans.sh`'s `SCAN=past`, jobs 600172 to 600182 after
+the CUDA device tests (600171), one H200 each on `cn111` and `cn113`,
+2026-11-16 and 17: *Waveforms*' retarded start with the circle spun up
+from rest instead of the circle forever ([Assumed pasts](#assumed-pasts)),
+`T = 30`, `Δ = 10`, at `n = 0` and 4 at `d/4`, `d/6` and `d/8` and
+`n = 1` and 2 at `d/4` and `d/6`; 0.80 s a step at `d/8`, as the circle's.
+Each is compared with its own retarded field (`bin/waveforms.jl`) and its
+force, step by step, with the circle's run at the same resolution, which
+shares its grid and steps. At `t = 0` the joints lie in the data between
+`r = 30` (`−T`) and 40 (`−T − Δ`), the charge at rest beyond, and they
+move out.
+
+The largest `e = r‖Φ − Φ^ref‖` in each sphere's clean window,
+`t < 100 − r`, as in *Waveforms*:
+
+| past | `r` | `d/4` | `d/6` | `d/8` | orders |
+|---|---|---|---|---|---|
+| circle | 10 | 4.7e-6 | 6.9e-7 | 1.1e-7 | 4.7, 6.4 |
+| | 30 | 1.9e-5 | 3.4e-6 | 9.9e-7 | 4.2, 4.2 |
+| | 50 | 3.2e-5 | 6.4e-6 | 1.6e-6 | 4.0, 4.9 |
+| | 70 | 2.5e-5 | 5.2e-6 | 1.1e-6 | 3.8, 5.3 |
+| `n = 0` | 10 | 6.9e-6 | 1.7e-6 | 8.1e-7 | 3.4, 2.7 |
+| | 30 | 2.5e-5 | 9.4e-6 | 6.4e-6 | 2.4, 1.3 |
+| | 50 | 5.6e-5 | 2.7e-5 | 1.9e-5 | 1.8, 1.3 |
+| | 70 | 3.4e-5 | 1.9e-5 | 1.6e-5 | 1.4, 0.7 |
+| `n = 1` | 10 | 5.8e-6 | 7.8e-7 | | 5.0 |
+| | 30 | 2.1e-5 | 3.6e-6 | | 4.3 |
+| | 50 | 3.8e-5 | 1.1e-5 | | 3.0 |
+| | 70 | 1.5e-5 | 5.5e-6 | | 2.4 |
+| `n = 2` | 10 | 5.9e-6 | 7.6e-7 | | 5.1 |
+| | 30 | 2.0e-5 | 3.4e-6 | | 4.4 |
+| | 50 | 3.9e-5 | 1.0e-5 | | 3.2 |
+| | 70 | 1.6e-5 | 2.8e-6 | | 4.3 |
+| `n = 4` | 10 | 7.1e-6 | 8.7e-7 | 1.6e-7 | 5.2, 5.9 |
+| | 30 | 1.9e-5 | 3.6e-6 | 9.4e-7 | 4.2, 4.6 |
+| | 50 | 4.7e-5 | 1.3e-5 | 4.4e-6 | 3.1, 3.8 |
+| | 70 | 2.5e-5 | 3.0e-6 | 6.6e-7 | 5.3, 5.3 |
+
+The force's excess over the circle's, the RMS of `ΔF_t/F_RR` and
+`ΔF_r/F_RR` over `t = 10` to 90 beside the circle's step-to-step scatter
+of `F_t/F_RR` ([Particles in the ball](#particles-in-the-ball-1)), and
+the five orbits' means of `F_t/F_RR` against the circle's:
+
+| `hₑ` | circle's scatter | `n = 0` | 1 | 2 | 4 | orbit means, `n = 4` − circle |
+|---|---|---|---|---|---|---|
+| `d/4` | `2.1·10⁻²` | 1.2e-2, 1.2e-2 | 9.3e-3, 1.0e-2 | 8.9e-3, 9.8e-3 | 1.0e-2, 1.1e-2 | `−8·10⁻⁴` to `3·10⁻⁴` |
+| `d/6` | `6.9·10⁻³` | 7.6e-3, 6.0e-3 | 2.9e-3, 2.3e-3 | 2.3e-3, 2.1e-3 | 3.1e-3, 2.3e-3 | `−3·10⁻⁴` to `5·10⁻⁵` |
+| `d/8` | `2.6·10⁻³` | 6.9e-3, 5.2e-3 | | | 7.3e-4, 6.6e-4 | `−2·10⁻⁵` to `1·10⁻⁵` |
+
+- **What the joints send in reaches the particle from `t ≈ 15`.** The
+  force is the circle's to `10⁻¹¹ F_RR` until `t = 10`; it departs by
+  `10⁻⁸ F_RR` from `t = 14.2`, 15.3 and 16.0 at `d/4`, `d/6` and `d/8`
+  (`n = 0`), `30 − r_c` at 2.1 to 1.8 times the speed of light, as the
+  boxes' fastest modes ([Uniform motion](#uniform-motion)), and by
+  `10⁻⁴ F_RR` from 17 to 18 at `n = 0` and 23 to 24 at `n = 4`; the
+  inner spheres' error rises from `t ≈ 12` at `r = 10`. That is the part
+  of the joints' error that the scheme sends inward: the exact field
+  carries the joints out.
+- **`n = 0` is not clean.** The jump in `a` at `−T − Δ` and `−T` is a
+  jump in the radiation field across the joints' light cones, and its
+  error converges at order 0.7 to 1.8 on the spheres it crosses and
+  hardly at all at the particle: at `d/8` the force's excess is
+  `6.9·10⁻³ F_RR`, 2.6 times the circle's scatter, the inner spheres'
+  error 3 to 8 times the circle's, and the balls' error at `t = 90`
+  3.4 times in 4 and 5.7 in 16.
+- **`n = 4` is as clean as the circle at `d/8`.** Its excess falls at
+  order 2.9 and then 5.0 to `7.3·10⁻⁴ F_RR`, 0.28 of the circle's
+  scatter, which it leaves at `2.7·10⁻³`; its orbit means are the
+  circle's to `2·10⁻⁵ F_RR`; the inner spheres' error is the circle's to
+  1.5 times at `r = 10` and equal from 20 on, and the balls' within 21 %
+  at `t = 90` from 4 to 16, 1.6 and 2.3 times in 32 and 64, which by then
+  the fast modes of the front's return from the sphere can reach. The
+  front's error on the sphere of 50
+  converges at order 3.1 and 3.8 and is still 2.8 times the circle's at
+  `d/8`; on 70 it converges at 5.3: the ramp of `Δ = 10` at `n = 4` has
+  steep higher derivatives, so at `d/4` it is no better than `n = 1` or
+  2, and better from `d/6` on.
+- **`n = 1` and 2 cannot be told from 4 at `d/6`.** Their force excess
+  is 0.3 to 0.4 of the circle's scatter there, as `n = 4`'s, and their
+  inner spheres the same. Only `n = 1`'s error ahead of the front on 70
+  converges slowly, at 2.4, as a kink in the field would; neither was run
+  at `d/8`. So `n = 4` is the answer measured, and 2 likely suffices.
+- **The sphere returns the charge at rest's dipole.** At `t = 100 − r`
+  a static `ℓ = 1` field arrives (frequency below 0.02), the same at
+  every `n` and resolution, `2.4·10⁻³` of `|Φ₁₁|` on average at `r = 50`
+  against the circle's `4·10⁻⁴` and the uniform start's `8.4·10⁻²`: the
+  sphere sees the charge at rest, `r_c` off the centre, until
+  `t = 100 − T − Δ = 60`, a static dipole the first-order condition does
+  not absorb. It does not grow; a later `T + Δ` would shorten it.
+- **For the binary:** a past at rest before `−T − Δ`, spun up with
+  `n = 4` (or likely 2) over `Δ = 10` to the orbit at `−T = −30`,
+  starts the run as cleanly as the orbit forever at `d/8`: what its
+  joints cost at the particle is below the scheme's own scatter there.
+
+**The departure.** `SCAN=depart`, jobs 601825 to 601832, 2026-11-17,
+one H200 each: from the past of `n = 4`, the radius shrinks from `t = 0`
+with `ε = 10⁻³` over `Δ₂ = 2π/Ω = 15.7`, one orbit, at `n₂ = 0`, 2 and 4
+at `d/4` and `d/6` and `n₂ = 0` and 4 at `d/8`; 0.90 s a step at `d/8`.
+From `t = Δ₂` the three paths are one, the radius `r_c − εΔ₂/2 −
+ε(t − Δ₂)` whatever `n₂`, since `S_{n₂}` integrates to 1/2 on every
+order. So there the runs' differences at one resolution are error alone,
+in the force as in the waves; and on the spheres the error that is the
+departure's own is
+`δe = r‖(Φ − Φ^ref) − (Φ₄ − Φ₄^ref)‖`, the run's error less the
+`n₂ = 4` run's, which removes what both share. No `--reading` runs were
+made: inside the ramp the paths differ, and so do the times at which
+they cross faces, which moves the forces' difference between
+resolutions by up to `5·10⁻² F_RR`, too much to tell an error of the
+departure from.
+
+The largest `δe` where each joint's light reaches the sphere, the
+onset's at `t ≈ r` and the ramp's end's at `t ≈ r + Δ₂`:
+
+| `n₂` | joint | `r` | `d/4` | `d/6` | `d/8` |
+|---|---|---|---|---|---|
+| 0 | onset | 10 | 2.5e-8 | 1.6e-8 | 1.2e-8 |
+| | | 20 | 8.3e-8 | 4.7e-8 | 3.5e-8 |
+| | ramp's end | 10 | 1.9e-7 | 1.9e-7 | 1.9e-7 |
+| | | 20 | 1.8e-7 | 1.9e-7 | 1.8e-7 |
+| | | 30 | 1.7e-7 | 1.6e-7 | 1.9e-7 |
+| 2 | onset | 10 | 9.3e-10 | 1.3e-10 | |
+| | ramp's end | 10 | 7.4e-8 | 7.5e-8 | |
+| | | 20 | 6.7e-8 | 6.9e-8 | |
+
+The force after the ramp, `F(n₂) − F(4)` in `F_RR`, beside the past's
+step-to-step scatter of `F_t` (`2.2·10⁻²`, `8.7·10⁻³` and `4.2·10⁻³`
+over `t = 21` to 30):
+
+| `n₂` | `hₑ` | `Δ₂ + 1` to `Δ₂ + 3`, largest `F_r`, `F_t` | `Δ₂ + 3` to 30, RMS, the larger of `F_r`, `F_t` | 30 to 90, RMS `F_t` per 20 | orbit means from 43, `F_r`, `F_n` |
+|---|---|---|---|---|---|
+| 0 | `d/4` | 3.8e-3, 5.8e-3 | 1.0e-4 | 6.3e-4 to 1.7e-3 | up to 1.2e-4, 2.8e-4 |
+| | `d/6` | 3.0e-3, 5.7e-3 | 8.1e-5 | 8.0e-4 to 1.3e-3 | up to 2.3e-4, 3.2e-4 |
+| | `d/8` | 2.5e-3, 5.6e-3 | 4.4e-5 | 9.4e-4 to 1.3e-3 | up to 2.7e-4, 2.8e-4 |
+| 2 | `d/4` | 1.6e-3, 9.1e-4 | 1.0e-5 | 1.9e-5 to 3.0e-5 | |
+| | `d/6` | 1.7e-3, 9.1e-4 | 4.6e-6 | 5.9e-6 to 8.5e-6 | |
+
+- **`n₂ = 4` is as clean as the circle.** Against the past's run, its
+  wave error differs by what converges at orders 4 to 5, for example
+  `2.8·10⁻⁷`, `5.3·10⁻⁸` and `1.4·10⁻⁸` on the sphere of 20 at
+  `t = 30`, the departure's waves being smaller, and nothing goes out
+  from either joint. After the ramp, outside `n₂ = 2`'s impulse, its
+  force is `n₂ = 2`'s to `8·10⁻⁵ F_RR` at `d/4` and `4·10⁻⁵` at `d/6`.
+- **A jump at the onset costs what the field's own kink costs.** At
+  `t = 0` the data are built with the jets after the jump, so the
+  remainder takes the jump as the exact one does. What `n₂ = 0` sends
+  out from there converges at order 1 to 1.4, as a kink in the retarded
+  field does on a grid, and is a fifth to a quarter of the run's own
+  error on the sphere of 10 at `d/8`; at `n₂ = 2` it converges at order
+  3 to 5. At the
+  particle the jump is read at once, as the design said: `F_r` moves by
+  `−0.088`, `−0.11` and `−0.13 F_RR` at `t = 0` at `d/4`, `d/6` and
+  `d/8` (`−3·10⁻⁶` at `n₂ = 2`), and is down to a few `10⁻³` by
+  `t = 0.25` to 0.5.
+- **A jump during the run sends out a pulse that no resolution
+  removes.** At the ramp's end, `t = Δ₂`, `n₂ = 0` puts out a pulse of
+  `δe = 1.9·10⁻⁷`, 1.7 times the `n₂ = 4` run's own error on the sphere
+  of 10 at `d/8`, at every resolution. It travels at the speed of light
+  and first reaches the sphere of 10 at `t ≈ 23.4`, just after
+  `Δ₂ + 10 − R₂ = 23.2`: it starts where the window `W` varies, `R₁` to `R₂`
+  about `c`, not at the particle, whose light arrives at 25.2.
+  `n₂ = 2` puts out `7.5·10⁻⁸`, the same at `d/4` and `d/6`. The part
+  of the pulse that goes inward reaches the particle from `Δ₂ + 1` to
+  `Δ₂ + 3`, and moves the force by the same amount at every resolution,
+  `5.6·10⁻³ F_RR` at `n₂ = 0` and `1.7·10⁻³` at 2.
+  The source is the residual of `WΨ̂` along the jets at each stage.
+  `Ψ̂` holds `ä`, and its time derivative holds `a⃛`. So a jump in `ä`
+  or below makes `Ψ̂` jump, and a jump in `a⃛` makes `∂_tΨ̂` jump. Either
+  puts a `δ′` or a `δ` in time into `□(WΨ̂)` at the joint, which no stage
+  sees, and the remainder lacks that impulse's field. At `n₂ = 4` only
+  `a⃜` jumps, which is a step in the source, not an impulse. `n₂ = 3`,
+  not run, would still jump in `a⃛`.
+- **`n₂ = 0` also leaves a lasting error at the particle.** From
+  `t ≈ 30` at every resolution, the force differs from `n₂ = 4`'s by
+  `1.3·10⁻³ F_RR` RMS at `d/6` and `d/8`, half the circle's scatter at
+  `d/8`; its orbit means differ by up to `3·10⁻⁴ F_RR` in `F_r` and
+  `F_n`, and by `3·10⁻⁶` in `F_t`. It does not converge. `t ≈ 30` is
+  when what the onset sent out could come back from where the cube
+  meets the shells, at `|x| = 16`; it was not traced further. At
+  `n₂ = 2` nothing lasts: `10⁻⁵ F_RR`, falling with resolution.
+- **For the binary:** the force takes over at the run's start, where a
+  jump costs only a kink in the field; but a take-over ramp ends during
+  the run, and there `a` through `a⃛` must be continuous. `n₂ = 4` over
+  `Δ₂ = 2π/Ω`, one orbit, is clean; `n₂ = 2` costs one impulse of
+  `1.7·10⁻³ F_RR` at the ramp's end, which does not converge away; `n₂ = 0`
+  costs a lasting `10⁻³`.
 
 ### Prescribed paths
 

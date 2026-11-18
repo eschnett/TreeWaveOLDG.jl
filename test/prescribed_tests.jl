@@ -123,6 +123,137 @@ end
     end
 end
 
+@testset "The smoothstep rises from 0 to 1 with its first n derivatives zero at both ends" begin
+    # Guards `smoothstep`, of which M8f's ramps are made: a wrong
+    # coefficient leaves a derivative at a joint that should vanish, and
+    # the joint then sends out what the run measures as the joint's cost;
+    # a wrong mirror image above `x = 1/2` or a wrong integral puts the
+    # spun-up particle somewhere else than its circle.
+    @test smoothstep(1, 0.3) ≈ 3 * 0.3^2 - 2 * 0.3^3
+    @test smoothstep(2, 0.3) ≈ 6 * 0.3^5 - 15 * 0.3^4 + 10 * 0.3^3
+    @test smoothstep(0, 0.3) == 0.3 && smoothstep(0, 0.3, 1) == 1
+    xs, ws = gauss_nodes_weights(8)
+    setprecision(BigFloat, 256) do
+        for n in 0:7
+            S(x, d=0) = smoothstep(n, x, d)
+            @test S(big(0)) == 0 && S(big(1)) == 1 && S(big"0.5") == 1 // 2
+            @test S(big(-1)) == 0 && S(big(2)) == 1 && S(big(2), 1) == 0
+            @test S(big(1), -1) == 1 // 2 && S(big(3), -1) == 5 // 2
+            # The `n + 1`-th derivative does not vanish: `(n + 1)! C(2n + 1, n)`
+            # at 0. The first `n` do: at 0 exactly, at 1 from the left as the
+            # `(n + 1 - d)`-th power of the distance, times at most that.
+            Sn1 = factorial(n + 1) * binomial(2n + 1, n)
+            @test S(big(0), n + 1) == Sn1
+            for d in 1:n
+                @test S(big(0), d) == 0
+                @test abs(S(1 - big"1e-20", d)) < Sn1 * big"1e-20"^(n + 1 - d)
+            end
+            # The derivatives and the integral against nested duals and
+            # an 8-point Gauss rule, exact for degree 15, both sides of 1/2.
+            for x in (big"0.2", big"0.5", big"0.7", big"0.95")
+                f = S
+                for d in 1:3
+                    g = f
+                    f = y -> ddt(g, y)
+                    @test S(x, d) ≈ f(x) rtol = 1e-60 atol = 1e-60
+                end
+                I = x / 2 * sum(w * S(x * (ξ + 1) / 2) for (ξ, w) in zip(xs, ws))
+                @test S(x, -1) ≈ I rtol = 1e-60
+            end
+        end
+    end
+    @test_throws ArgumentError smoothstep(8, 0.5)
+    @test_throws ArgumentError smoothstep(-1, 0.5)
+end
+
+@testset "The ramped circle's jets are its positions' derivatives, and its joints as smooth as asked" begin
+    # Guards `ramped_circular_motion` (INSPIRAL-PLAN.md's M8f): its `v`
+    # through `a⃜` must be the derivatives of its `z` on every piece, or the
+    # source is that of another path; at each joint `a` and its first
+    # `n - 1` derivatives must be continuous and the `n`-th jump by what
+    # the step's `n + 1`-th derivative says, or the runs measure another
+    # smoothness than the one they name. Without a past and a departure it
+    # must be the circle bit for bit, so that M8d's runs stay as they were.
+    setprecision(BigFloat, 256) do
+        rc, v, T₀, Δ, ε, Δ₂ = big"0.5", big"0.2", big(3), big(2), big"1e-3", big(5)
+        Ω = v / rc
+        for n in (0, 2, 4)
+            path = ramped_circular_motion(SA[big(1), big(2), big(3)], rc, v; phase=big"0.3",
+                                          past=T₀, ramp=Δ, n, depart=ε, onset=Δ₂,
+                                          n2=n).path
+            jet(tr) = (tr.z, tr.v, tr.a, tr.ȧ, tr.ä, tr.a⃛, tr.a⃜)
+            for t in big.((-6, -4.5, -3.5, -1, 0.5, 3, 7))
+                tr = path(t)[1]
+                J = jet(tr)
+                for k in 1:6
+                    @test norm(ddt(s -> jet(path(s)[1])[k], t) - J[k + 1]) < big"1e-60"
+                end
+                @test norm(tr.v) <= v
+            end
+            # The joints: at rest, onto the circle, the departure, its end;
+            # the jump in `a⁽ⁿ⁾ = z⁽ⁿ⁺²⁾` that the step's derivative gives.
+            Sn1 = factorial(n + 1) * binomial(2n + 1, n)
+            for (tj, jump) in ((-T₀ - Δ, rc * Ω / Δ^(n + 1) * Sn1),
+                               (-T₀, rc * Ω / Δ^(n + 1) * Sn1),
+                               (big(0), ε / Δ₂^(n + 1) * Sn1),
+                               (Δ₂, ε / Δ₂^(n + 1) * Sn1))
+                l, r = jet(path(tj - big"1e-40")[1]), jet(path(tj)[1])
+                for k in 1:(n + 2)
+                    @test norm(l[k] - r[k]) < big"1e-35"
+                end
+                @test norm(l[n + 3] - r[n + 3]) ≈ jump rtol = 1e-30
+            end
+            # At rest before the spin-up, on the circle where it ends.
+            @test norm(path(big(-100))[1].v) == 0
+            @test norm(path(-T₀ - Δ)[1].z - SA[big(1), big(2), big(3)]) ≈ rc
+        end
+    end
+    circle = circular_motion((1.0, 2.0, 3.0), 0.5, 0.2; phase=0.3).path
+    for path in (ramped_circular_motion((1.0, 2.0, 3.0), 0.5, 0.2; phase=0.3).path,
+                 ramped_circular_motion((1.0, 2.0, 3.0), 0.5, 0.2; phase=0.3,
+                                        past=20.0).path)
+        @test all(t -> path(t)[1] === circle(t)[1], (-10.0, 0.0, 0.3, 7.0))
+    end
+    @test isbits(ramped_circular_motion((1.0, 2.0, 3.0), 0.5, 0.2; past=1.0).path)
+    @test_throws ArgumentError ramped_circular_motion((0, 0, 0), 0.5, 0.2; past=-1)
+    @test_throws ArgumentError ramped_circular_motion((0, 0, 0), 0.5, 0.2; depart=0.9)
+    @test_throws ArgumentError ramped_circular_motion((0, 0, 0), 0.5, 0.2; n=8)
+end
+
+@testset "The spun-up past's retarded field is the circle's after -T and the static charge's before" begin
+    # Guards the M8f data: where the retarded time lies after `-T`, the
+    # spun-up past's retarded field must be the circle forever's, which
+    # M8d and M8e measured clean; before `-T - Δ` it must be the field of
+    # the charge at rest where the spin-up starts; between, it must still
+    # solve the wave equation.
+    Q, T₀, Δ = 0.07, 30.0, 10.0
+    centre = SA[0.1, 0.2, 0.3]
+    circle = circular_motion(centre, 0.5, 0.2).path
+    path = ramped_circular_motion(centre, 0.5, 0.2; past=T₀, ramp=Δ, n=4).path
+    for (x, t) in ((SA[6.0, 7.0, 2.0], 0.0), (SA[-12.0, 3.0, 9.0], 0.0),
+                   (SA[0.4, 0.2, 0.5], 0.0), (SA[20.0, -5.0, 3.0], 5.0))
+        Φ, Π = retarded_field(path, 1, Q, x, t)
+        Φc, Πc = retarded_field(circle, 1, Q, x, t)
+        @test Φ ≈ Φc rtol = 1e-14
+        @test Π ≈ Πc rtol = 1e-12
+    end
+    zrest = path(-100.0)[1].z
+    for (x, t) in ((SA[50.0, 20.0, 10.0], 0.0), (SA[-30.0, 50.0, -40.0], 2.0))
+        Φ, Π = retarded_field(path, 1, Q, x, t)
+        @test Φ ≈ -Q / (4π * norm(x - zrest)) rtol = 1e-14
+        @test abs(Π) < 1e-15 * abs(Φ)
+    end
+    # About 35 away the retarded time lies in the spin-up.
+    x, t, h = SA[30.0, 15.0, 10.0], 0.0, 1e-2
+    Φ(x, t) = retarded_field(path, 1, Q, x, t)[1]
+    @test -T₀ - Δ < t - norm(x - centre) < -T₀
+    e = (SA[h, 0, 0], SA[0, h, 0], SA[0, 0, h])
+    ∇² = sum((Φ(x + d, t) - 2Φ(x, t) + Φ(x - d, t)) / h^2 for d in e)
+    ∂ₜ² = (Φ(x, t + h) - 2Φ(x, t) + Φ(x, t - h)) / h^2
+    @test abs(∂ₜ² - ∇²) < 1e-3 * abs(∇²)
+    @test retarded_field(path, 1, Q, x, t)[2] ≈ (Φ(x, t + h) - Φ(x, t - h)) / 2h rtol = 1e-4
+end
+
 @testset "At t = 0 of hyperbolic motion the remainder is the series beyond the orders carried" begin
     # Guards the hyperbolic run's initial remainder, `Φ_ret - Ψ̂_pt`: at
     # `t = 0` the retarded field is `-(Q/4πr) Σₖ (-gr/2)^k P_k(cos θ)`, and
