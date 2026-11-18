@@ -3218,11 +3218,15 @@ change. A departure that jumps in `a` (`n2 = 0`) gives the remainder at
 while the retarded field holds the old: the force then reads it at once,
 `F_r ≈ −2·10⁻⁷` at `t = 0` on the laptop's coarsest circle
 (`hₑ = 1/2`, `v = 0.2`) at `ε = 10⁻³`, 5 % of radiation reaction's
-`4.2·10⁻⁶`, against `−2·10⁻¹⁰` without the departure. What such a jump
-costs over the following orbits, and how smooth the switch-on must be
-for it to cost nothing, is what M8f's departure runs measure,
-**(open)** until they are in; the past's runs are in ([Assumed
-pasts](#assumed-pasts-1) under "Measured results").
+`4.2·10⁻⁶`, against `−2·10⁻¹⁰` without the departure. That is the
+exact remainder's, and the evolution takes it as it is. A joint during
+the run is different. The source is the residual of `WΨ̂` along the
+jets at each stage, and `Ψ̂` and `∂_tΨ̂` hold the jets through `a⃛`. So a
+jump in any of them puts an impulse in time into `□(WΨ̂)` that no stage
+sees, and the window sends out a pulse that no resolution removes. A
+ramp that ends during the run needs `n₂ ≥ 4`, and `n₂ = 4` over one orbit
+is clean ([Assumed pasts](#assumed-pasts-1) under "Measured results",
+with the past's runs).
 
 ## File layout
 
@@ -5926,6 +5930,98 @@ the five orbits' means of `F_t/F_RR` against the circle's:
   `n = 4` (or likely 2) over `Δ = 10` to the orbit at `−T = −30`,
   starts the run as cleanly as the orbit forever at `d/8`: what its
   joints cost at the particle is below the scheme's own scatter there.
+
+**The departure.** `SCAN=depart`, jobs 601825 to 601832, 2026-11-17,
+one H200 each: from the past of `n = 4`, the radius shrinks from `t = 0`
+with `ε = 10⁻³` over `Δ₂ = 2π/Ω = 15.7`, one orbit, at `n₂ = 0`, 2 and 4
+at `d/4` and `d/6` and `n₂ = 0` and 4 at `d/8`; 0.90 s a step at `d/8`.
+From `t = Δ₂` the three paths are one, the radius `r_c − εΔ₂/2 −
+ε(t − Δ₂)` whatever `n₂`, since `S_{n₂}` integrates to 1/2 on every
+order. So there the runs' differences at one resolution are error alone,
+in the force as in the waves; and on the spheres the error that is the
+departure's own is
+`δe = r‖(Φ − Φ^ref) − (Φ₄ − Φ₄^ref)‖`, the run's error less the
+`n₂ = 4` run's, which removes what both share. No `--reading` runs were
+made: inside the ramp the paths differ, and so do the times at which
+they cross faces, which moves the forces' difference between
+resolutions by up to `5·10⁻² F_RR`, too much to tell an error of the
+departure from.
+
+The largest `δe` where each joint's light reaches the sphere, the
+onset's at `t ≈ r` and the ramp's end's at `t ≈ r + Δ₂`:
+
+| `n₂` | joint | `r` | `d/4` | `d/6` | `d/8` |
+|---|---|---|---|---|---|
+| 0 | onset | 10 | 2.5e-8 | 1.6e-8 | 1.2e-8 |
+| | | 20 | 8.3e-8 | 4.7e-8 | 3.5e-8 |
+| | ramp's end | 10 | 1.9e-7 | 1.9e-7 | 1.9e-7 |
+| | | 20 | 1.8e-7 | 1.9e-7 | 1.8e-7 |
+| | | 30 | 1.7e-7 | 1.6e-7 | 1.9e-7 |
+| 2 | onset | 10 | 9.3e-10 | 1.3e-10 | |
+| | ramp's end | 10 | 7.4e-8 | 7.5e-8 | |
+| | | 20 | 6.7e-8 | 6.9e-8 | |
+
+The force after the ramp, `F(n₂) − F(4)` in `F_RR`, beside the past's
+step-to-step scatter of `F_t` (`2.2·10⁻²`, `8.7·10⁻³` and `4.2·10⁻³`
+over `t = 21` to 30):
+
+| `n₂` | `hₑ` | `Δ₂ + 1` to `Δ₂ + 3`, largest `F_r`, `F_t` | `Δ₂ + 3` to 30, RMS, the larger of `F_r`, `F_t` | 30 to 90, RMS `F_t` per 20 | orbit means from 43, `F_r`, `F_n` |
+|---|---|---|---|---|---|
+| 0 | `d/4` | 3.8e-3, 5.8e-3 | 1.0e-4 | 6.3e-4 to 1.7e-3 | up to 1.2e-4, 2.8e-4 |
+| | `d/6` | 3.0e-3, 5.7e-3 | 8.1e-5 | 8.0e-4 to 1.3e-3 | up to 2.3e-4, 3.2e-4 |
+| | `d/8` | 2.5e-3, 5.6e-3 | 4.4e-5 | 9.4e-4 to 1.3e-3 | up to 2.7e-4, 2.8e-4 |
+| 2 | `d/4` | 1.6e-3, 9.1e-4 | 1.0e-5 | 1.9e-5 to 3.0e-5 | |
+| | `d/6` | 1.7e-3, 9.1e-4 | 4.6e-6 | 5.9e-6 to 8.5e-6 | |
+
+- **`n₂ = 4` is as clean as the circle.** Against the past's run, its
+  wave error differs by what converges at orders 4 to 5, for example
+  `2.8·10⁻⁷`, `5.3·10⁻⁸` and `1.4·10⁻⁸` on the sphere of 20 at
+  `t = 30`, the departure's waves being smaller, and nothing goes out
+  from either joint. After the ramp, outside `n₂ = 2`'s impulse, its
+  force is `n₂ = 2`'s to `8·10⁻⁵ F_RR` at `d/4` and `4·10⁻⁵` at `d/6`.
+- **A jump at the onset costs what the field's own kink costs.** At
+  `t = 0` the data are built with the jets after the jump, so the
+  remainder takes the jump as the exact one does. What `n₂ = 0` sends
+  out from there converges at order 1 to 1.4, as a kink in the retarded
+  field does on a grid, and is a fifth to a quarter of the run's own
+  error on the sphere of 10 at `d/8`; at `n₂ = 2` it converges at order
+  3 to 5. At the
+  particle the jump is read at once, as the design said: `F_r` moves by
+  `−0.088`, `−0.11` and `−0.13 F_RR` at `t = 0` at `d/4`, `d/6` and
+  `d/8` (`−3·10⁻⁶` at `n₂ = 2`), and is down to a few `10⁻³` by
+  `t = 0.25` to 0.5.
+- **A jump during the run sends out a pulse that no resolution
+  removes.** At the ramp's end, `t = Δ₂`, `n₂ = 0` puts out a pulse of
+  `δe = 1.9·10⁻⁷`, 1.7 times the `n₂ = 4` run's own error on the sphere
+  of 10 at `d/8`, at every resolution. It travels at the speed of light
+  and first reaches the sphere of 10 at `t ≈ 23.4`, just after
+  `Δ₂ + 10 − R₂ = 23.2`: it starts where the window `W` varies, `R₁` to `R₂`
+  about `c`, not at the particle, whose light arrives at 25.2.
+  `n₂ = 2` puts out `7.5·10⁻⁸`, the same at `d/4` and `d/6`. The part
+  of the pulse that goes inward reaches the particle from `Δ₂ + 1` to
+  `Δ₂ + 3`, and moves the force by the same amount at every resolution,
+  `5.6·10⁻³ F_RR` at `n₂ = 0` and `1.7·10⁻³` at 2.
+  The source is the residual of `WΨ̂` along the jets at each stage.
+  `Ψ̂` holds `ä`, and its time derivative holds `a⃛`. So a jump in `ä`
+  or below makes `Ψ̂` jump, and a jump in `a⃛` makes `∂_tΨ̂` jump. Either
+  puts a `δ′` or a `δ` in time into `□(WΨ̂)` at the joint, which no stage
+  sees, and the remainder lacks that impulse's field. At `n₂ = 4` only
+  `a⃜` jumps, which is a step in the source, not an impulse. `n₂ = 3`,
+  not run, would still jump in `a⃛`.
+- **`n₂ = 0` also leaves a lasting error at the particle.** From
+  `t ≈ 30` at every resolution, the force differs from `n₂ = 4`'s by
+  `1.3·10⁻³ F_RR` RMS at `d/6` and `d/8`, half the circle's scatter at
+  `d/8`; its orbit means differ by up to `3·10⁻⁴ F_RR` in `F_r` and
+  `F_n`, and by `3·10⁻⁶` in `F_t`. It does not converge. `t ≈ 30` is
+  when what the onset sent out could come back from where the cube
+  meets the shells, at `|x| = 16`; it was not traced further. At
+  `n₂ = 2` nothing lasts: `10⁻⁵ F_RR`, falling with resolution.
+- **For the binary:** the force takes over at the run's start, where a
+  jump costs only a kink in the field; but a take-over ramp ends during
+  the run, and there `a` through `a⃛` must be continuous. `n₂ = 4` over
+  `Δ₂ = 2π/Ω`, one orbit, is clean; `n₂ = 2` costs one impulse of
+  `1.7·10⁻³ F_RR` at the ramp's end, which does not converge away; `n₂ = 0`
+  costs a lasting `10⁻³`.
 
 ### Prescribed paths
 

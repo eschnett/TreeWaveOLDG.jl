@@ -459,6 +459,12 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   across the face, a few steps, and its impulse is tens to hundreds of
   times radiation reaction; a sample every `1/8` misses it, as M3's did
   ("Prescribed paths").
+- **A path's jets may jump during a run only from `a⃜` up.** The source
+  is the residual of `WΨ̂` along the jets at each stage, and `Ψ̂` and
+  `∂_tΨ̂` hold them through `a⃛`. A jump there after `t = 0` is an
+  impulse in time that no stage sees, and the window then sends out a
+  pulse that no resolution removes; at `t = 0` the data take the jump.
+  A ramp that ends during the run needs `n₂ ≥ 4` ("Assumed pasts").
 - **The asserted rates are measurements.** If one moves, re-measure and
   update "Measured results" rather than widen a tolerance.
 
