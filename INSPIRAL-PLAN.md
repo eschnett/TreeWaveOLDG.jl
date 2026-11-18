@@ -10,15 +10,13 @@ below without links.
 M8a and M8b are done (2026-11-11), M8a's gate having passed, and M8c is
 done (2026-11-14), merged with pull request #15. M8d, data that are the
 field far from an accelerated particle, is done (2026-11-15), merged with
-pull request #16; M8e, the waveforms, is done (2026-11-16) on branch
-`inspiral-m8e-waveforms`, its pull request not yet opened; M8f, a smooth
-past and a smooth departure, is done (2026-11-18) on branch
-`inspiral-m8f-smooth-past`, its pull request not yet opened. A
-milestone's status line changes here when its work starts and when its
-pull request merges. A finished milestone keeps its number and one line
-saying where its results went; its earlier text, with the gates and
-open items only it used, is in `HISTORY.md` ("What the plan said of its
-finished milestones").
+pull request #16; M8e, the waveforms, is done (2026-11-16), and M8f, a
+smooth past and a smooth departure, is done (2026-11-18), both merged
+with pull request #19. A milestone's status line changes here when its
+work starts and when its pull request merges. A finished milestone keeps
+its number and one line saying where its results went; its earlier text,
+with the gates and open items only it used, is in `HISTORY.md` ("What
+the plan said of its finished milestones").
 
 **Contents**
 
@@ -205,13 +203,9 @@ paths", "The averaging" and "Prescribed paths" under "Measured results".
 
 ## M5: The lab slice
 
-**Status:** done; its pull request waits for the owner. Its results are
-in `CODE.md`, "The near field" and "Prescribed paths" under "Measured
+**Status:** done; merged with pull request #8. Its results are in
+`CODE.md`, "The near field" and "Prescribed paths" under "Measured
 results".
-
-**Inconsistent:** this checkout's git history has pull request #8, from
-branch `inspiral-m5-labslice`, merged into `main` (commit `f4f3293`),
-which this status line does not say.
 
 ## M6: Dynamic particles
 
