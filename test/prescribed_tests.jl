@@ -473,3 +473,58 @@ end
     @test f(tr.z + SVector(0.1, 0.0, 0.0), 1) == 0
     @test f(tr.z + SVector(0.1, 0.0, 0.0), 2) == 0
 end
+
+@testset "Two charges on one circle move half an orbit apart, each on its own path" begin
+    # Guards `binary_circular_motion` (`bin/orbit_movie.jl`): each charge
+    # has to be `ramped_circular_motion`'s at its phase bit for bit, past
+    # included, or the retarded data and the source would belong to
+    # another motion; the pair has to be `isbits` for the device kernels.
+    centre = (0.1, 0.2, 0.3)
+    pair = binary_circular_motion(centre, 0.5, 0.2; past=2.0, ramp=4.0, n=4).path
+    a = ramped_circular_motion(centre, 0.5, 0.2; past=2.0, ramp=4.0, n=4).path
+    b = ramped_circular_motion(centre, 0.5, 0.2; phase=π, past=2.0, ramp=4.0, n=4).path
+    for t in (-10.0, -4.0, -1.0, 0.0, 3.7)
+        tr = pair(t)
+        @test length(tr) == 2
+        @test tr[1] == a(t)[1] && tr[2] == b(t)[1]
+        @test tr[1].z + tr[2].z ≈ 2SVector(centre) atol = 1e-15
+    end
+    @test isbits(pair)
+    @test_throws ArgumentError binary_circular_motion(centre, 0.5, 0.2; past=-1)
+end
+
+@testset "The plane's total field of two charges is their retarded field at t = 0" begin
+    # Guards `plane_values` on an inspiral: the remainder read from the
+    # state plus `WΣΨ̂` and `WΣ𝒟Ψ̂` added on the host has to be the field
+    # the data were filled from, the two charges' retarded field, away
+    # from the charges, to an error that falls with `hₑ`. Leaving out the
+    # particle part, or one charge's, or the window, misses the field by
+    # its own size near the charges.
+    P = 3
+    c, off = SVector(0.0, 0.0, 0.0), SVector(0.011, 0.007, 0.013)
+    m = ParticleModel(; Q=0.1, ℓ=0.01, M=1.0)
+    errs = map((4, 8)) do roots
+        forest, geo = sevenpatch_forest(Float64, P, 2; roots=(roots, 2), Lc=4.0, R1=12.0,
+                                        refined=nested_cubes(Val(3), roots / 4, 2))
+        wave = WaveProblem(forest, Element(Float64, P); geometry=geo,
+                           boundary=RadiativeBoundary())
+        motion = binary_circular_motion(c + off, 0.5, 0.2; past=0, ramp=4, n=4)
+        p = InspiralProblem(wave, (m, m), Window(c, 1.0, 1.75; continuity=P + 1), motion)
+        u = inspiral_initial_state(p; retarded=Window(c, 20.0, 21.0; continuity=4))
+        ex = PlaneExtraction(wave, c + off, 6.0, 48)
+        Φ, Π = plane_values(ex, p, u, 0.0)
+        @test !any(isnan, Φ) && !any(isnan, Π)
+        trs = motion.path(0.0)
+        eΦ = eΠ = 0.0
+        for (j, x) in enumerate(ex.points)
+            minimum(norm(x - tr.z) for tr in trs) > 0.25 || continue
+            ret = [retarded_field(motion.path, k, m.Q, x, 0.0) for k in 1:2]
+            eΦ = max(eΦ, abs(Φ[j] - sum(first, ret)))
+            eΠ = max(eΠ, abs(Π[j] - sum(last, ret)))
+        end
+        (eΦ, eΠ)
+    end
+    # The field is 0.03 and its rate 0.01 at most there.
+    @test errs[1][1] < 3e-4 && errs[1][2] < 1e-4
+    @test errs[1][1] / errs[2][1] > 4 && errs[1][2] / errs[2][2] > 8
+end

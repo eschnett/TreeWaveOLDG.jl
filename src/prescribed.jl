@@ -267,6 +267,34 @@ function ramped_circular_motion(centre, radius::Real, speed::Real; phase::Real=0
                                       T(depart), onset, Smoothstep{T}(n2)))
 end
 
+# Several one-particle paths as one path of as many particles, particle
+# `k` moving on `paths[k]`. A tuple of `isbits` paths, so a device kernel
+# takes it as it takes one.
+struct PathTuple{P<:Tuple}
+    paths::P
+end
+
+(p::PathTuple)(t) = map(q -> q(t)[1], p.paths)
+
+"""
+    binary_circular_motion(centre, radius, speed; phase = 0, normal = (0, 0, 1),
+                           past = Inf, ramp = 2π/Ω, n = 4)
+
+A [`Prescribed`](@ref) motion of two particles on one circle, half an
+orbit apart: particle 1 on [`ramped_circular_motion`](@ref)'s path at
+`phase`, particle 2 on the same at `phase + π`, both with the same past.
+The charges' dipoles cancel, so their radiation starts at `ℓ = 2`. It
+takes `ramped_circular_motion`'s refusals; there is no departure.
+"""
+function binary_circular_motion(centre, radius::Real, speed::Real; phase::Real=0,
+                                normal=(0, 0, 1), past::Real=Inf, ramp::Real=0,
+                                n::Integer=4)
+    at(φ) = ramped_circular_motion(centre, radius, speed; phase=φ, normal, past, ramp,
+                                   n).path
+    a = at(phase)
+    return Prescribed(PathTuple((a, at(phase + oftype(a.circle.φ₀, π)))))
+end
+
 # Hyperbolic motion along the unit vector `n` through `z₀`, at rest there at
 # `t = 0`, with proper acceleration `g`.
 struct HyperbolicPath{T}

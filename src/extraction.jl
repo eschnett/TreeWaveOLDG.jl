@@ -196,9 +196,9 @@ end
 function element_stencils(fs::FieldSet{T,D}, xs) where {T,D}
     forest = fs.forest
     pts = TreeAMR.locate(T, forest, xs)
-    all(pts.inside) || throw(ArgumentError("a point of the spheres lies outside the forest"))
+    all(pts.inside) || throw(ArgumentError("a point to extract lies outside the forest"))
     all(iszero, pts.code) || throw(ArgumentError(
-        "a point of the spheres is folded across a reflecting face or a seam, whose " *
+        "a point to extract is folded across a reflecting face or a seam, whose " *
         "parity the extraction does not apply"))
     basis = TreeAMR.specialize_basis(ElementPolynomial(), fs)
     n = TreeAMR.stencilwidth(basis)
@@ -237,6 +237,13 @@ and a weighted sum.
 """
 function sphere_values(ex::SphereExtraction, wave::WaveProblem, u::AbstractVector;
                        var::Integer=1)
+    return stencil_values(ex, u, var)
+end
+
+# The gather of `sphere_values` and `plane_values`: each point's nodes of
+# variable `var`, weighted and summed, on `u`'s backend, copied to the
+# host.
+function stencil_values(ex, u::AbstractVector, var::Integer)
     length(u) >= ex.statelength || throw(DimensionMismatch(
         "a state vector of $(length(u)) entries for a field set of $(ex.statelength)"))
     nodes = u[ex.index .+ (var - 1) * ex.varstride]
@@ -265,3 +272,106 @@ end
 
 sphere_modes(ex::SphereExtraction, wave, u::AbstractVector; kwargs...) =
     sphere_modes(ex, sphere_values(ex, wave, u; kwargs...))
+
+"""
+    PlaneExtraction(wave::WaveProblem, centre, halfwidth, n)
+
+The points of an `n × n` grid in the plane `z = centre[3]`, the square
+of half-width `halfwidth` about `centre`, at the centres of its `n²`
+cells, `x_i = centre[1] + halfwidth (2i - 1 - n)/n` and the same in `y`;
+and how to read a state there, as [`SphereExtraction`](@ref) reads its
+spheres, on any backend ([`plane_values`](@ref)). On the seven-patch
+ball the points beyond the sphere are left out, on a brick those
+outside the forest; `inside` marks the rest, and `points` holds every
+grid point on the host, column by column, `x` running fastest. A
+periodic brick shows once, its images left out. A regrid
+makes it stale. Other geometries are refused. It is for viewing the
+field (`bin/orbit_movie.jl`; "The movie" in `CODE.md`).
+"""
+struct PlaneExtraction{T,IA,WA}
+    centre::SVector{3,T}
+    halfwidth::T
+    n::Int
+    points::Vector{SVector{3,T}}
+    inside::Vector{Bool}
+    index::IA                    # each inside point's nodes in a state vector, var 1
+    weights::WA                  # and their weights, (P+1)^D per point
+    varstride::Int
+    statelength::Int
+end
+
+# The cell centres of an `n × n` grid of half-width `h` about `c` in the
+# plane `z = c[3]`, column by column, `x` running fastest.
+function plane_grid(c::SVector{3,T}, h::T, n::Integer) where {T}
+    s = [h * T(2i - 1 - n) / n for i in 1:n]
+    return [SVector{3,T}(c[1] + s[i], c[2] + s[j], c[3]) for j in 1:n for i in 1:n]
+end
+
+function PlaneExtraction(wave::WaveProblem{T}, centre, halfwidth::Real,
+                         n::Integer) where {T}
+    halfwidth > 0 || throw(ArgumentError("the half-width must be positive, got $halfwidth"))
+    n >= 1 || throw(ArgumentError("the grid needs at least one point, got n = $n"))
+    c = SVector{3,T}(Tuple(centre))
+    h = T(halfwidth)
+    points = plane_grid(c, h, n)
+    geo = wave.metric === nothing ? nothing : wave.metric.geometry
+    if geo isa SevenPatchBall
+        inside = [sqrt(x[1]^2 + x[2]^2 + x[3]^2) < geo.R1 for x in points]
+        xs = [ball_patch_point(geo, x) for x in points[inside]]
+    elseif geo === nothing
+        # A periodic brick wraps a point outside it to its image, which the
+        # plane leaves out, so that the brick shows once.
+        pts = TreeAMR.locate(T, wave.fs.forest, [Tuple(x) for x in points])
+        inside = [pts.inside[j] && iszero(pts.code[j]) &&
+                  SVector{3,T}(pts.y[j]) == points[j] for j in eachindex(points)]
+        xs = [Tuple(x) for x in points[inside]]
+    else
+        throw(ArgumentError(
+            "PlaneExtraction maps physical points to the forest on a brick or the " *
+            "seven-patch ball only, not on a $(nameof(typeof(geo)))"))
+    end
+    isempty(xs) && throw(ArgumentError("no point of the plane lies in the forest"))
+    index, weights = element_stencils(wave.fs, xs)
+    backend = get_backend(wave.fs.work)
+    N = wave.fs.forest.N
+    return PlaneExtraction(c, h, Int(n), points, inside, to_backend(backend, index),
+                           to_backend(backend, weights), N^3, statelength(wave.fs))
+end
+
+"""
+    plane_values(ex::PlaneExtraction, wave::WaveProblem, u; var = 1)
+    plane_values(ex::PlaneExtraction, prob::InspiralProblem, u, t)
+
+The values of variable `var` of the state `u` on the plane's grid, an
+`n × n` matrix on the host, `NaN` at the points outside the forest.
+For an inspiral, the total field `Φ` and its rate `Π = ∂ₜΦ` instead,
+`(Φ, Π)`: the remainder's two variables, plus `W Σ_k Ψ̂_k` and
+`W Σ_k 𝒟Ψ̂_k` at the points where the window is not zero, evaluated on
+the host, along the particles' trajectories of the state at `t`.
+"""
+function plane_values(ex::PlaneExtraction{T}, wave::WaveProblem, u::AbstractVector;
+                      var::Integer=1) where {T}
+    out = fill(T(NaN), ex.n, ex.n)
+    out[ex.inside] = stencil_values(ex, u, var)
+    return out
+end
+
+function plane_values(ex::PlaneExtraction{T}, p::InspiralProblem{T,K}, u::AbstractVector,
+                      t) where {T,K}
+    Φ = plane_values(ex, p.wave, u; var=1)
+    Π = plane_values(ex, p.wave, u; var=2)
+    trajs = trajectories(p, u, t)
+    w = p.window
+    near = [j for j in eachindex(ex.points)
+            if ex.inside[j] && !iszero(w(ex.points[j]))]
+    Threads.@threads for j in near
+        x = ex.points[j]
+        W = w(x)
+        for k in 1:K
+            m, tr = p.models[k], trajs[k]
+            Φ[j] += W * field_of_order(m, x, tr, p.order)
+            Π[j] += W * rate_of_order(m, x, tr, p.order)
+        end
+    end
+    return Φ, Π
+end

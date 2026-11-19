@@ -158,3 +158,51 @@ end
     @test_throws "beyond the ball's sphere" SphereExtraction(wave, [3.5])
     @test_throws "must exceed lmax" SphereExtraction(wave, [1.0]; lmax=4, nθ=4)
 end
+
+@testset "The plane reads the field where the forest holds it, and converges" begin
+    # Guards `PlaneExtraction` (`bin/orbit_movie.jl`'s frames): its grid
+    # has to be the cell centres it says, its points beyond the ball's
+    # sphere or outside a brick have to be left out as `NaN` and the rest
+    # read, through the cube, its refined levels and the shells, as
+    # TreeAMR's element polynomial does, converging at order `P + 1`.
+    P = 3
+    errs = Float64[]
+    for s in (1, 2)
+        forest, geo = sevenpatch_forest(Float64, P, 2; roots=(4s, 2s), Lc=1.0, R1=3.0,
+                                        refined=((s, 3s), (s, 3s), (s, 3s)))
+        wave = WaveProblem(forest, Element(Float64, P); geometry=geo,
+                           boundary=RadiativeBoundary())
+        u = extraction_state(wave)
+        n = 24
+        ex = PlaneExtraction(wave, (0.1, -0.2, 0.3), 2.9, n)
+        @test ex.points[1] ≈ SVector(0.1 - 2.9 * (n - 1) / n, -0.2 - 2.9 * (n - 1) / n, 0.3)
+        @test ex.points[2][1] - ex.points[1][1] ≈ 2 * 2.9 / n
+        @test ex.points[n + 1][2] - ex.points[1][2] ≈ 2 * 2.9 / n
+        @test ex.inside == [norm(x) < 3.0 for x in ex.points]
+        @test 0 < count(ex.inside) < n^2
+        xs = [ball_patch_point(geo, x) for x in ex.points[ex.inside]]
+        for var in 1:2
+            vals = plane_values(ex, wave, u; var)
+            @test size(vals) == (n, n)
+            @test isnan.(vec(vals)) == .!ex.inside
+            ref = interpolate(wave.fs, u, xs, ElementPolynomial(); vars=var:var).values
+            @test maximum(abs, vec(ref) - vals[ex.inside]) < 1e-13 * maximum(abs, ref)
+        end
+        vals = plane_values(ex, wave, u)
+        push!(errs, maximum(abs(vals[j] - extraction_f(ex.points[j]))
+                            for j in eachindex(vals) if ex.inside[j]))
+    end
+    @test log2(errs[1] / errs[2]) > P + 0.5
+    # On a brick the points outside it are left out.
+    forest = wave_forest(Float64, Val(3), P, 2; roots=4, L=4.0)
+    wave = WaveProblem(forest, Element(Float64, P))
+    u = extraction_state(wave)
+    ex = PlaneExtraction(wave, (2.0, 2.0, 2.0), 3.0, 12)
+    @test ex.inside == [all(0 .<= x .<= 4) for x in ex.points]
+    vals = plane_values(ex, wave, u)
+    @test maximum(abs(vals[j] - extraction_f(ex.points[j]))
+                  for j in eachindex(vals) if ex.inside[j]) < 1e-2
+    forest, geo = annulus_forest(Float64, 2, 2)
+    wave = WaveProblem(forest, Element(Float64, 2); geometry=geo)
+    @test_throws "brick or the seven-patch ball" PlaneExtraction(wave, (0, 0, 0), 1.0, 4)
+end

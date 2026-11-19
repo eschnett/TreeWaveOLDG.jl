@@ -1662,6 +1662,37 @@ patches.
     clean, and it is what the binary's take-over takes. `n₂ = 0`
     also left a force error from `t ≈ 30` on at every resolution, half
     the circle's scatter at `d/8`, which was not traced further.
+- 2026-11-18: Erik Schnetter asked for a movie of the system in the
+  style of a binary black hole visualisation: the equatorial plane as a
+  heatmap of a smooth field scaled by `r`, the particles on top, and a
+  few `Y_lm` modes on a sphere. The start-up could show, and the outer
+  boundary should not. He chose:
+  - **two equal charges half an orbit apart** over one charge: their
+    `ℓ = m = 2` spiral is the binary's picture, where one charge's is a
+    one-armed `ℓ = m = 1` spiral;
+  - **a past spun up from rest just before `t = 0`** over the circle
+    forever or uniform motion's data: the start-up is then a physical
+    front, behind which the spiral fills in, and which reaches the
+    sphere only at the run's end.
+
+  The run writes frames and a separate viewer turns them into a movie,
+  since what to show needed trying out. A new driver,
+  `bin/orbit_movie.jl`, took the place of a `--charges=2` for
+  `bin/prescribed.jl`, whose one-particle diagnostics hold measured
+  results (`CODE.md`, "The movie"). The exact frames
+  (`bin/orbit_exact.jl`) came from the retarded field being known for a
+  prescribed path. They let the viewer be tried before the run, and
+  they show the run's error. The run on an H200 (jobs 605550 and
+  605551) gave the exact field to 3 % of the picture's scale at worst,
+  at the front (`CODE.md`, "The movie" under "Measured results"). On
+  seeing the movie he asked:
+  - **for the `plasma` colour scheme** in place of the diverging
+    `balance`, which became the default;
+  - **for a second version with the elements in grey**, which the
+    viewer draws with `--grid` from the run's forest built again from
+    its layout, the elements' faces only, not their nodes.
+
+  The movies were kept out of the repository.
 
 ### What the plan said of its finished milestones
 

@@ -163,6 +163,7 @@ using LinearAlgebra: dot, norm
 
 include(joinpath(@__DIR__, "backend.jl"))
 include(joinpath(@__DIR__, "ball.jl"))
+include(joinpath(@__DIR__, "waves_io.jl"))
 
 function option(name, default)
     for a in ARGS
@@ -348,45 +349,6 @@ function observe(path, p, c, w0, u, t, tag; retarded, radii=Float64[])
     for (name, value) in rows
         emit(tag..., t, name, value)
     end
-    return nothing
-end
-
-# `--waves`: the extraction's spheres and its file, with the header row
-# written; `nothing` without the option.
-function wave_writer(p, c, retarded)
-    file = option("waves", "")
-    isempty(file) && return nothing
-    ws = option("wradii", "10,20,30,50,70,90")
-    radii = [parse(Float64, strip(r)) for r in split(ws, ",")]
-    lmax = parse(Int, option("lmax", "6"))
-    nθ = parse(Int, option("ntheta", string(2lmax + 12)))
-    ex = SphereExtraction(p.wave, radii; lmax, nθ, centre=c)
-    io = open(file, "w")
-    name(r) = isinteger(r) ? string(Int(r)) : string(r)
-    cols = ["r$(name(r))_l$(l)m$(m)_$(part)" for r in radii
-            for (l, m) in harmonic_modes(lmax) for part in ("re", "im")]
-    retarded === nothing || append!(cols, "ref_" .* cols)
-    println(io, join(("t", cols...), '\t'))
-    flush(io)
-    return (; ex, io)
-end
-
-# One row of `--waves`: the state's modes, and the retarded field's.
-function write_waves(w, p, u, t, retarded)
-    w === nothing && return nothing
-    row = [t]
-    flat(modes) = vec(permutedims(hcat(real.(vec(modes)), imag.(vec(modes)))))
-    append!(row, flat(sphere_modes(w.ex, p, u)))
-    if retarded !== nothing
-        Q = p.models[1].Q
-        vals = Vector{Float64}(undef, length(w.ex.points))
-        Threads.@threads for j in eachindex(vals)
-            vals[j] = retarded_field(p.motion.path, 1, Q, w.ex.points[j], t)[1]
-        end
-        append!(row, flat(sphere_modes(w.ex, vals)))
-    end
-    println(w.io, join(row, '\t'))
-    flush(w.io)
     return nothing
 end
 
