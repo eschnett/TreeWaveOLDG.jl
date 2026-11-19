@@ -655,8 +655,8 @@ function block_speeds(speed, forest::Forest{D}, c, ::Type{T}) where {D,T}
     return rank_reduce(max, forest, smax), rank_reduce(min, forest, hspeed)
 end
 
-# What every geometry refuses: a forest it does not map, refinement in a
-# patch whose map is not affine, and a device. TreeAMR keeps every glued
+# What every geometry refuses: a forest it does not map, and refinement
+# in a patch whose map is not affine. TreeAMR keeps every glued
 # face conforming, so a coarse-fine face lies inside one patch, and inside
 # an affine one if every patch with leaves on two levels is affine.
 function check_metric_forest(geo, forest, backend)

@@ -407,10 +407,10 @@ device_close_arrays(dev, host, ::Type{T}) where {T} =
         end
 
         @testset "the waveforms on the device are the host's ($T)" begin
-            # The points located on the device and read there by TreeAMR's
-            # element polynomial. Guards against the points failing to reach
-            # the device, being located in another element, patch or level
-            # there, or the state being read through another layout.
+            # The points located on the host and read on the device by a
+            # gather of their elements' nodes. Guards against the tables
+            # failing to reach the device, or the state being read there
+            # through another layout.
             forest, geo = sevenpatch_forest(T, 3, 2; roots=(4, 2), Lc=1, R1=3,
                                             refined=((1, 3), (1, 3), (1, 3)))
             el = Element(T, 3)

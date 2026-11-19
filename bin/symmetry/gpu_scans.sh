@@ -16,6 +16,7 @@
 #     sbatch --export=ALL,SCAN=far,DATA=uniform,HDIV=4 bin/symmetry/gpu_scans.sh
 #     sbatch --export=ALL,SCAN=past,N=4,HDIV=6 bin/symmetry/gpu_scans.sh
 #     sbatch --export=ALL,SCAN=depart,N=4,N2=0,HDIV=6 bin/symmetry/gpu_scans.sh
+#     sbatch --export=ALL,SCAN=movie,HDIV=4 bin/symmetry/gpu_scans.sh
 #
 # Measured (2026-11-13, jobs 597907 to 597912): the tests take 5 minutes,
 # the twelve pulses 2.4 hours, the circles 3.1 to 5.3 hours and the
@@ -90,6 +91,14 @@
 # with `N=none`. The rows go to `depart-n2$N2-n$N-h$HDIV.tsv`, the
 # waveforms to `waves-depart-n2$N2-n$N-h$HDIV.tsv`.
 #
+# `SCAN=movie`: `bin/orbit_movie.jl`'s two charges on the circle at
+# `v = 0.2`, spun up from rest over `t = -10` to 0, in the ball at
+# `R1 = 100` at `d/HDIV` (default 4) with shells of radial width `HSHELL`
+# (default 1, eight elements per wavelength of the `ℓ = 2` waves), to
+# `TEND` (default 90), with the frames every `PEVERY` (default 0.25) in
+# `frames-h$HDIV/`, the waveforms in `waves-movie-h$HDIV.tsv` and the
+# forces in `movie-h$HDIV.tsv` ("The movie" in `CODE.md`).
+#
 # Run from a checkout of its own (`TREEWAVEOLDG_REPO`, default `$PWD`),
 # rsynced to the cluster without `.git` and `Manifest*.toml`. The
 # environment is one of its own that `Pkg.develop`s the checkout and adds
@@ -111,7 +120,7 @@ export PATH="$HOME/.juliaup/bin:$PATH"
 REPO="${TREEWAVEOLDG_REPO:-$PWD}"
 SCRATCH=/mnt/beegfs/eschnetter/claude/treewaveoldg-inspiral
 ENVDIR="${TREEWAVEOLDG_GPU_ENV:-$SCRATCH/env-gpu-scans}"
-SCAN="${SCAN:?set SCAN to tests, pulses, circle, rest, far, past or depart}"
+SCAN="${SCAN:?set SCAN to tests, pulses, circle, rest, far, past, depart or movie}"
 OUTDIR="${TREEWAVEOLDG_OUT:-$SCRATCH/gpu-scans-$SCAN-${SLURM_JOB_ID:-local}}"
 mkdir -p "$ENVDIR" "$OUTDIR"
 
@@ -200,6 +209,13 @@ case $SCAN in
             --R1=100 --rx1=200 --rx2=210 --tend=90 --every=0.5 \
             --radii=4,8,16,32,64 --cost "${args[@]}" \
             --waves="$OUTDIR/waves-$SCAN-$name.tsv" > "$OUTDIR/$SCAN-$name.tsv"
+        ;;
+    movie)
+        hdiv=${HDIV:-4}
+        "${JL[@]}" "$REPO/bin/orbit_movie.jl" --backend=cuda --hdiv="$hdiv" \
+            --hshell="${HSHELL:-1}" --tend="${TEND:-90}" --pevery="${PEVERY:-0.25}" \
+            --plane="$OUTDIR/frames-h$hdiv" --waves="$OUTDIR/waves-movie-h$hdiv.tsv" \
+            > "$OUTDIR/movie-h$hdiv.tsv"
         ;;
     *)
         echo "unknown SCAN=$SCAN"

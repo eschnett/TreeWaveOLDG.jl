@@ -101,11 +101,11 @@ export InspiralProblem, Prescribed, uniform_motion, field_state, particle_state,
 
 # Prescribed paths
 export circular_motion, hyperbolic_motion, retarded_field, point_model,
-       ramped_circular_motion, smoothstep
+       ramped_circular_motion, binary_circular_motion, smoothstep
 
 # Waveforms
 export SphereExtraction, sphere_values, sphere_modes, harmonic_modes, spherical_harmonics,
-       ball_patch_point
+       ball_patch_point, PlaneExtraction, plane_values
 
 include("precision.jl")
 include("device.jl")

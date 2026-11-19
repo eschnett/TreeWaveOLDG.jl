@@ -122,6 +122,7 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   - [Prescribed paths](#prescribed-paths)
   - [Waveforms](#waveforms)
   - [Assumed pasts](#assumed-pasts)
+  - [The movie](#the-movie)
 - [File layout](#file-layout)
 - [Tests](#tests)
 - [Measured results](#measured-results)
@@ -144,6 +145,7 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   - [Particles in the ball](#particles-in-the-ball-1)
   - [Waveforms](#waveforms-1)
   - [Assumed pasts](#assumed-pasts-1)
+  - [The movie](#the-movie-1)
   - [Prescribed paths](#prescribed-paths-1)
 - [What carried over from TreeWave, and what did not](#what-carried-over-from-treewave-and-what-did-not)
 - [Possible extensions](#possible-extensions)
@@ -3159,7 +3161,8 @@ monotonically from one resolution to the next.
 **Cost.** A gather of `(P+1)^D` nodes per point, all spheres together,
 and a matrix product on the host; on M8d's ball, 6 912 points and 28
 modes on each of six spheres, negligible beside a step. The table of
-positions and weights is 128 bytes per point at `P = 3`.
+positions and weights is 1 KB per point at `P = 3`, `(P+1)³` of
+each.
 
 **The analysis.** [`bin/waveforms.jl`](bin/waveforms.jl) reads the
 `--waves` files of a series of resolutions and prints the errors by
@@ -3227,6 +3230,114 @@ sees, and the window sends out a pulse that no resolution removes. A
 ramp that ends during the run needs `n₂ ≥ 4`, and `n₂ = 4` over one orbit
 is clean ([Assumed pasts](#assumed-pasts-1) under "Measured results",
 with the past's runs).
+
+### The movie
+
+A movie of two charges on a circle, in the style of a binary black
+hole's: the field in the orbit's plane as a heatmap, the charges on
+top, and a few of its modes on a sphere against time. It is a picture,
+not a measurement, and it changes nothing the particles or the field
+do. It has three parts:
+
+- **The run.** [`bin/orbit_movie.jl`](bin/orbit_movie.jl) writes the
+  field on grids in the orbit's plane at a movie's cadence, and the
+  modes on spheres.
+- **The exact frames.** [`bin/orbit_exact.jl`](bin/orbit_exact.jl)
+  writes the same frames from the exact field, so the viewer can be
+  tried out on the laptop and the run checked against them.
+- **The viewer.** [`bin/visualize_orbit.jl`](bin/visualize_orbit.jl)
+  turns either into images and an `.mp4`, in the viewers' environment.
+
+**Two charges, half an orbit apart.**
+`binary_circular_motion(centre, radius, speed; past, ramp, n)` is two
+of `ramped_circular_motion`'s paths, at `phase` and `phase + π`, as one
+path of two particles (`PathTuple`, `isbits` for the device kernels).
+Their dipoles cancel, so their radiation starts at `ℓ = m = 2`, a
+two-armed spiral of half the wavelength of one charge's, `π/Ω = 7.85` at
+M8's `v = 0.2`, `r_c = 0.5`. Everything else already takes `K`
+particles:
+
+- the retarded data, as a sum over `k`;
+- the source and the pairing;
+- the waves' reference (`bin/waves_io.jl`, shared with
+  `bin/prescribed.jl`).
+
+The two charges stay in the window's inner ball, as one does.
+
+**The start.** The charges are at rest before `t = −10` and are spun up
+to the orbit by `t = 0` (`--past=spinup` with `T = 0`, `n = 4`). The
+data are that past's retarded field, so the start-up is no numerical
+junk. It is a front of radiation at `|x| ≈ t + 10`, behind which the
+spiral fills in, and which reaches the sphere at `R1 = 100` at `t = 90`.
+
+**The sphere stays out of the picture.**
+- **The spiral's front:** a run to `t = 90`, about 5.7 orbits, ends
+  before the sphere can send any of it back.
+- **The charges at rest:** what the sphere does send back is the static
+  `ℓ = 1` field of the charges at rest, `r_c` off its centre ("Assumed
+  pasts" under "Measured results"). That is a few `10⁻³` of the waves,
+  below the colour scale's resolution.
+- **The shells:** they must carry the `ℓ = 2` waves with about 8 radial
+  elements per wavelength ([Particles in the
+  ball](#particles-in-the-ball-1) under "Measured results"), so the
+  radial width is 1 at `hₑ = 1/4`. The waves vary as `e^{2iφ}` across a
+  sphere, which the shells' angular elements resolve with room to spare.
+
+**The plane.** `PlaneExtraction(wave, centre, halfwidth, n)` is
+`SphereExtraction`'s reading on the cell centres of an `n × n` grid
+(`plane_grid`) in the plane `z = centre[3]`. It locates the points with
+`ball_patch_point` and `element_stencils`, and gathers them on the
+problem's backend (`stencil_values`, shared with `sphere_values`).
+- **Points left out:** on the ball, those beyond the sphere; on a brick,
+  those outside it, including a periodic brick's images. They read as
+  `NaN`.
+- **On an inspiral:** `plane_values(ex, p, u, t)` gives the total field
+  and its rate. It adds `W Σ_k Ψ̂_k` and `W Σ_k 𝒟Ψ̂_k`, along the
+  state's trajectories, to the remainder's two variables. The particle
+  part is evaluated on the host, threaded, at the points where `W ≠ 0`
+  alone, about a tenth of the zoomed grid.
+- **Its cost:** at the default grids, `1024²` points over `±96` and
+  `512²` over `±8`, the table of nodes and weights is 1.3 GB on the
+  device, beside the run. The gather also needs as much again while it
+  runs.
+
+**The frames** ([`bin/plane_io.jl`](bin/plane_io.jl)). A directory
+holds:
+- `meta.tsv`: the orbit, the charges, the layout and the grids;
+- `frames.tsv`: the time and each charge's `z` and `v`, per frame;
+- one raw little-endian `Float32` file per frame: `Φ` and `Π` per grid,
+  `NaN` outside the ball.
+
+At `pevery = 1/4`, 361 frames of 10.5 MB to `t = 90`. The exact frames
+are the point charges' retarded field and its rate at the same points,
+`NaN` beyond `R1` as in the run. The two differ only by the charges'
+finite size, `ℓ = 10⁻³`, which no grid point comes near, and by the
+run's error.
+
+**What the viewer shows.** It shows `r` times a quantity, `r` the
+distance from the orbit's centre, so that waves falling off as `1/r`
+keep their brightness. The default quantity is
+`Φ − Σ_k Ψ̂₀(x; z_k, v_k)`, the total field less each charge's field of
+uniform motion at its present position and velocity (the particle field
+of order 0):
+- **What it removes:** the charges' `1/r`, which `r` would turn into a
+  constant, and their peaks.
+- **What it leaves:** the field that the acceleration makes, the
+  spiral, with the near zone's quadrupole at its centre.
+
+The others are `r Π`, which has no static part, and `r Φ`. Against the
+exact frames, `--error` shows the run's error. The colour scale is
+fixed over the movie, from the last frame, in `plasma` by default
+(`--colormap`). `--grid` draws the elements' faces where the plane cuts
+them, in grey: the viewer builds the run's forest again from the layout
+in `meta.tsv` (`m` and `E` included, so that the shells' radial roots
+are the run's), takes the blocks of the cube and of the four shells
+about `x` and `y` that the plane crosses, at logical `ξ₃ = n/2` in the
+shells to within `o_z/Lc`, and maps their elements' edges by the ball's
+map, curved in the shells. The zoomed grid shows the
+charges and their tracks. The modes `r Re Φ_ℓm` at `r = 50`, the run's
+and the retarded field's, run below with the frame's time marked. The run on an H200 and how close it is to the exact field are under
+[The movie](#the-movie-1) in "Measured results".
 
 ## File layout
 
@@ -3297,10 +3408,14 @@ with the past's runs).
   retarded field of a point charge on any path by root-finding,
   `retarded_field`, and `point_model`; `smoothstep` and
   `ramped_circular_motion`, the circle with an assumed past and a
-  departure ([Assumed pasts](#assumed-pasts)).
+  departure ([Assumed pasts](#assumed-pasts));
+  `binary_circular_motion`, two charges half an orbit apart on one
+  circle, as a `PathTuple` ([The movie](#the-movie)).
 - `src/extraction.jl`: the waveforms, `SphereExtraction`,
   `sphere_values` and `sphere_modes`, with the seven-patch ball's inverse
-  map `ball_patch_point`, `spherical_harmonics` and the sphere's rule.
+  map `ball_patch_point`, `spherical_harmonics` and the sphere's rule;
+  `PlaneExtraction` and `plane_values`, the field on a grid in a plane
+  ([The movie](#the-movie)).
 - `derivations/`: the Wolfram Language derivations (`profile.wl`,
   `nearfield.wl`, `selfforce.wl`, and `labslice.wl`, the `t′²` term of
   `Φ_C` and M5's lab slice), each runnable alone with
@@ -3362,6 +3477,13 @@ with the past's runs).
   pasts](#assumed-pasts));
   `bin/symmetry/prescribed.sh` runs it on a Symmetry AMD node, one
   run per `path:hdiv:order[:tend]` of `TREEWAVEOLDG_RUNS`.
+- `bin/waves_io.jl`: `--waves` of `bin/prescribed.jl` and
+  `bin/orbit_movie.jl`, the modes on spheres and the retarded field's.
+- `bin/orbit_movie.jl`, `bin/orbit_exact.jl`, `bin/plane_io.jl`,
+  `bin/visualize_orbit.jl`: the movie of two charges on a circle, its
+  run in the ball, its exact frames, their format, and its viewer in the
+  viewers' environment ([The movie](#the-movie)); `SCAN=movie` of
+  `bin/symmetry/gpu_scans.sh` runs it on an H200.
 - `bin/waveforms.jl`: the waveforms of a series of `--waves` files
   against their reference or M8e's uniform start's exact solution, in
   the package environment ([Waveforms](#waveforms)).
@@ -3517,7 +3639,11 @@ one thread on CI, is otherwise silent until its summary.
   function filled at the nodes, and the modes' error is within `√(4π)`
   of theirs; on the ball the values are TreeAMR's `interpolate` to
   `10⁻¹³`; other geometries, radii beyond the sphere and too few
-  points are refused. About 20 s.
+  points are refused; the plane's grid is its cell centres, its points
+  beyond the ball's sphere and outside a periodic brick are `NaN` and
+  the rest TreeAMR's `interpolate` to `10⁻¹³`, converging at order above
+  `P + ½` through the cube, its refined levels and the shells. About
+  25 s.
 - `sevenpatch_tests.jl`: the seven-patch ball — with the identity map
   as a full geometry the Cartesian path's right-hand side is the flat
   one's bit for bit, in 2D and 3D, `P = 2, 3`, and its truncation the
@@ -3721,7 +3847,12 @@ one thread on CI, is otherwise silent until its summary.
   step says, for `n = 0, 2, 4`; without a past and a departure it is
   the circle bit for bit, and `isbits`; the spun-up past's retarded field
   is the circle's where the retarded time is after `−T`, the charge at
-  rest's before `−T − Δ`, and between solves the wave equation.
+  rest's before `−T − Δ`, and between solves the wave equation; two
+  charges on one circle are `ramped_circular_motion`'s at phase 0 and
+  `π` bit for bit, half an orbit apart, and `isbits`; and on a small
+  ball with two charges from their retarded field, the plane's total
+  field and rate are that field away from the charges at `t = 0`, to an
+  error that falls by more than 4 and 8 from `hₑ = 1/2` to `1/4`.
 - `device_tests.jl`, after the others, on the device `TREEWAVEOLDG_TEST_BACKEND=cuda`
   or `metal` names, loaded only then and not a test dependency, or with
   the CPU standing in, as on CI, where it checks the plumbing: the state
@@ -6022,6 +6153,56 @@ over `t = 21` to 30):
   `Δ₂ = 2π/Ω`, one orbit, is clean; `n₂ = 2` costs one impulse of
   `1.7·10⁻³ F_RR` at the ramp's end, which does not converge away; `n₂ = 0`
   costs a lasting `10⁻³`.
+
+### The movie
+
+`SCAN=movie` of `bin/symmetry/gpu_scans.sh` ran on one H200 (`cn113`)
+on 2026-11-18, Julia 1.13, after job 605550 had built its environment
+and passed the 93 device tests. Job 605551 was the run of [The
+movie](#the-movie):
+- **The layout:** `hₑ = 1/4`, three levels in the cube at `w0 = 4`
+  (`Lc = 16`), and shells of radial width 1 (`m = 21`) to `R1 = 100`;
+  `3.88·10⁷` nodes.
+- **The run:** `dt = 1/128` to `t = 90`, 11 520 steps, frames every
+  `1/4` on the default grids, and the waves every `1/16`.
+- **Its cost:** 23 s of setup and 6 030 s of steps, 0.52 s a step
+  with the frames and the waves, 1 h 44 min in all. The 361 frames take
+  3.6 GB.
+
+On the laptop, `bin/orbit_exact.jl` wrote the exact frames in about
+1.3 s each on four threads, and the viewer rendered the 361 frames in
+45 s, or 68 s with `--grid`.
+
+**The run is the exact field to under 1 % of the picture's scale,
+except at the front.** Two numbers set the scale:
+- **The run's error:** `r|Φ − Φ_exact|`, over the wide grid within
+  `r = 90`, and over the zoomed one beyond 0.1 of the charges.
+- **The scale:** the largest `r|Φ − ΣΨ̂₀|`, `7.1·10⁻⁴`.
+
+The error grows from `5·10⁻⁶` at `t = 0` to `2.2·10⁻⁵` at `t = 85` on
+the wide grid, 3 % of the scale. That largest error lies at the front,
+the steepest part of the field, whose error grows with the distance it
+has travelled. Behind the front at `t = 60` the error's 99.5th
+percentile is `5·10⁻⁶`. On the zoomed grid it stays below `1.5·10⁻⁵`,
+largest about the window's shell and at the edge of the finest level,
+where the solution's jumps are. `r|Π − Π_exact|` is at most `2.3·10⁻⁴`
+against `rΠ` up to 0.057.
+
+**The waves are the retarded field's.** Once the front has passed,
+`r|Φ₂₂|` is `5.7·10⁻⁴` at `r = 10` to 50. Its error is 0.02 %, 0.06 %
+and 0.07 % of it at `r = 10`, 30 and 50. `r|Φ₄₄|` is `2.6·10⁻⁵`, with
+an error of 0.7 %, 2.5 % and 4.8 %. The front reaches `r` at about
+`t = r − 10`, the waves rising to a tenth of their size at 42.5 at
+`r = 50`. While the front passes, the error is at most `7·10⁻⁶` in
+`r|Φ₂₂|` at `r = 50`, 1.3 % of the amplitude. The monopole `r|Φ₀₀|`,
+`0.039`, is the two charges' Coulomb field, to `6·10⁻⁶` of itself.
+
+**The small run** on the laptop (`hₑ = 1/2`, two levels, `R1 = 16`, to
+`t = 2`, 31 minutes on four threads) gave the exact field to `3·10⁻⁵` in
+`Φ`, against `|Φ|` up to 0.1 on its grids. At that resolution, the
+solution's jumps between `r = 1` and 2.5 show in the default quantity,
+where subtracting `ΣΨ̂₀` leaves a small signal; at `hₑ = 1/4` they do
+not.
 
 ### Prescribed paths
 

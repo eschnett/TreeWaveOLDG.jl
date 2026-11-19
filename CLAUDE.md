@@ -199,6 +199,21 @@ below takes about a minute on four threads:
 julia --project=. -t 4,0 bin/prescribed.jl --path=hyperbolic --hdiv=2 --levels=3 --tend=0.25 --ball --R1=48
 ```
 
+The movie of two charges on a circle ("The movie"): `bin/orbit_movie.jl`
+writes frames of the field in the orbit's plane, `bin/orbit_exact.jl`
+the exact field's frames for the same options (about a second per frame
+of the default grids), and `bin/visualize_orbit.jl`, in the viewers'
+environment, the images and the `.mp4` into `bin/output/`. The full run
+goes to an H200 (`SCAN=movie` of `bin/symmetry/gpu_scans.sh`, after a
+`SCAN=tests` that builds its environment). The small run below takes
+about half an hour on four threads:
+
+```bash
+julia --project=. -t 4,0 bin/orbit_movie.jl --plane=DIR --levels=2 --hdiv=2 --R1=16 --tend=2 --grids=16:128,8:128 --waves=FILE --wradii=6,10,14
+julia --project=. -t 4,0 bin/orbit_exact.jl --plane=EXACT --frames=0:40 --pevery=2
+julia --project=bin -t 4,0 bin/visualize_orbit.jl DIR --ref=EXACT --waves=FILE --wradius=10
+```
+
 The dispersion relation of the semi-discrete scheme on a brick, and
 with `--front` how far ahead of light compact data reach ("Why the
 error outruns light"), in the package environment, seconds in 1D and
