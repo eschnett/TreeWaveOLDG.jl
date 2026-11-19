@@ -148,7 +148,13 @@ end
 
 @testset "The extraction refuses what it cannot read" begin
     # A geometry without an inverse map would read points at the wrong
-    # place; a radius beyond the sphere is no point of the ball.
+    # place; a radius beyond the sphere is no point of the ball; a sphere
+    # leaving a periodic brick would read the field of its images, which
+    # TreeAMR's fold code does not mark, as if it were there.
+    forest = wave_forest(Float64, Val(3), 2, 2; roots=4, L=4.0)
+    wave = WaveProblem(forest, Element(Float64, 2))
+    @test_throws "periodic image" SphereExtraction(wave, [3.0]; lmax=2, centre=(2, 2, 2))
+    @test SphereExtraction(wave, [1.5]; lmax=2, centre=(2, 2, 2)) isa SphereExtraction
     forest, geo = annulus_forest(Float64, 2, 2)
     wave = WaveProblem(forest, Element(Float64, 2); geometry=geo)
     @test_throws "brick or the seven-patch ball" SphereExtraction(wave, [0.5])

@@ -1693,6 +1693,22 @@ patches.
     its layout, the elements' faces only, not their nodes.
 
   The movies were kept out of the repository.
+- 2026-11-18: Erik Schnetter asked for a review of M8 by a sub-agent.
+  It found no error in the evolution, the radiative sphere, the cube's
+  frame or the paths, and two in M8e's extraction:
+  - **A sphere beyond a periodic brick read the field of its images.**
+    TreeAMR's fold code marks mirrors and quarter turns, not periodic
+    wraps, so `bin/prescribed.jl --waves` without `--ball` would have
+    read wrapped field on its spheres at 70 and 90 at the default box
+    of half-width 64. The extraction now refuses such a point, as the
+    plane already left it out. Every run recorded used `--ball`.
+  - **Over MPI the extraction took a forest's leaf for a rank's
+    block.** No driver extracts on a distributed forest, so it now
+    refuses one rather than gathering the leaves.
+
+  It also found `CODE.md`'s table of positions and weights given as
+  128 bytes per point at `P = 3`, where it is 1 KB, and stale comments
+  in `test/device_tests.jl` and `src/evolution.jl`, now fixed.
 
 ### What the plan said of its finished milestones
 

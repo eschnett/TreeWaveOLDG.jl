@@ -133,8 +133,9 @@ its Gauss–Lobatto nodes; what `ex` keeps on the problem's backend is, for
 each point, the `(P+1)^D` positions of those nodes in a state vector and
 their weights, so that a read is a gather and a weighted sum, plain array
 operations on any backend ([`sphere_values`](@ref)). A regrid makes them
-stale. Other geometries, and a point TreeAMR would fold across a
-reflecting face or a seam, are refused. `points` holds the physical
+stale. Other geometries, a point TreeAMR would fold across a
+reflecting face or a seam, a point beyond a periodic brick, which would
+read its image, and a distributed forest are refused. `points` holds the physical
 points on the host, sphere by sphere, so that a reference's modes are
 the same quadrature of its values there (`sphere_modes(ex, values)`).
 """
@@ -195,8 +196,18 @@ end
 # the extraction does not call it).
 function element_stencils(fs::FieldSet{T,D}, xs) where {T,D}
     forest = fs.forest
+    # A located leaf is the forest's, not a rank's block ("Running
+    # distributed"); the tables below index blocks.
+    TreeAMR.isdistributed(forest) && throw(ArgumentError(
+        "the extraction reads a forest on one rank only, not a distributed one"))
     pts = TreeAMR.locate(T, forest, xs)
     all(pts.inside) || throw(ArgumentError("a point to extract lies outside the forest"))
+    # A periodic brick locates a point beyond it at its image, which no
+    # fold code marks; a physical point must be located where it is.
+    all(j -> !(xs[j] isa Tuple) || SVector(pts.y[j]) == SVector(xs[j]), eachindex(xs)) ||
+        throw(ArgumentError(
+            "a point to extract lies beyond a periodic brick, which would read its " *
+            "periodic image"))
     all(iszero, pts.code) || throw(ArgumentError(
         "a point to extract is folded across a reflecting face or a seam, whose " *
         "parity the extraction does not apply"))
@@ -285,7 +296,7 @@ ball the points beyond the sphere are left out, on a brick those
 outside the forest; `inside` marks the rest, and `points` holds every
 grid point on the host, column by column, `x` running fastest. A
 periodic brick shows once, its images left out. A regrid
-makes it stale. Other geometries are refused. It is for viewing the
+makes it stale. Other geometries, and a distributed forest, are refused. It is for viewing the
 field (`bin/orbit_movie.jl`; "The movie" in `CODE.md`).
 """
 struct PlaneExtraction{T,IA,WA}

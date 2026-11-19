@@ -3161,7 +3161,8 @@ monotonically from one resolution to the next.
 **Cost.** A gather of `(P+1)^D` nodes per point, all spheres together,
 and a matrix product on the host; on M8d's ball, 6 912 points and 28
 modes on each of six spheres, negligible beside a step. The table of
-positions and weights is 128 bytes per point at `P = 3`.
+positions and weights is 1 KB per point at `P = 3`, `(P+1)³` of
+each.
 
 **The analysis.** [`bin/waveforms.jl`](bin/waveforms.jl) reads the
 `--waves` files of a series of resolutions and prints the errors by
