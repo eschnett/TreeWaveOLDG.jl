@@ -7,8 +7,8 @@
 #         [--ball] [--R1=50] [--hshell] [--backend=cpu|cuda]
 #
 # Like `bin/benchmark.jl`, this runs against the package environment;
-# `bin/symmetry/uniform_motion.sh` runs M3's series on a Symmetry node, and
-# `bin/symmetry/nested_motion.sh` M3b's.
+# `jobs/uniform_motion.jl` runs M3's series on a Symmetry node, and
+# `jobs/nested_motion.jl` M3b's.
 #
 # With `--levels=1`, the default, the box is M3's: uniform, periodic, of
 # side `L`. With `--levels=n > 1` it is M3b's nested boxes
@@ -32,7 +32,7 @@
 # With `--backend=cuda` (or `metal`, which has no `Float64` and so cannot
 # run the particles) the field and the particles run on that device
 # (`bin/backend.jl`), from an environment that adds the device package
-# (`bin/symmetry/gpu_scans.sh` builds one); the initial and exact
+# (`jobs/gpu_scans.jl` names one); the initial and exact
 # remainders are filled on the device, and the norms are
 # `ball_norm`'s on the device. `--cost` waits for the device after each
 # call.

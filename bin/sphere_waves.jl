@@ -8,7 +8,7 @@
 #         [--radii=4,8,16] [--Rm=32 --m2=4]
 #
 # Like `bin/nested_waves.jl`, this runs against the package environment;
-# `bin/symmetry/sphere_waves.sh` runs it on a Symmetry node.
+# `jobs/sphere_waves.jl` runs it on a Symmetry node.
 #
 # The forest is `sevenpatch_forest`'s uniform ball: the cube of half-width
 # `Lc` with `n` roots along each side, six shells of `n` roots tangentially

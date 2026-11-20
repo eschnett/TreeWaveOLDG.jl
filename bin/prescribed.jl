@@ -11,7 +11,7 @@
 #         [--ramp=10] [--n=4] [--depart=0] [--onset] [--n2=4]
 #
 # Like `bin/uniform_motion.jl`, this runs against the package environment;
-# `bin/symmetry/prescribed.sh` runs M4's series on a Symmetry node.
+# `jobs/prescribed.jl` runs M4's series on a Symmetry node.
 #
 # The forest is M3b's nested boxes (`nested_cubes`), by default the
 # layout chosen for M4 to M7: five cubes about the centre `c`, the finest
@@ -37,7 +37,7 @@
 # With `--backend=cuda` (or `metal`, which has no `Float64` and so cannot
 # run the particles) the field and the particles run on that device
 # (`bin/backend.jl`), from an environment that adds the device package
-# (`bin/symmetry/gpu_scans.sh` builds one); the initial remainder and the
+# (`jobs/gpu_scans.jl` names one); the initial remainder and the
 # retarded reference are filled on the device, and the norms are
 # `ball_norm`'s on the device. `--cost` waits for the device after each
 # call.

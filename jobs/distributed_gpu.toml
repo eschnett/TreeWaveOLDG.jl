@@ -1,0 +1,27 @@
+# Two GPUs, one problem: the device tests on one GPU, then
+# `bin/distributed_gpu.jl` over MPI on two ranks of one GPU each, against
+# the same problems on one GPU alone ("Running distributed" in `CODE.md`).
+# MPICH_jll under its own launcher, forking the ranks on the one node.
+name = "distributed_gpu"
+description = "TreeWaveOLDG on two H200s over MPI, against one"
+env = "test+cuda"
+
+[site.symmetry]
+time = "1:00:00"
+resources = { gpus = 2 }
+
+[after]
+cmd = 'for d in $SIMLAUNCH_JOBDIRS; do echo "== $d"; cat "$d/output.log"; done'
+
+[[run]]
+label = "device_tests"
+cmd = "test/device_tests.jl"
+threads = 8
+vars = { TREEWAVEOLDG_TEST_BACKEND = "cuda" }
+
+[[run]]
+label = "two_gpus"
+cmd = "bin/distributed_gpu.jl --backend=cuda"
+mpi = "jll-fork"
+ranks = 2
+threads = 4

@@ -1,0 +1,43 @@
+# The package's test suite three ways in one job, side by side on one
+# node: plain, on four threads, and with `--check-bounds=yes`, as
+# `Pkg.test()`, `Pkg.test(; julia_args = ["--threads=4"])` and
+# `Pkg.test(; julia_args = ["--check-bounds=yes"])` run it ("Commands" in
+# `CLAUDE.md`). Before a pull request:
+#
+#     simlaunch snapshot . --study twoldg-<commit> --note "<what it is for>"
+#     simlaunch prepare twoldg-<commit> --site symmetry --spec jobs/suite.toml
+#     simlaunch submit twoldg-<commit> jobs/suite.toml --site symmetry
+#
+# Side by side they use about 30 of the node's 64 cores, the MPI test's
+# three ranks included, and take as long as alone: 56, 27 and 60 minutes
+# (job 606982), against 56, 29 and 60 in jobs of their own. Each run is
+# `test/runtests.jl` in the test environment, with the options `Pkg.test`
+# gives it.
+name = "suite"
+description = "TreeWaveOLDG's test suite: plain, four threads, bounds checked"
+env = "test"
+mode = "parallel"
+julia_args = ["--depwarn=yes", "--warn-overwrite=yes"]
+# The MPI test's three ranks start beside the suite and under MPICH's
+# own launcher, which inside a Slurm job needs local processes and, on
+# these nodes, the release-gather off.
+vars = { HYDRA_LAUNCHER = "fork", MPIR_CVAR_CH4_SHM_POSIX_RELEASE_GATHER_ENABLE = "0", TREEWAVEOLDG_TEST_MPI_CONCURRENT = "1" }
+
+[site.symmetry]
+time = "2:00:00"
+
+[[run]]
+label = "plain"
+cmd = "test/runtests.jl"
+threads = 1
+
+[[run]]
+label = "t4"
+cmd = "test/runtests.jl"
+threads = 4
+
+[[run]]
+label = "cb"
+cmd = "test/runtests.jl"
+threads = 1
+julia_args = ["--depwarn=yes", "--warn-overwrite=yes", "--check-bounds=yes"]

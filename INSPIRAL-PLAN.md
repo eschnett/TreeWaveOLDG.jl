@@ -138,13 +138,12 @@ These hold for every milestone.
   layout") run `bin/uniform_motion.jl`, `bin/nested_waves.jl`,
   `bin/prescribed.jl` and `bin/projection.jl` in the package
   environment, not the `bin/` one.
-- Runs too large for the laptop get a job script in `bin/symmetry/`,
-  following the Symmetry conventions: `amddebugq` for runs under an hour,
-  `amdq` beyond, `-t 64,0`, `JULIA_EXCLUSIVE=1`,
-  `srun --cpu-bind=none`, output under
-  `/mnt/beegfs/eschnetter/claude/treewaveoldg-inspiral/`, and stages
-  reported to SimWatch. Timings quoted in `CODE.md` come from Symmetry,
-  with the node's CPU model.
+- Runs too large for the laptop get a SimLaunch job spec in `jobs/`,
+  which chooses the queue from the time (`amddebugq` for runs under an
+  hour, `amdq` beyond), pins 64 threads (`pin = true`), writes each run's
+  output into its own job directory and reports it to SimWatch. Timings
+  quoted in `CODE.md` come from Symmetry, with the node's CPU model,
+  which each job directory records.
 
 ## Overview
 
@@ -278,8 +277,7 @@ memory (below).
   new dependency, written every
   few minutes of wall clock. A run can then be split into chunks on
   `amddebugq` (1 hour) or continued on `amdq` (24 hours).
-- **Job scripts** in `bin/symmetry/` for the run, parameterized by
-  resolution, reporting to SimWatch.
+- **Job specs** in `jobs/` for the run, a run per resolution.
 - **The series**: three resolutions, `P = 3`, each scaling M3b's layout
   as a whole. Record `d(t)`, the phase, `ḋ`, the flux balance, and the
   convergence rate of the phase against the second order that "Expected

@@ -2987,3 +2987,30 @@ force's take-over, for M6b to take.
 - 2026-11-11: TreeAMR 0.2.9 required, for `locate_point` in a patch
   (`PatchPoint`), which M8c's particles in the ball need. The suite
   passes against it unchanged elsewhere.
+- 2026-11-20: the Symmetry batch scripts became SimLaunch job specs in
+  `jobs/`, one per script, at Erik Schnetter's request, following
+  SimLaunch's `CONVERTING.md`. SimLaunch takes over what every script
+  did by hand: the rsynced checkout and its `setup` (a snapshot and
+  `prepare`, which precompiles on the node type that runs it), the
+  pinning, the output directory and SimWatch (`bin/symmetry/simwatch.sh`).
+  A script whose runs were given by a variable (`TREEWAVEOLDG_RUNS`,
+  `SCAN`, `MODE`) became a spec with its default runs written out; M6a's
+  finer series, which ran with the variable on `amdq`, has a spec of its
+  own (`dynamic_series.jl`), and the GPU scans one spec whose runs are
+  submitted one by one (`gpu_scans.jl`), with `gpu_pulses.jl` for the
+  pulses that ran in one job. The suite's three ways now run side by
+  side in one job of about an hour, where they took three. The GPU scans'
+  specs keep the old 128 GB of host memory by passing `--mem` through,
+  since a GPU job's memory comes from the site's profile (reported to
+  SimLaunch). Checked on Symmetry against the old scripts' runs (study
+  `twoldg-sl-check`): the suite passed all three ways (job 606982,
+  `cn107`, 10 410 tests and the known broken one each); the flat box's
+  step at 64 threads was 71.0 and 63.1 ms against job 586013's 72.1 and
+  63.5 (606983, `cn091`); the H200's flat box and ball 1.60 and 2.76 ns
+  per node against 1.61 and 2.84, the device tests 93 of 93 (606985,
+  `cn111`); the benchmark ball the old script's numbers up to 32 threads
+  and, on a second run, at 64 (606984, 607029, against the old script on
+  the same node, 607027; "Threads on Symmetry" has the 64-thread jump of
+  the first run). `suite.sh`, `benchmark.sh`, `ball_benchmark.sh` and
+  `gpu.sh` were then removed; the others stay until a run of their spec
+  is due and gives their numbers.

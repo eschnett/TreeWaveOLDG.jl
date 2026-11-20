@@ -6,7 +6,7 @@
 #         [--every=0.5] [--cfl=0.5] [--radii=w0,2w0,…]
 #
 # Like `bin/uniform_motion.jl`, this runs against the package environment;
-# `bin/symmetry/nested_waves.sh` runs it on a Symmetry node.
+# `jobs/nested_waves.jl` runs it on a Symmetry node.
 #
 # The forest is M3b's nested boxes (`nested_cubes`): `levels` cubes about
 # the centre `c` of a periodic box of side `2^levels w0`, the finest of

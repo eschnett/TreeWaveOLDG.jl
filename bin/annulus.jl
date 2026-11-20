@@ -7,7 +7,7 @@
 #         [--truncate=yes,no] [--m=2] [--n=1] [--r0=1] [--r1=2] [--E=2] \
 #         [--cfls=0.5] [--turns=0.25]
 #
-# Runs against the package environment; `bin/symmetry/annulus.sh` runs it
+# Runs against the package environment; `jobs/annulus.toml` runs it
 # on a Symmetry node.
 #
 # Each patch has `(2s, s)` roots for each scale `s`, each block `E²`
