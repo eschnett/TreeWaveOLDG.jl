@@ -508,4 +508,4 @@ function evolve(backend)
     return nothing
 end
 
-main()
+abspath(PROGRAM_FILE) == (@__FILE__) && main()

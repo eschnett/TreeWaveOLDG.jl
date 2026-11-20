@@ -105,14 +105,14 @@ struct InspiralProblem{T,K,WP<:WaveProblem{T,3},TT,MO,S,SN<:SharedNodes{3},
 end
 
 function InspiralProblem(wave::WaveProblem{T,3}, models::Tuple, window::Window,
-                         motion::Prescribed; order::Int=3, tables=nothing,
+                         motion; order::Int=3, tables=nothing,
                          rnear::Real=1, continuous::Bool=true) where {T}
     check_order(order)
     frame = ParticleFrame(wave)
     tables === nothing && (tables = TransferTables(T, TreeWaveOLDG.order(wave.element)))
     check_tables(wave, tables)
     K = length(models)
-    trajs = motion.path(zero(T))
+    trajs = retarded_path(motion)(zero(T))
     length(trajs) == K || throw(ArgumentError(
         "the motion moves $(length(trajs)) particles, and there are $K models"))
     models = map(m -> ParticleModel{T}(m.Q, m.ℓ, m.M), models)
@@ -180,6 +180,21 @@ end
 trajectories(p::InspiralProblem{T}, u, t) where {T} = trajectories(p.motion, p, u, T(t))
 trajectories(m::Prescribed, p::InspiralProblem, u, t) = m.path(t)
 
+# The same inside the right-hand side, which has `wave_rhs!`'s rate of
+# the field, `fdu`, before the source is subtracted from it: a dynamic
+# motion's solve reads it.
+rhs_trajectories(m::Prescribed, p::InspiralProblem, u, fdu, t) = m.path(t)
+
+# The trajectories whose `z` and `v` the force's kernels read: the path's
+# for a prescribed motion, the state's for a dynamic one, which needs no
+# solve for them.
+kernel_trajectories(m::Prescribed, p::InspiralProblem, u, t) = m.path(t)
+
+# The path whose retarded field the initial data take, and the
+# particles' trajectories at `t = 0` that the problem checks: a
+# prescribed motion's own; a dynamic one's assumed past.
+retarded_path(m::Prescribed) = m.path
+
 # The remainder of a particle field, `(1 - W)Ψ̂` for variable 1 and
 # `(1 - W)𝒟Ψ̂` for variable 2, as `fill_at_nodes!` takes it. Inside the
 # window's inner ball it is zero, and `Ψ̂` is not evaluated there.
@@ -220,8 +235,8 @@ function RemainderData(p, trajs, t; retarded=nothing, far::Symbol=:particle)
         order = 0
     end
     check_order(order)
-    return RemainderData(p.models, trajs, p.window, order, retarded, p.motion.path,
-                         points, T(t))
+    return RemainderData(p.models, trajs, p.window, order, retarded,
+                         retarded_path(p.motion), points, T(t))
 end
 
 function (f::RemainderData{T,K})(x, var) where {T,K}
@@ -313,12 +328,12 @@ needs no past path, and it does not combine with `retarded`. At
 """
 function inspiral_initial_state(p::InspiralProblem{T,K}; t::Real=0,
                                 retarded::Union{Nothing,Window}=nothing,
-                                far::Symbol=:particle) where {T,K}
+                                far::Symbol=:particle, trajs=nothing) where {T,K}
     far in (:particle, :uniform) ||
         throw(ArgumentError("far is :particle or :uniform, got $(repr(far))"))
     far === :uniform && retarded !== nothing &&
         throw(ArgumentError("far = :uniform does not combine with a retarded window"))
-    trajs = trajectories(p, nothing, t)
+    trajs === nothing && (trajs = trajectories(p, nothing, t))
     fs = p.wave.fs
     retarded === nothing || (retarded = Window{T}(retarded.centre, retarded.R₁,
                                                   retarded.R₂, retarded.m))
@@ -364,7 +379,7 @@ truncate: [`inspiral_stage!`](@ref) does, as the integrator's limiter.
 function inspiral_rhs!(du, u, p::InspiralProblem{T,K}, t) where {T,K}
     fu, fdu = field_state(u, p), field_state(du, p)
     wave_rhs!(fdu, fu, p.wave, t)
-    trajs = trajectories(p, u, t)
+    trajs = rhs_trajectories(p.motion, p, u, fdu, T(t))
     S = ParticleSource(p.models, p.window, trajs; order=p.order)
     supports = map(ParticleSupport, p.models, trajs)
     ball = (p.window.centre, p.window.R₂)
@@ -477,7 +492,7 @@ read it the other way, for comparison.
 function particle_forces(p::InspiralProblem{T,K}, u, t;
                          continuous::Bool=p.continuous) where {T,K}
     fu = field_state(u, p)
-    trajs = trajectories(p, u, t)
+    trajs = kernel_trajectories(p.motion, p, u, T(t))
     return ntuple(Val(K)) do k
         m, tr = p.models[k], trajs[k]
         s = ParticleSupport(m, tr)

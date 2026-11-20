@@ -38,11 +38,13 @@ end
     testfile("adaptive_tests.jl")
     testfile("blast_tests.jl")
     testfile("particle_tests.jl")
+    testfile("predictor_tests.jl")
     testfile("transfer_tests.jl")
     testfile("inspiral_tests.jl")
     testfile("nested_tests.jl")
     testfile("ball_inspiral_tests.jl")
     testfile("prescribed_tests.jl")
+    testfile("dynamic_tests.jl")
     testfile("device_tests.jl")
     testfile("mpi_tests.jl")
 end

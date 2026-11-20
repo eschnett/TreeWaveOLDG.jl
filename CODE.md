@@ -111,6 +111,7 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
 - [Particles](#particles)
   - [The particle](#the-particle)
   - [The near field](#the-near-field)
+  - [The equations of motion](#the-equations-of-motion)
   - [The split](#the-split)
   - [The window](#the-window)
   - [The transfer](#the-transfer)
@@ -147,6 +148,7 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   - [Assumed pasts](#assumed-pasts-1)
   - [The movie](#the-movie-1)
   - [Prescribed paths](#prescribed-paths-1)
+  - [The equations of motion](#the-equations-of-motion-1)
 - [What carried over from TreeWave, and what did not](#what-carried-over-from-treewave-and-what-did-not)
 - [Possible extensions](#possible-extensions)
 - [Open questions](#open-questions)
@@ -1889,8 +1891,9 @@ subtracts the projected source after `wave_rhs!` and leaves `wave_rhs!`
 unchanged; M3b's nested boxes, a static refined forest whose finest
 level holds the source; and M4's prescribed paths with known
 acceleration, the slow circle and hyperbolic motion, with the retarded
-field of a point charge to start from and compare with. The particles do
-not yet move under their forces (M6a).
+field of a point charge to start from and compare with; and M6a's
+dynamic particle, which moves under its forces ([The equations of
+motion](#the-equations-of-motion)).
 Sections of `INSPIRAL.md` are named below without links. The inspiral
 is generic in `T` and tested in `Float64`: the `10⁻¹²` quadrature
 tolerance and `ℓ = 10⁻³` rule out `Float32` for it.
@@ -2201,6 +2204,163 @@ them, along any motion, the bracket with orders up to `N` carried is
 `O(ε^{N+1})` when the derivatives of the velocity scale as `εᴺ`, inside
 the particle and out (`particle_tests.jl`); before, `T₂` alone left
 `Q(v·y)²(α′·y)ρ₀′` at `O(ε)` inside it.
+
+### The equations of motion
+
+[`src/dynamic.jl`](src/dynamic.jl) and
+[`src/predictor.jl`](src/predictor.jl), `INSPIRAL-PLAN.md`'s M6a:
+`INSPIRAL.md`'s "Equations of motion" and "The acceleration and its
+derivatives", with two departures that the owner chose on 2026-11-19
+(`HISTORY.md`, "Particles").
+
+`Dynamic(external, past; onset, n2)` is a motion in which each particle
+moves under its forces. With `F = ∫(∇ρ)g − v∫ρġ` and `QΦ̄ = γ∫ρg`, the
+averages of "Equations of motion" for a field `g` with rate `ġ`, the
+equation of motion of particle `k` is
+
+    E = (M₀ + QΦ̄ₑ) γ a − F_grid − F_own − Σ_b F_b − (I − vvᵀ) F_ext = 0,
+
+with three parts:
+
+- **`F_grid`** is the remainder's force, `particle_forces`' pairing, and
+  its potential `γ∫ρΦ_r`.
+- **`F_own`** is the force and potential of the particle's own near field
+  `Ψ − Φ_C`: the near-field terms and lab slices of orders 1 to `order`
+  (`own_force`).
+- **`F_b`** is the other particles' particle fields `Ψ_b` (`other_force`),
+  with the window taken to be 1 on the support.
+
+`F_ext = external[k](z, v)` is an `isbits` callable, such as
+`SpringForce(centre, k)`.
+
+**The own field by quadrature (departure).** `own_force` and
+`other_force` integrate over the support with `SupportRule`:
+`ball_rule(16, 8)` on the rest frame's unit ball, mapped to the lab by
+`x = z + Λ⁻¹ℓy` with `d³x = ℓ³d³y/γ`. The density and the own near field
+are polynomials inside the support at any velocity, so the rule is exact
+for them; a finer rule changes nothing at `10⁻¹³`. At rest it gives
+M1's coefficients ([The near field](#the-near-field)): `−δm a`,
+`self_force_addot·ä + self_force_a2a·a²a`, and the order-2 potential
+`self_potential_a2·a²`, to roundoff. Moving at `v = 0.2` in any
+direction, the order-1 force with its lab slice is `−δm γ a` to `10⁻¹⁴`.
+That is the covariant renormalization: with it, `M₀γa − F_own = Mγa`, so
+the particle's inertia is the physical mass along and across the motion.
+`INSPIRAL-PLAN.md` named M1's at-rest coefficients instead, which miss
+the lab slice's `O(v²)` terms.
+
+**The jets, solved together (departure).** The unknowns are `a`, `ȧ`
+and `ä` of every particle. The residuals are `E`, `Ė` and `Ë`, the
+first three Taylor coefficients of `E(τ)` along the jets' polynomial
+`trajectory_at(J, τ)`, by nested ForwardDiff derivatives in `τ`. `a⃛`
+and `a⃜`, which the source reads and no residual fixes, come from the
+predictor. `INSPIRAL.md` solved `a`, `ȧ` and `ä` in turn, each with the
+higher ones from the predictor. But `E` reads `ȧ` through the own
+field's rate with a coefficient of about `vδm`, and so the predictor's
+error would enter the tangential force at a few percent of radiation
+reaction at `v = 0.2`.
+
+**The grid's part along `τ`.** The kernels `∇ρ` and `ρ` at
+`trajectory_at(J, τ)` (`density_kernel`) are dual numbers in `τ`. They
+stay compact on the support at `τ = 0`, and polynomial inside it, so
+the nested rule stays exact. They are paired with the field's Taylor
+series:
+
+    Φ_r(τ) = Φ + τΠ + ½τ²∂ₜΠ,      Π_r(τ) = Π + τ∂ₜΠ + ½τ²∂ₜ²Π,
+    ∂ₜΠ = LΦ − A P S(J),           ∂ₜ²Π = LΠ − A P Ṡ(J)
+
+- `LΦ` is `wave_rhs!`'s rate of `v` before the source is subtracted,
+  which `inspiral_rhs!` hands to the solve (`rhs_trajectories`).
+- `LΠ` is a second `wave_rhs!`, of the state `(Π_r, 0)`
+  (`rate_laplacian`).
+- `⟨K, A P S⟩` is `source_pairing` (below), and `Ṡ` its derivative along
+  the jets.
+
+The source is exactly affine in `ä`. With order 3 carried, its
+dependence on `ä` cancels near the particle, since `∇²Φ⁽³⁾ = 𝒟²Φ⁽¹⁾`.
+So the `ä` block of the Jacobian is `Mγ` but for `δm_h`,
+`INSPIRAL.md`'s worry, which a particle at rest in its own field sees at
+`3·10⁻⁶ M` (the suite's coarse box), and on M4's layout at `7·10⁻¹⁰ M`
+at every resolution from `d/4` to `d/12`, so the `ä` system stays
+well conditioned as `hₑ` falls ([The equations of
+motion](#the-equations-of-motion-1) under "Measured results").
+
+**`source_pairing`** ([`src/transfer.jl`](src/transfer.jl)) is
+`⟨K, A P S⟩` without a field. It projects the source on the support's
+elements and on every element sharing a node with them
+(`projected_source`), by the rule the projection takes there:
+- the nested rule within `rnear·hₑ`;
+- a graded rule beyond, which differs from the nested one by `2·10⁻⁷`
+  there, so the projection's own choice is copied.
+
+It then averages at the shared nodes and pairs as the continuous
+pairing does (`pair_projected`). It equals `project_source!` followed by
+`pairing` to `10⁻¹²`. The elements of the nested rule are projected
+point by point of their outermost line's rule, threaded, as
+`project_near_host!` does: the support's own element costs more than the
+26 others together, and one thread per element left 64 threads waiting
+on it.
+
+**The solve** (`solve_jets`) is Newton's method with a Jacobian of
+finite differences, kept from the last solve while the chord iteration
+converges at least tenfold per step. It is found again when the
+hand-over's blend has moved by a quarter since, and when the force has
+taken over: the blend's Jacobian is wrong by `γ - 1` and `δm_h`, small
+enough that the chord iteration converges with it all the same, so it
+would otherwise be kept for good. It starts from the last solve's
+jets advanced along their polynomial, or the blend of the past's and the
+predictor's.
+
+The source's projections near the particle are the costly part. One
+projection of the source along the jets, in a dual number, gives both
+`A P S` (its values) and `⟨ρ, A P Ṡ⟩` (its partials). The source reads
+the jets weakly, so it is found once at the first guess and held while
+Newton converges, and found again only if the jets moved more than
+`source_tol = 0.1` from there, relative to their size. On a coarse box
+of `bin/dynamic.jl`'s layout (`hₑ = 1/2`, three levels), with the force
+taking over within `onset = 1/4`, the jets move 0.02% to 9% from the
+first guess, and never finding the source again moves the force by at
+most `3·10⁻⁸ F_RR` and `ä` by `10⁻⁵` of itself, against the
+`source_tol = 10⁻⁶` the solve first had, which found it twice per
+solve. `m.scratch.last` records the iterations, the projections, how far
+the jets moved from each (`moves`) and the Jacobian.
+
+**The predictor** (`predicted_jets`) is the instantaneous acceleration
+under `F_ext` and the other particles' `Φ_C` in point form, with the
+physical masses. It is differentiated along its own motion by iterating
+on the Taylor polynomials: each pass makes one more derivative exact,
+and five give `a⃜`. The spring's jets are its circle's to roundoff,
+`Ω² = k/(γM)` (`spring_circle`). A two-body orbit's Taylor polynomial
+follows its RK4 integration to seventh order in `t`.
+
+**The data and the hand-over** follow [Assumed pasts](#assumed-pasts).
+`past` is a `Prescribed` motion, whose retarded field the data take
+(`retarded_path`). The force takes over by blending the residuals,
+
+    E_blend = (1 − S) M (a − a_past) + S E,   S = smoothstep(n2, t/onset),
+
+so that at `t ≤ 0` the jets are the past's, bit for bit, and the data
+are exactly the past's. Through the ramp, `S`'s derivatives enter `Ė`
+and `Ë`, and with `n2 = 4` the solved `a`, `ȧ` and `ä` are continuous
+at both ends. Under a constant force from rest it gives `a = S F/M`,
+`ȧ = Ṡ F/M` and `ä = S̈ F/M` (tested).
+
+With `onset = 0` the force takes over at once, and
+`dynamic_initial_state` solves the jets and rebuilds `Ψ̂` with them three
+times, so that the data take the jump. On the suite's coarse spring the
+remainder's force then differs from the prescribed circle's by `0.4 %`
+of radiation reaction, against `3·10⁻⁵` for `onset = 0.1`.
+
+**Cost.** On one EPYC 7543 node, 64 threads, `bin/dynamic.jl`'s layout
+at `d/4` (9.4 million nodes, job 606323), a step takes 2.34 s against
+0.45 s for the prescribed circle's. A right-hand side takes 0.41 s, of
+which the solve 0.31 s: one source projection (0.064 s), `LΠ` (0.048 s)
+and three chord iterations of 0.088 s, each residual's largest part the
+own near field's quadrature with its two `τ`-derivatives (0.055 s,
+serial). A new Jacobian costs nine residuals more. The solve's cost does
+not grow with the resolution, since the support meets one element and
+its 26 neighbours at every `hₑ`; `LΠ`, a whole `wave_rhs!` per stage,
+does, and at `d/12` it doubles the circle's step ([The equations of
+motion](#the-equations-of-motion-1) under "Measured results").
 
 ### The split
 
@@ -2618,7 +2778,10 @@ with `wave_rhs!` unchanged and the source subtracted after it.
   `path(t)` the particles' `Trajectory`s at `t`, `isbits`;
   `uniform_motion(z, v)` is one, and `circular_motion` and
   `hyperbolic_motion` are M4's ([Prescribed paths](#prescribed-paths)).
-  `Dynamic` is M6a's.
+  `Dynamic` is M6a's: its trajectories are solved from the state, inside
+  the right-hand side from `wave_rhs!`'s rate of `v` before the source is
+  subtracted ([The equations of motion](#the-equations-of-motion)), so
+  `inspiral_rhs!` calls `rhs_trajectories` between the two.
 - `inspiral_rhs!(du, u, p, t)`: `wave_rhs!` on the field part,
   `project_source!` of `ParticleSource(models, window, path(t))` over the
   window's ball, subtracted from `dv`, and `ż = v`, `v̇ = a` for each
@@ -2642,7 +2805,10 @@ with `wave_rhs!` unchanged and the source subtracted after it.
 - `particle_forces(p, u, t)`: the remainder's force on each particle,
   `F = -(Q/γ)(∇̄Φ_r + vΠ̄_r) = ∫(∇ρ)Φ_r,h - v∫ρΠ_r,h`, through the pairing
   over the support's elements. It is a diagnostic and does not act on the
-  particles; the analytic parts of the force are M6a's. On a device the
+  particles; the analytic parts of the force are `own_force` and
+  `other_force` ([The equations of motion](#the-equations-of-motion)).
+  For a dynamic motion it reads `z` and `v` from the state and solves
+  nothing. On a device the
   pairing reads copies of the few blocks around each particle.
 - `ball_norm(p, u, centre, radius; p = 2, vars = 1:2)`:
   `quadrature_norm` over the nodes within a ball, through `mesh_fold`,
@@ -3411,6 +3577,15 @@ and the retarded field's, run below with the frame's time marked. The run on an 
   departure ([Assumed pasts](#assumed-pasts));
   `binary_circular_motion`, two charges half an orbit apart on one
   circle, as a `PathTuple` ([The movie](#the-movie)).
+- `src/predictor.jl`: the acceleration predictor, `predicted_acceleration`
+  and `predicted_jets`, and the external forces `SpringForce`, `NoForce`
+  and `spring_circle` ([The equations of
+  motion](#the-equations-of-motion)).
+- `src/dynamic.jl`: `Dynamic`, the particles moving under their forces;
+  `SupportRule`, `support_integrals`, `own_force` and `other_force`, the
+  analytic fields' averages; the residuals `dynamic_residual`, their
+  solve `solve_jets`, and `dynamic_initial_state` ([The equations of
+  motion](#the-equations-of-motion)).
 - `src/extraction.jl`: the waveforms, `SphereExtraction`,
   `sphere_values` and `sphere_modes`, with the seven-patch ball's inverse
   map `ball_patch_point`, `spherical_harmonics` and the sphere's rule;
@@ -3477,6 +3652,12 @@ and the retarded field's, run below with the frame's time marked. The run on an 
   pasts](#assumed-pasts));
   `bin/symmetry/prescribed.sh` runs it on a Symmetry AMD node, one
   run per `path:hdiv:order[:tend]` of `TREEWAVEOLDG_RUNS`.
+- `bin/dynamic.jl`: the spring-held particle on M4's circle, from the
+  circle's retarded field, the force taking over over `--onset`; the
+  remainder's force in components, the drift from the circle, the
+  solve's iterations and projections, and the `ä` block's conditioning
+  and `δm_h`; `--prescribed` runs the circle on the same grid and steps
+  ([The equations of motion](#the-equations-of-motion)).
 - `bin/waves_io.jl`: `--waves` of `bin/prescribed.jl` and
   `bin/orbit_movie.jl`, the modes on spheres and the retarded field's.
 - `bin/orbit_movie.jl`, `bin/orbit_exact.jl`, `bin/plane_io.jl`,
@@ -3755,7 +3936,11 @@ one thread on CI, is otherwise silent until its summary.
   pairing over the support equals the projection folded over the mesh,
   for `ρ` and `∇ρ`, at rest and moving; `reconstruct` and its gradient
   are exact on polynomials of degree `P` per dimension and give the
-  stored value at a node; the ball rule's moments are exact.
+  stored value at a node; the ball rule's moments are exact;
+  `source_pairing`, the source projected near the support and paired
+  without a field, is `project_source!` followed by the continuous or
+  plain `pairing` to `10⁻¹²`, for `ρ` and `∇ρ`, on a support straddling
+  element faces.
 - `inspiral_tests.jl`, a coarse 3D box (`P = 3`, `hₑ = 1/2` and `1/4`,
   one particle of `ℓ = 0.01`): the inspiral's right-hand side is
   `wave_rhs!` minus the projected source on the field part, moves the
@@ -3808,6 +3993,25 @@ one thread on CI, is otherwise silent until its summary.
   after 16 steps its force along the motion is the default start's to
   10%. About two minutes on four threads, half of it compiling the
   ball.
+- `predictor_tests.jl`: the spring's predicted jets are its circle's to
+  `10⁻¹⁴` at `v = 0.05` and `0.2`, and a free particle's acceleration is
+  zero; the Taylor polynomial of a two-body orbit's predicted jets, two
+  opposite charges in `BigFloat`, follows its RK4 integration to seventh
+  order in `t`.
+- `dynamic_tests.jl`: at rest the own near field's force and potential
+  are M1's coefficients to roundoff, and moving at `v = 0.2` in three
+  directions its order-1 force is `−δm γ a`, with a finer rule changing
+  nothing at `10⁻¹³`; another particle's field outside it pushes as its
+  value and gradient at the centre; under a constant force from rest
+  the solve gives `M a = F` to `10⁻⁸` and `ȧ = 0`, and with a hand-over
+  `a = S F/M`, `ȧ = Ṡ F/M`, `ä = S̈ F/M`, and the past's jets at `t = 0`
+  bit for bit; and a spring-held particle on a circle at `v = 0.3`, from
+  the circle's retarded field, gets the circle's `ȧ` and `ä` to `10⁻²`,
+  its tangential acceleration `Mγ a·τ̂` is the remainder's tangential
+  force to `10⁻³`, and across the motion it leaves the circle by the
+  remainder's and the own near field's forces to `10⁻²`. About two and
+  a half minutes on four threads, most of it compiling the source on
+  dual numbers.
 - `prescribed_tests.jl`: the circle's and hyperbolic motion's `v`, `a`,
   `ȧ`, `ä`, `a⃛` and `a⃜` are the dual-number derivatives of their
   positions; along the exact circle at `v = 0.2` the order-3 source is
@@ -6767,6 +6971,111 @@ in the clean ball at `t = 8`:
   `d/4` to `d/16` on an EPYC 7543, against 1.02 s at order 2 at `d/8`
   and 6.3 s at `d/16`; carrying `a⃜` costs nothing measurable (2.22 s
   without it at `d/8`). The `d/16` order-3 run took 16 hours.
+
+### The equations of motion
+
+`bin/symmetry/dynamic.sh` on Symmetry, 2026-11-19 and 20, Julia 1.13.4,
+64 threads pinned, one AMD node per job: the series, jobs 606324 to
+606328 (`cn104`, `cn096`–`cn099`, EPYC 7543), the solve as it was before
+the Jacobian was found again after the hand-over; and on the code with
+that change, job 606429 (`cn097`, EPYC 7543) and the conditioning runs
+606769 and 606770 (`cn090`, `cn091`, EPYC 7532). The layout is
+[Prescribed paths](#prescribed-paths-1)'s: five levels, `P = 3`, the
+first run's particle and window, the circle of radius 0.5 at `v = 0.05`
+(`F_RR = 6.63·10⁻⁸`) and at `v = 0.2` (`F_RR = 4.24·10⁻⁶`), both from
+the circle's retarded field, to `t = 8`. The particle is held by the
+spring of that circle (`spring_circle`), and the force takes over over
+`onset = 2` with `n2 = 4`, or at once (`onset = 0`); the prescribed
+circle runs on the same grid and steps (`--prescribed`). The spring at
+`d/12` ran out of its eight hours at `t = 6.90`.
+
+**The spring's force is the circle's.** The forces in units of `F_RR`
+with Prescribed paths' signs (`F_t/F_RR = 1` is radiation reaction),
+averaged over `t = 2` to 8 (to 6.9 at `d/12`), leaving out `0.25` about
+each face crossing, `sd` the single steps' scatter of the spring's; and
+the spring's force minus the circle's step by step over the same
+times, rms and largest:
+
+| `hₑ` | spring `F_t` | `F_r` | circle `F_t` | `F_r` | sd of `F_t` | sd of `F_r` | `ΔF_t` rms, max | `ΔF_r` rms, max |
+|---|---|---|---|---|---|---|---|---|
+| `d/4` | 0.921 | -0.044 | 0.926 | -0.022 | 1.69 | 2.99 | 0.068, 0.33 | 0.25, 0.75 |
+| `d/6` | 0.973 | -0.002 | 0.972 | -0.002 | 0.93 | 1.59 | 0.010, 0.041 | 0.026, 0.084 |
+| `d/8` | 0.998 | -0.008 | 0.998 | -0.008 | 0.35 | 0.57 | 0.007, 0.018 | 0.013, 0.035 |
+| `d/8`, `onset = 0` | 0.998 | -0.008 | 0.998 | -0.008 | 0.35 | 0.57 | 0.007, 0.018 | 0.015, 0.037 |
+| `d/12` | 1.002 | -0.002 | 1.002 | -0.002 | 0.059 | 0.106 | 0.002, 0.005 | 0.002, 0.005 |
+| `d/8`, `v = 0.2` | 1.041 | 0.001 | 1.041 | 0.000 | 0.005 | 0.008 | 0.002, 0.005 | 0.002, 0.006 |
+
+- **M6a's condition holds:** the particle that moves under its forces
+  reads the prescribed circle's force at every resolution, and the two
+  part by less than the scatter of either, falling with `hₑ` to
+  `0.002 F_RR` at `d/12`. The means converge as the circle's of
+  Prescribed paths did, to `F_t = F_RR` and `F_r = 0` at `v = 0.05`,
+  and to `γ²F_RR = 1.0417` at `v = 0.2`. Today's circle scatters less
+  than Prescribed paths' (1.69 against 2.5 at `d/4`), whose series ran
+  before the averaging of [The averaging](#the-averaging), probably the
+  reason; not checked.
+- **What the force moves it by:** by `t = 8` the orbit's radius has
+  fallen by `5`–`10·10⁻⁷` and its speed by `3.5`–`4.3·10⁻⁷` at
+  `v = 0.05`, and by `4.4·10⁻⁵` and `1.4·10⁻⁵` at `v = 0.2`, against
+  `10⁻¹²` and roundoff for the prescribed circle: radiation reaction
+  slowing a particle that the spring holds, of the size of `F_RR t/M`.
+  Not yet compared with the spring's orbit under radiation reaction in
+  closed form.
+- **The hand-over is clean either way:** after `t = 2` the abrupt one
+  and the ramp of `onset = 2` cannot be told apart at `d/8`; during its
+  first half time unit the abrupt one's `F_t` departs from the circle's
+  by up to `0.009 F_RR`, the ramp's by less than `5·10⁻⁴`.
+- **An earlier comparison read a gap of several `F_RR`** after
+  `t ≈ 0.5` at `d/4`. It compared against M4's records of the circle,
+  which predate M5; against the circle on today's code the gap is the
+  table's.
+
+**The `ä` system's conditioning** (the code with the Jacobian found
+again, `v = 0.05`, `onset = 0`, `t = 0` to 0.25): `cond(∂Ë/∂ä) = 1` to
+the digits printed, and `δm_h/M`, the norm of `∂Ë/∂ä − MγI` over `M`,
+
+| `hₑ` | `d/4` | `d/6` | `d/8` | `d/12` |
+|---|---|---|---|---|
+| `δm_h/M`, median | `7.2·10⁻¹⁰` | `7.2·10⁻¹⁰` | `7.2·10⁻¹⁰` | `7.2·10⁻¹⁰` |
+| largest | `1.0·10⁻⁹` | `1.0·10⁻⁹` | `1.1·10⁻⁹` | `1.1·10⁻⁹` |
+
+- **The grid's self-inertia does not grow as `hₑ` falls,** against
+  `INSPIRAL.md`'s estimate `δm_h ~ Q²/hₑ`: with order 3 carried, the
+  source's dependence on `ä` cancels near the particle, and what is
+  left does not see the elements. So M6a's gate, an ill-conditioned
+  `ä` system, does not fire, and the stability question's part that
+  M6a can answer is answered for this particle: the solve is no nearer
+  singular on a finer grid.
+- **Later in a run the recorded `δm_h/M` is 1–2·10⁻⁸** at `v = 0.05`
+  (job 606429 after the ramp, and the series' `onset = 0` run) and up
+  to `6·10⁻⁷` at `v = 0.2`. The solve keeps its Jacobian while the
+  chord iteration converges, and the record measures it against the
+  current `γ`: a speed that has moved by `4·10⁻⁷` moves `γ` by
+  `2·10⁻⁸`. Probably that, not the self-inertia; not checked.
+- **The series' runs with `onset = 2` recorded the blend's Jacobian,**
+  `δm_h/M = γ − 1 = 1.252·10⁻³` and `2.06·10⁻²` at every step, since the
+  solve then kept the first step's for good (`HISTORY.md`, 2026-11-19).
+  With it Newton took a median of 4 iterations and up to 8 (11 at
+  `v = 0.2`); found again after the ramp, 3 and up to 4, as with
+  `onset = 0` throughout. The source was projected once per solve in
+  every run.
+
+**Cost**, seconds per step on 64 threads, the series' (EPYC 7543):
+
+| `hₑ` | nodes | spring | circle | difference |
+|---|---|---|---|---|
+| `d/4` | `9.4·10⁶` | 2.83 | 0.52 | 2.3 |
+| `d/6` | `3.2·10⁷` | 3.65 | 0.93 | 2.7 |
+| `d/8` | `7.5·10⁷` | 5.06 | 1.71 | 3.4 |
+| `d/12` | `2.5·10⁸` | 10.85 | 4.71 | 6.1 |
+| `d/8`, `v = 0.2` | `7.5·10⁷` | 5.78 | 1.73 | 4.1 |
+
+The solve near the particle costs the same at every `hₑ`, about 2 s per
+step; what grows is `LΠ`, a second `wave_rhs!` over the whole mesh in
+each of RK4's four stages, about the circle's step again at `d/12`.
+`LΠ` is read only on the support's elements and their neighbours, so a
+Laplacian of `Π_r` on those alone would take the growing part away
+**(proposed)**.
 
 ## What carried over from TreeWave, and what did not
 

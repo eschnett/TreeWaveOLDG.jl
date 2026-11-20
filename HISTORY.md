@@ -1709,14 +1709,100 @@ patches.
   It also found `CODE.md`'s table of positions and weights given as
   128 bytes per point at `P = 3`, where it is 1 KB, and stale comments
   in `test/device_tests.jl` and `src/evolution.jl`, now fixed.
+- 2026-11-19: M6a started, a particle that moves under its forces
+  (`CODE.md`, "The equations of motion"). Erik Schnetter chose two
+  departures from the plan:
+  - **The own near field's average by quadrature**, over the moving
+    particle's support, rather than M1's at-rest coefficients, which miss
+    the lab slice's `O(v²)` self-force. The quadrature then showed the
+    order-1 force with its lab slice to be `−δm γ a` in every direction,
+    the covariant renormalization of the mass.
+  - **`a`, `ȧ` and `ä` solved together** by Newton's method, rather than
+    in `INSPIRAL.md`'s order with each one's higher jets from the
+    predictor. `E` reads `ȧ` with a coefficient of about `vδm`, so the cut
+    would have put the predictor's error into the tangential force.
+
+  Asked how the start compared with M8f's ways of starting a path
+  smoothly, he had the force take over from the past as M8f's departure
+  took over from the circle, by a blend of residuals with `n₂ = 4`, so
+  that the data are exactly the past's and nothing jumps. The abrupt
+  start, in which the data take the jump, stays as `onset = 0` for
+  comparison.
+
+  The first solve took 47 s on the laptop's coarse box. It was cut to
+  about 1.3 s by three changes:
+  - projecting the source near the particle once per residual, in
+    parallel, and pairing every kernel with it;
+  - holding that projection while Newton converges, since it moves the
+    residual `10⁻⁴` as much as the jets;
+  - starting from the last solve's jets.
+
+  The projection near the particle had to copy the projection's choice
+  of rule: a graded rule one element out differs from the nested one by
+  `2·10⁻⁷`.
+
+  The first series job (606216, `d/4`) ran out of its hour at
+  `t = 1.28` of 8: a step took 12 to 24 s on 64 threads, 97% of it in
+  the solve's source projections. Its four dependent jobs never started
+  and were cancelled. A profile (job 606310) found three causes, and the
+  step at `d/4` fell from 16.9 s to 2.34 s (job 606323):
+  - the projection gave each thread one of 27 elements, while the
+    support's own element cost more than the rest together, so 2.04 s on
+    64 threads against 1.24 s on the laptop's four; threaded over the
+    points of the outermost line, as `project_near_host!` is, 0.064 s;
+  - `Ṡ` was projected as a dual number and `S` again by itself, though
+    the dual's values are `S`'s;
+  - `source_tol = 10⁻⁶` found the source twice per solve, since the
+    first guess is up to 9% from the result while the force takes over;
+    never finding it again moves the force by `3·10⁻⁸ F_RR`, so
+    `source_tol = 0.1`.
+
+  `bin/dynamic.jl` also stopped solving again to report, which the
+  radial direction toward the circle's centre makes unnecessary.
+
+  The resubmitted series (jobs 606324–606328) recorded `cond_aa = 1`
+  and `δm_h/M = 1.252·10⁻³` at every step and resolution with
+  `onset = 2`: that is `γ - 1`, the Jacobian of the first step's blend,
+  where the past still held the jets. The chord iteration converges with
+  it fast enough that the solve never found it again; the jets were
+  right, at a median of four iterations against three with `onset = 0`,
+  whose Jacobian, found after the take-over, recorded `δm_h/M ≈ 10⁻⁸`
+  (below, 2026-11-20). The
+  solve now finds the Jacobian again when the blend has moved by a
+  quarter and when the force has taken over. The runs already in the
+  queue kept the old rule.
+- 2026-11-20: M6a closed (`CODE.md`, "The equations of motion" under
+  "Measured results"). The series finished but for the spring at
+  `d/12`, which ran out of its eight hours at `t = 6.9`; Erik Schnetter
+  let it, rather than run it again for sixteen. The spring reads the
+  prescribed circle's force at every resolution, the two parting by
+  `0.068 F_RR` rms at `d/4` and `0.002` at `d/12`. The gap of several
+  `F_RR` seen at `d/4` before the series came from comparing against
+  M4's records of the circle, which predate M5, so the series ran the
+  circle again at every resolution on the same code.
+
+  The conditioning was measured again on the code that finds the
+  Jacobian after the hand-over, with `onset = 0` to `t = 0.25` (jobs
+  606769 and 606770): `δm_h/M = 7·10⁻¹⁰` at every resolution from `d/4`
+  to `d/12`, and a condition number of 1, so the plan's gate for M6a, an
+  ill-conditioned `ä` system, did not fire. The `δm_h/M ≈ 10⁻⁸` the
+  series' `onset = 0` run recorded later in time is probably the kept
+  Jacobian measured against a `γ` that has moved since, not the
+  self-inertia; not checked.
+
+  The cost showed what the profile of 2026-11-19 at `d/4` did not: the
+  solve near the particle costs the same at every resolution, but `LΠ`,
+  a whole `wave_rhs!` per stage, doubles the circle's step at `d/12`. A
+  Laplacian of `Π_r` on the support's elements alone is proposed in
+  `CODE.md`.
 
 ### What the plan said of its finished milestones
 
 `INSPIRAL-PLAN.md` keeps one line for each finished milestone. Its
 earlier text for M0 to M5 is here, as it stood when M5 was done, and
 for M8a and M8b as it stood when M8c started, and for M8c as it stood
-when it was closed and M8d planned, and for M8d, M8e and M8f as they
-stood when each was closed, with
+when it was closed and M8d planned, and for M8d, M8e, M8f and M6a as
+they stood when each was closed, with
 the parts of its status, decisions, gates and items left to settle that
 only those milestones used. Why nested boxes, and the estimate for their
 layouts, went to `CODE.md` ("Nested boxes").
@@ -2190,6 +2276,46 @@ validation step 5.
 - Re-run M4's circle at `v = 0.2`. **Done when** it converges at the
   same rates as at `v = 0.05`, and `CODE.md` describes the lab slice.
   `HISTORY.md` records that the **(open)** re-expansion is settled.
+
+#### M6a: One particle, solved
+
+**Status:** done (2026-11-20) on branch `inspiral-m6a-solved`; its
+runs are jobs 606324 to 606328, 606429, 606769 and 606770, and their
+results are in `CODE.md` ("The equations of motion" under "Measured
+results"). As planned before the work, which departed from it in the
+own near field's averages, taken by quadrature, and in solving `a`,
+`ȧ` and `ä` together (above, 2026-11-19). `INSPIRAL.md`: "Equations of
+motion", "The acceleration and its derivatives"; validation step 6,
+first half.
+
+- The averages `Φ̄ₑ`, `∇̄Φₑ`, `Π̄ₑ`: the remainder's part from M2's
+  pairing, the other particle's `Ψ_b` and the particle's own near field
+  over `ball_rule`, the own near field's self-force from M1's
+  coefficients.
+- **The `a` solve**: the equation of motion with `m = M₀ + QΦ̄ₑ`, `F_N`
+  added, a 3×3 solve.
+- **`ȧ`**: the time derivative of the forces, with `∂ₜΦ_r = Π_r`, and
+  the one `ä` in the relativistic `vΠ̄` term taken from the predictor.
+- **The `ä` solve**: steps 3–4 of "The right-hand side": `wave_rhs!`
+  first, then `∂ₜΠ_r` near the particle with the part of `P S` linear in
+  `ä`, projected on the support elements, giving a 3×3 system.
+- **The predictor** `ä_pred(X)`: the two-body instantaneous
+  acceleration (Newtonian force and each particle's `Φ_C` on the other,
+  with physical masses), differentiated twice along its own flow with
+  nested `ForwardDiff`.
+- An `ExternalForce` motion: a single particle with an analytic force,
+  for example a central spring that holds it on a circle.
+
+Tests: the solves reduce to `M a = F` at rest with no field; the
+predictor equals finite differences of a numerically integrated two-body
+orbit; the spring-held particle at `v = 0.05` reproduces M4's circle
+forces.
+
+Measured and recorded: the condition number of the `ä` system against
+`hₑ`, and `δm_h/M` (the **(open)** stability question, in part).
+
+**Done when** the external-force particle matches M4's circle at each
+resolution, and the `ä` system's conditioning is recorded.
 
 #### M8a: What the sphere sends back
 
@@ -2755,6 +2881,12 @@ force's take-over, for M6b to take.
   32 does at `λ = 16`, a third later; the owner passed it with M8c's
   layout as the answer, the sphere's return after the run (above, the
   entry of 2026-11-11 under "Particles").
+- **M6a: the `ä` system is ill-conditioned** (`δm_h` not small against
+  `M`). Coarser `hₑ`, or the "free amplitudes" alternative from
+  `INSPIRAL.md`'s "Open questions". Did not fire (2026-11-20):
+  `δm_h/M = 7·10⁻¹⁰` and a condition number of 1 at every resolution from
+  `d/4` to `d/12` (`CODE.md`, "The equations of motion" under "Measured
+  results").
 
 #### Settled later
 

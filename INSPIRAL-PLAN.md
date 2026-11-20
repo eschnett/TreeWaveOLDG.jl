@@ -6,7 +6,9 @@ merged pull request and a green suite. The milestones follow
 knows it is done. Section names of `INSPIRAL.md` and `CODE.md` are used
 below without links.
 
-**Status.** M0 to M5 are done; M6a, M6b and M7 are not started; of M8,
+**Status.** M0 to M5 are done; M6a is done (2026-11-20) on branch
+`inspiral-m6a-solved`, its pull request not yet opened; M6b and M7 are
+not started; of M8,
 M8a and M8b are done (2026-11-11), M8a's gate having passed, and M8c is
 done (2026-11-14), merged with pull request #15. M8d, data that are the
 field far from an accelerated particle, is done (2026-11-15), merged with
@@ -156,7 +158,7 @@ These hold for every milestone.
 | M3b | 3, on refined forests | `inspiral-m3b-nested` | nested boxes, the transfer on their finest level, clean time, reflections and cost measured | M3 |
 | M4 | 4 | `inspiral-m4-prescribed` | hyperbolic motion and the slow circle; **go/no-go** | M3b |
 | M5 | 5 | `inspiral-m5-labslice` | lab-slice re-expansion, the circle at `v = 0.2` | M4 |
-| M6a | 6, first half | `inspiral-m6a-dynamics` | the `a`, `ȧ`, `ä` solves, the predictor, one particle on an external force | M5 |
+| M6a | 6, first half | `inspiral-m6a-solved` | the `a`, `ȧ`, `ä` solves, the predictor, one particle on an external force | M5 |
 | M6b | 6, second half | `inspiral-m6b-binary` | the binary's initial data and diagnostics, the flux check, a short binary run | M6a |
 | M7 | 6, the rest | `inspiral-m7-orbits` | warm-up, orbits, checkpointing, the convergence series | M6b |
 | M8a | — | `inspiral-m8a-sphere` | the radiative sphere's reflection against nested boxes; **gate** | — |
@@ -211,37 +213,11 @@ results".
 
 ### M6a: One particle, solved
 
-**Status:** not started. `INSPIRAL.md`: "Equations of motion", "The
-acceleration and its derivatives"; validation step 6, first half.
-
-- The averages `Φ̄ₑ`, `∇̄Φₑ`, `Π̄ₑ`: the remainder's part from M2's
-  pairing, the other particle's `Ψ_b` and the particle's own near field
-  over `ball_rule`, the own near field's self-force from M1's
-  coefficients.
-- **The `a` solve**: the equation of motion with `m = M₀ + QΦ̄ₑ`, `F_N`
-  added, a 3×3 solve.
-- **`ȧ`**: the time derivative of the forces, with `∂ₜΦ_r = Π_r`, and
-  the one `ä` in the relativistic `vΠ̄` term taken from the predictor.
-- **The `ä` solve**: steps 3–4 of "The right-hand side": `wave_rhs!`
-  first, then `∂ₜΠ_r` near the particle with the part of `P S` linear in
-  `ä`, projected on the support elements, giving a 3×3 system.
-- **The predictor** `ä_pred(X)`: the two-body instantaneous
-  acceleration (Newtonian force and each particle's `Φ_C` on the other,
-  with physical masses), differentiated twice along its own flow with
-  nested `ForwardDiff`.
-- An `ExternalForce` motion: a single particle with an analytic force,
-  for example a central spring that holds it on a circle.
-
-Tests: the solves reduce to `M a = F` at rest with no field; the
-predictor equals finite differences of a numerically integrated two-body
-orbit; the spring-held particle at `v = 0.05` reproduces M4's circle
-forces.
-
-Measured and recorded: the condition number of the `ä` system against
-`hₑ`, and `δm_h/M` (the **(open)** stability question, in part).
-
-**Done when** the external-force particle matches M4's circle at each
-resolution, and the `ä` system's conditioning is recorded.
+Done (2026-11-20) on branch `inspiral-m6a-solved`, its pull request not
+yet opened: the solve, the predictor and the hand-over are `CODE.md`'s
+("The equations of motion"), and the spring's runs against the circle,
+the `ä` system's conditioning and the cost under "The equations of
+motion" in "Measured results".
 
 ### M6b: The binary's parts
 
@@ -451,9 +427,7 @@ Points where a result changes the plan. Each is taken to the owner
 before continuing. The gates of the finished milestones are in
 `HISTORY.md` ("Gates of the finished milestones").
 
-- **M6a: the `ä` system is ill-conditioned** (`δm_h` not small against
-  `M`). Coarser `hₑ`, or the "free amplitudes" alternative from
-  `INSPIRAL.md`'s "Open questions".
+- None at present.
 
 ## Left to settle later
 

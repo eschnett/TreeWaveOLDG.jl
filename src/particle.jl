@@ -277,6 +277,14 @@ end
 struct SourceOuterTag end
 struct SourceInnerTag end
 
+# The source's partials are outermost: a source along a trajectory of
+# dual numbers in time (ForwardDiff's own tags, the dynamic particle's
+# `Ṡ`) carries them inside its own.
+ForwardDiff.:≺(::Type{<:ForwardDiff.Tag}, ::Type{SourceInnerTag}) = true
+ForwardDiff.:≺(::Type{<:ForwardDiff.Tag}, ::Type{SourceOuterTag}) = true
+ForwardDiff.:≺(::Type{SourceInnerTag}, ::Type{<:ForwardDiff.Tag}) = false
+ForwardDiff.:≺(::Type{SourceOuterTag}, ::Type{<:ForwardDiff.Tag}) = false
+
 # A field that depends on `x` through `q = |y|²` and the four invariants
 # `u·y` linear in `y`, and on `t` through them and six `x`-independent
 # ones along the motion ([`ParticleJets`](@ref)). Of each invariant `I`
