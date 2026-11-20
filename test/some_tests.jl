@@ -1,6 +1,6 @@
 # Some of the suite's files, named on the command line, in the test
 # environment, for checking one part on a cluster without the whole suite
-# (`jobs/some_tests.toml`):
+# (`jobs/tests_by_part.jl`):
 #
 #     julia --project=test test/some_tests.jl predictor_tests.jl dynamic_tests.jl
 #

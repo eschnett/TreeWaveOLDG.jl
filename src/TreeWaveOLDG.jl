@@ -100,18 +100,18 @@ export InspiralProblem, Prescribed, uniform_motion, field_state, particle_state,
        inspiral_integrator, particle_forces, ball_norm, ball_mean
 
 # Prescribed paths
-export circular_motion, hyperbolic_motion, retarded_field, point_model,
-       ramped_circular_motion, binary_circular_motion, smoothstep
+export circular_motion, hyperbolic_motion, retarded_field, retarded_gradient,
+       point_model, ramped_circular_motion, binary_circular_motion, smoothstep
 
 # Dynamic particles
-export SpringForce, NoForce, NewtonianForce, NoInteraction, spring_circle, newtonian_binary,
-       predicted_acceleration, predicted_jets,
-       SupportRule, support_integrals, field_force, own_force, other_force, Dynamic,
-       solve_jets, dynamic_initial_state
+export SpringForce, NoForce, NewtonianForce, NoInteraction, spring_circle,
+       newtonian_binary, predicted_acceleration, predicted_jets, SupportRule,
+       support_integrals, field_force, own_force, other_force, Dynamic, solve_jets,
+       dynamic_initial_state
 
 # Waveforms
-export SphereExtraction, sphere_values, sphere_modes, harmonic_modes, spherical_harmonics,
-       ball_patch_point, PlaneExtraction, plane_values
+export SphereExtraction, sphere_values, sphere_modes, sphere_gradients, sphere_flux,
+       harmonic_modes, spherical_harmonics, ball_patch_point, PlaneExtraction, plane_values
 
 include("precision.jl")
 include("device.jl")

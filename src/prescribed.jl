@@ -373,6 +373,52 @@ end
 # retarded time is found, in place of the error, which a device kernel
 # cannot build.
 @inline function retarded_root(path, k::Integer, Q::T, X::SVector{3,T}, t::T) where {T}
+    s = retarded_time(path, k, X, t)
+    # The scale of roundoff in `t - s - |x - z(s)|`, positions included.
+    scale = max(abs(t), maximum(abs, X), one(T))
+    f = t - s - norm3(X - path(s)[k].z)
+    found = isfinite(s) && abs(f) <= 64eps(T) * max(scale, abs(s))
+    tr = path(s)[k]
+    R = X - tr.z
+    ds_dt = inv(1 - dot(R, tr.v) / norm3(R))
+    Φ = point_potential(path, k, Q, X, s)
+    return Φ, ForwardDiff.derivative(σ -> point_potential(path, k, Q, X, σ), s) * ds_dt,
+           found
+end
+
+"""
+    retarded_gradient(path, k, Q, x, t)
+
+The gradient `∇Φ` at `(x, t)` of [`retarded_field`](@ref)'s `Φ`, in
+closed form: the retarded time `s` moves with `x` as
+`∇s = -R̂/(1 - R̂⋅v)`, from `t - s = |x - z(s)|`, so
+`∇Φ = ∂ₓΦ|ₛ + (∂Φ/∂s) ∇s`, both partials of `-Q/(4πγ(R - R⋅v))` by dual
+numbers. With [`retarded_field`](@ref)'s `∂ₜΦ` it gives the exact flux
+through a sphere at the points a grid's is read at
+([`sphere_flux`](@ref)).
+"""
+function retarded_gradient(path, k::Integer, Q, x, t)
+    T = float(promote_type(eltype(x), typeof(t), typeof(Q)))
+    X = SVector{3,T}(x)
+    _, _, found = retarded_root(path, k, T(Q), X, T(t))
+    found || no_retarded_time(X, T(t))
+    s = retarded_time(path, k, X, T(t))
+    tr = path(s)[k]
+    R = X - tr.z
+    R̂ = R / norm3(R)
+    ∇s = -R̂ / (1 - dot(R̂, tr.v))
+    ∂x = ForwardDiff.gradient(Y -> point_potential(path, k, T(Q), Y, s), X)
+    ∂s = ForwardDiff.derivative(σ -> point_potential(path, k, T(Q), X, σ), s)
+    return ∂x + ∂s * ∇s
+end
+
+@noinline no_retarded_time(X, t) = throw(ArgumentError(
+    "no retarded time found for x = $(Tuple(X)) at t = $t: no past light cone of the " *
+    "worldline reaches it"))
+
+# The root `s` of `t - s = |x - z(s)|` by Newton's method from
+# `s = t - |x - z(t)|`; `retarded_root` checks it.
+@inline function retarded_time(path, k::Integer, X::SVector{3,T}, t::T) where {T}
     s = t - norm3(X - path(t)[k].z)
     # The scale of roundoff in `t - s - |x - z(s)|`, positions included.
     scale = max(abs(t), maximum(abs, X), one(T))
@@ -384,19 +430,8 @@ end
         s -= Δ
         (abs(Δ) <= 8eps(T) * max(scale, abs(s)) || !isfinite(s)) && break
     end
-    f = t - s - norm3(X - path(s)[k].z)
-    found = isfinite(s) && abs(f) <= 64eps(T) * max(scale, abs(s))
-    tr = path(s)[k]
-    R = X - tr.z
-    ds_dt = inv(1 - dot(R, tr.v) / norm3(R))
-    Φ = point_potential(path, k, Q, X, s)
-    return Φ, ForwardDiff.derivative(σ -> point_potential(path, k, Q, X, σ), s) * ds_dt,
-           found
+    return s
 end
-
-@noinline no_retarded_time(X, t) = throw(ArgumentError(
-    "no retarded time found for x = $(Tuple(X)) at t = $t: no past light cone of the " *
-    "worldline reaches it"))
 
 # `-Q/(4π γ (R - R·v))` with everything at the retarded time `s`.
 @inline function point_potential(path, k, Q, X, s)

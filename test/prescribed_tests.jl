@@ -123,6 +123,30 @@ end
     end
 end
 
+@testset "The retarded field's gradient is its positions' derivative" begin
+    # Guards `retarded_gradient`, which the flux through a sphere is held
+    # against (M6b): a gradient that missed the retarded time's motion
+    # with `x`, `∇s = -R̂/(1 - R̂⋅v)`, would be the field's at a fixed
+    # retarded time, wrong at `O(v)`; for uniform motion it must be the
+    # boosted Coulomb field's.
+    Q = 0.07
+    v = SA[0.2, -0.1, 0.3]
+    path = uniform_motion((SA[0.1, 0.2, 0.3],), (v,)).path
+    for x in (SA[0.5, 0.2, -0.1], SA[-1.0, 2.0, 0.7]), t in (0.0, 0.6)
+        c(y) = -Q / (4π * norm(TWP.boost(v, y - path(t)[1].z)))
+        @test retarded_gradient(path, 1, Q, x, t) ≈ TWP.ForwardDiff.gradient(c, x) rtol =
+              1e-12
+    end
+    for path in (circular_motion(SA[0.0, 0.0, 0.0], 0.5, 0.3).path,
+                 hyperbolic_motion(SA[0.0, 0.0, 0.0], 0.3; direction=(0, 1, 0)).path)
+        x, t, h = SA[0.3, 0.7, -0.2], 0.4, 1e-4
+        Φ(x) = retarded_field(path, 1, Q, x, t)[1]
+        e = (SA[h, 0, 0], SA[0, h, 0], SA[0, 0, h])
+        fd = SA[((Φ(x + d) - Φ(x - d)) / 2h for d in e)...]
+        @test retarded_gradient(path, 1, Q, x, t) ≈ fd rtol = 1e-7
+    end
+end
+
 @testset "The smoothstep rises from 0 to 1 with its first n derivatives zero at both ends" begin
     # Guards `smoothstep`, of which M8f's ramps are made: a wrong
     # coefficient leaves a derivative at a joint that should vanish, and
