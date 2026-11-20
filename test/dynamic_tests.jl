@@ -5,6 +5,7 @@
 
 using LinearAlgebra: dot, norm
 using StaticArrays: SVector
+using IMEXRungeKutta: solve!
 using TreeWaveOLDG: self_force_addot, self_force_a2a, self_potential_a2, lorentz_factor,
                     near_field, field_force
 
@@ -147,4 +148,48 @@ end
     @test m.M * lorentz_factor(tc.v) * across(tr.a - tc.a) ≈ across(Fg + Fo) rtol = 1e-2
     @test tr.ȧ ≈ tc.ȧ rtol = 1e-2
     @test tr.ä ≈ tc.ä rtol = 1e-2
+end
+
+@testset "The binary's solved jets keep its symmetry, and its centre of mass stays" begin
+    # Guards two dynamic particles together (M6b): the binary of equal
+    # masses and opposite charges is odd under the half-turn about its
+    # centre's normal, and so is a grid centred there, so the joint solve
+    # of both particles' jets must give each the other's turned, and the
+    # orbit's centre of mass and momentum must stay put over steps. A
+    # Newton's force left out of the residual, the other particle's field
+    # read along the wrong jets or a Jacobian mixing the particles breaks
+    # the first; a particle's state stepped with the other's jets the
+    # second. The jets are the circle's but for the full fields beyond
+    # the predictor's point charges, `1.4·10⁻³` of the binding.
+    w₀, levels = 2.0, 3
+    L = 2^levels * w₀
+    forest = wave_forest(Float64, Val(3), 3, 2; roots=4, L=L,
+                         refined=nested_cubes(Val(3), w₀, levels))
+    wave = WaveProblem(forest, Element(Float64, 3))
+    c = SVector(L / 2, L / 2, L / 2)
+    ms = (ParticleModel(; Q=0.1, ℓ=0.01, M=1.0), ParticleModel(; Q=-0.1, ℓ=0.01, M=1.0))
+    f, binary = newtonian_binary(ms, 0.5, 0.3; centre=c, phase=0.3)
+    dyn = Dynamic((NoForce(), NoForce()), binary; interaction=f)
+    p = InspiralProblem(wave, ms, Window(c, 1.0, 1.75; continuity=4), dyn)
+    u = inspiral_initial_state(p; retarded=Window(c, 1.5, 1.9; continuity=4))
+    trs = TreeWaveOLDG.trajectories(dyn, p, u, 0.0)
+    turn(x) = SVector(-x[1], -x[2], x[3])
+    # Newton's residual is `10⁻¹⁵`; the field the residual reads is not
+    # symmetric to rounding, and each derivative in time reads it through
+    # the grid's second differences (`LΦ`, then `LΠ`), so the jets keep
+    # the symmetry to `10⁻¹²`, `10⁻¹⁰` and `10⁻⁸` (measured), `10⁻⁵` of
+    # the grid's part of `ä`.
+    for (s, tol) in ((:a, 1e-11), (:ȧ, 1e-9), (:ä, 1e-7))
+        @test getfield(trs[2], s) ≈ turn(getfield(trs[1], s)) rtol = tol
+        @test getfield(trs[1], s) ≈ getfield(binary.path(0.0)[1], s) rtol = 5e-3
+    end
+    dt = oldg_timestep(p.wave; cfl=1 // 2)
+    integ = solve!(inspiral_integrator(p, u, 0.0, 2dt; dt=dt))
+    (z1, v1), (z2, v2) = particle_state(integ.u, p)
+    @test norm((z1 + z2) / 2 - c) <= 1e-13
+    @test norm(lorentz_factor(v1) * v1 + lorentz_factor(v2) * v2) <= 1e-13
+    @test z2 - c ≈ turn(z1 - c) rtol = 1e-12
+    # It follows the circle, but for the percent of the acceleration that
+    # is not the predictor's.
+    @test norm(z1 - binary.path(2dt)[1].z) <= 0.1 * norm(trs[1].a) * (2dt)^2 / 2
 end

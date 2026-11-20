@@ -1,0 +1,28 @@
+# Some of the suite's files on four threads and with `--check-bounds=yes`,
+# side by side on one node (`test/some_tests.jl`), for checking one part
+# without the whole suite (`suite.toml`). The files are M6b's, the
+# predictor and the dynamic particles; change the runs' arguments for
+# another part, under a new `name`:
+#
+#     simlaunch snapshot . --study twoldg-<commit> --rev <commit> --note "<what it is for>"
+#     simlaunch prepare twoldg-<commit> --site symmetry --spec jobs/some_tests.toml
+#     simlaunch submit twoldg-<commit> jobs/some_tests.toml --site symmetry
+name = "some_tests"
+description = "TreeWaveOLDG: the predictor's and dynamic particles' tests"
+env = "test"
+mode = "parallel"
+julia_args = ["--depwarn=yes", "--warn-overwrite=yes"]
+
+[site.symmetry]
+time = "1:00:00"
+
+[[run]]
+label = "t4"
+cmd = "test/some_tests.jl predictor_tests.jl dynamic_tests.jl"
+threads = 4
+
+[[run]]
+label = "cb"
+cmd = "test/some_tests.jl predictor_tests.jl dynamic_tests.jl"
+threads = 4
+julia_args = ["--depwarn=yes", "--warn-overwrite=yes", "--check-bounds=yes"]

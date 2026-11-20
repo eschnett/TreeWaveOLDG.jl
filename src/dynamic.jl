@@ -141,21 +141,24 @@ mutable struct DynamicScratch
 end
 
 """
-    Dynamic(external, past; onset = 0, n2 = 4, rule = SupportRule(T), tol = 1e-10,
-            source_tol = 0.1)
+    Dynamic(external, past; interaction = NoInteraction(), onset = 0, n2 = 4,
+            rule = SupportRule(T), tol = 1e-10, source_tol = 0.1)
 
 A motion in which each particle moves under its forces (INSPIRAL.md,
 "Equations of motion"): `a`, `ȧ` and `ä` of every particle are solved
 together from the state, from the equation of motion
 
-    m γ a = F_grid + F_own + Σ_b F_b + (I - v vᵀ) F_ext,   m = M₀ + QΦ̄ₑ,
+    m γ a = F_grid + F_own + Σ_b F_b + (I - v vᵀ)(F_ext + F_N),   m = M₀ + QΦ̄ₑ,
 
 and its first two time derivatives, by Newton's method. `F_grid` is the
 remainder's force ([`particle_forces`](@ref)), `F_own` the particle's
 own near field's ([`own_force`](@ref)), `F_b` the other particles'
-fields' ([`other_force`](@ref)), and `F_ext = external[k](z, v)` an
-`isbits` callable such as [`SpringForce`](@ref). `a⃛` and `a⃜` come from
-the predictor ([`predicted_jets`](@ref)).
+fields' ([`other_force`](@ref)), `F_ext = external[k](z, v)` an
+`isbits` callable such as [`SpringForce`](@ref), and `F_N` the
+`interaction` with the other particles, such as the binary's
+[`NewtonianForce`](@ref), along their jets. `a⃛` and `a⃜` come from
+the predictor ([`predicted_jets`](@ref)), which takes the same external
+forces and interaction.
 
 `past` is a [`Prescribed`](@ref) motion: the initial data are its
 retarded field, and the force takes over from it as
@@ -171,8 +174,9 @@ source reads the jets so weakly that never finding it again moves the
 force by `3·10⁻⁸ F_RR` while the force takes over, where the jets move
 up to 9% from the guess (`CODE.md`, "The equations of motion").
 """
-struct Dynamic{X<:Tuple,P<:Prescribed,T}
+struct Dynamic{X<:Tuple,I,P<:Prescribed,T}
     external::X
+    interaction::I
     past::P
     onset::T
     n2::Int
@@ -182,15 +186,18 @@ struct Dynamic{X<:Tuple,P<:Prescribed,T}
     scratch::DynamicScratch
 end
 
-function Dynamic(external::Tuple, past::Prescribed; onset::Real=0, n2::Integer=4,
-                 rule=nothing, tol::Real=1e-10, source_tol::Real=0.1)
+function Dynamic(external::Tuple, past::Prescribed; interaction=NoInteraction(),
+                 onset::Real=0, n2::Integer=4, rule=nothing, tol::Real=1e-10,
+                 source_tol::Real=0.1)
     T = eltype(first(past.path(0.0)).z)
     onset >= 0 || throw(ArgumentError("the onset must not be negative, got $onset"))
     length(external) == length(past.path(zero(T))) || throw(ArgumentError(
         "$(length(external)) external forces for $(length(past.path(zero(T)))) particles"))
     rule === nothing && (rule = SupportRule(T))
-    return Dynamic(external, past, T(onset), Int(n2), rule, T(tol), T(source_tol),
-                   DynamicScratch(nothing, nothing, nothing, nothing))
+    isbits(interaction) || throw(ArgumentError(
+        "the interaction must be isbits, got a $(typeof(interaction))"))
+    return Dynamic(external, interaction, past, T(onset), Int(n2), rule, T(tol),
+                   T(source_tol), DynamicScratch(nothing, nothing, nothing, nothing))
 end
 
 retarded_path(m::Dynamic) = m.past.path
@@ -294,7 +301,8 @@ function dynamic_residual(m::Dynamic, p::InspiralProblem{T,K}, fu, fdu, LΠ, zs,
                 F += Fb
                 Q += Qb
             end
-            Fx = m.external[k](tr.z, tr.v)
+            Fx = m.external[k](tr.z, tr.v) +
+                 pair_force(m.interaction, p.models, map(j -> j.z, jτ), k)
             Eφ = (mk.M₀ + Q) * γ * tr.a - F - (Fx - dot(tr.v, Fx) * tr.v)
             σ = handover(m, t + τ)
             return σ * Eφ + (1 - σ) * mk.M * (tr.a - trajectory_at(past[k], τ).a)
@@ -345,7 +353,7 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     fu = field_state(u, p)
     zv = particle_state(u, p)
     zs, vs = map(first, zv), map(last, zv)
-    pred = predicted_jets(p.models, m.external, zs, vs)
+    pred = predicted_jets(p.models, m.external, zs, vs; interaction=m.interaction)
     σ = handover(m, T(t))
     mix(f) = ntuple(k -> (1 - σ) * getfield(past[k], f) + σ * getfield(pred[k], f), Val(K))
     higher = ntuple(k -> (mix(:a⃛)[k], mix(:a⃜)[k]), Val(K))

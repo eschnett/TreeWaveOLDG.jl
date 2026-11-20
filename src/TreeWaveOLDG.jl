@@ -104,7 +104,8 @@ export circular_motion, hyperbolic_motion, retarded_field, point_model,
        ramped_circular_motion, binary_circular_motion, smoothstep
 
 # Dynamic particles
-export SpringForce, NoForce, spring_circle, predicted_acceleration, predicted_jets,
+export SpringForce, NoForce, NewtonianForce, NoInteraction, spring_circle, newtonian_binary,
+       predicted_acceleration, predicted_jets,
        SupportRule, support_integrals, field_force, own_force, other_force, Dynamic,
        solve_jets, dynamic_initial_state
 
