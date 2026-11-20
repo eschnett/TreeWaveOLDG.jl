@@ -35,13 +35,45 @@ the number type, so that it works on dual numbers along the motion.
 """
 function support_integrals(m::ParticleModel, traj::Trajectory, rule::SupportRule, h)
     (; z, v) = traj
+    γ = lorentz_factor(v)
+    scale = m.ℓ^3 / γ
+    S = typeof(scale * first(h(z)))
+    # The rule's points in chunks of a fixed size, threaded, and the
+    # chunks' sums added in their order: the result is the same at every
+    # thread count. A dynamic step evaluates these sums along nested dual
+    # numbers in `τ` for its own field and the other particles' at every
+    # residual, which serially was most of the solve's cost.
+    n = length(rule.w)
+    nchunks = cld(n, SUPPORT_CHUNK)
+    parts = Vector{Tuple{S,S,SVector{3,S}}}(undef, nchunks)
+    Threads.@threads :dynamic for k in 1:nchunks
+        lo = (k - 1) * SUPPORT_CHUNK + 1
+        parts[k] = support_sum(m, traj, rule, h, lo:min(n, lo + SUPPORT_CHUNK - 1), S)
+    end
+    Iρg, Iρġ, I∇ρg = parts[1]
+    for k in 2:nchunks
+        Iρg += parts[k][1]
+        Iρġ += parts[k][2]
+        I∇ρg += parts[k][3]
+    end
+    return scale * Iρg, scale * Iρġ, scale * I∇ρg
+end
+
+# The points of a chunk: 2048 of `SupportRule`'s defaults in 64 chunks,
+# one per thread of a Symmetry node.
+const SUPPORT_CHUNK = 32
+
+# `support_integrals`' sums over the rule's points `js`, without the
+# scale `ℓ³/γ`.
+function support_sum(m::ParticleModel, traj::Trajectory, rule::SupportRule, h, js,
+                     ::Type{S}) where {S}
+    (; z, v) = traj
     ℓ = m.ℓ
     γ = lorentz_factor(v)
     c = γ / (γ + 1)
-    scale = ℓ^3 / γ
-    S = typeof(scale * first(h(z)))
     Iρg, Iρġ, I∇ρg = zero(S), zero(S), zero(SVector{3,S})
-    for (y, w) in zip(rule.y, rule.w)
+    for j in js
+        y, w = rule.y[j], rule.w[j]
         ly = ℓ * y
         x = z + ly - (c * dot(v, ly)) * v
         q = dot(ly, ly)
@@ -53,7 +85,7 @@ function support_integrals(m::ParticleModel, traj::Trajectory, rule::SupportRule
         Iρġ += w * ρ * ġ
         I∇ρg += (w * g) * ∇ρ
     end
-    return scale * Iρg, scale * Iρġ, scale * I∇ρg
+    return Iρg, Iρġ, I∇ρg
 end
 
 # The particle's own near field, `Ψ - Φ_C`: the near-field terms and the
