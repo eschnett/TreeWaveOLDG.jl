@@ -138,7 +138,20 @@ mutable struct DynamicScratch
     w::Any                              # (Π_r, 0), whose rate is (0, LΠ_r)
     dw::Any
     last::Any                           # what the last solve did
+    renew::Bool                         # find the next solve's Jacobian afresh
 end
+
+"""
+    renew_jacobian!(m::Dynamic)
+
+Have the next solve of `m`'s jets find its Jacobian afresh rather than
+keep the last one, so that `m.scratch.last.jacobian` is then the one at
+that solve's state: its `ä` block's distance from `MγI` is the grid's
+self-inertia at the current `γ`, which a kept Jacobian misreads by the
+change in `γ` since it was found (`CODE.md`, "The equations of motion"
+under "Measured results"). For diagnostics; it costs a Jacobian.
+"""
+renew_jacobian!(m) = (m.scratch.renew = true; m)
 
 """
     Dynamic(external, past; interaction = NoInteraction(), onset = 0, n2 = 4,
@@ -197,7 +210,7 @@ function Dynamic(external::Tuple, past::Prescribed; interaction=NoInteraction(),
     isbits(interaction) || throw(ArgumentError(
         "the interaction must be isbits, got a $(typeof(interaction))"))
     return Dynamic(external, interaction, past, T(onset), Int(n2), rule, T(tol),
-                   T(source_tol), DynamicScratch(nothing, nothing, nothing, nothing))
+                   T(source_tol), DynamicScratch(nothing, nothing, nothing, nothing, false))
 end
 
 retarded_path(m::Dynamic) = m.past.path
@@ -407,8 +420,9 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     # converges with it all the same, so it would be kept for good. It is
     # found again when the blend has moved by a quarter, and when the
     # force has taken over.
-    fresh = sc.last === nothing || size(sc.last.jacobian) != (n, n) ||
+    fresh = sc.renew || sc.last === nothing || size(sc.last.jacobian) != (n, n) ||
             (σ != sc.last.σ && (σ == 1 || abs(σ - sc.last.σ) > 1 // 4))
+    sc.renew = false
     J = fresh ? jacobian() : sc.last.jacobian
     σJ = fresh ? σ : sc.last.σ          # the blend at which `J` was found
     iterations = 0

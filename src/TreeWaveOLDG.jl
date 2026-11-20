@@ -107,7 +107,7 @@ export circular_motion, hyperbolic_motion, retarded_field, retarded_gradient,
 export SpringForce, NoForce, NewtonianForce, NoInteraction, spring_circle,
        newtonian_binary, predicted_acceleration, predicted_jets, SupportRule,
        support_integrals, field_force, own_force, other_force, Dynamic, solve_jets,
-       dynamic_initial_state
+       dynamic_initial_state, renew_jacobian!
 
 # The binary's diagnostics
 export binding_constant, orbit_diagnostics, dipole_ddot, eccentricity_fit

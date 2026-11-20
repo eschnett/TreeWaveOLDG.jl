@@ -111,6 +111,12 @@ end
     @test dyn.scratch.last.fresh && dyn.scratch.last.σ == 1
     TreeWaveOLDG.trajectories(dyn, p, u, onset + 0.2)
     @test !dyn.scratch.last.fresh && dyn.scratch.last.σ == 1
+    # Asked for, the next solve finds it afresh, and only that one.
+    renew_jacobian!(dyn)
+    TreeWaveOLDG.trajectories(dyn, p, u, onset + 0.3)
+    @test dyn.scratch.last.fresh && !dyn.scratch.renew
+    TreeWaveOLDG.trajectories(dyn, p, u, onset + 0.4)
+    @test !dyn.scratch.last.fresh
 end
 
 @testset "A spring-held particle keeps its circle, slowed by the remainder's force" begin
