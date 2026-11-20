@@ -6,9 +6,8 @@ merged pull request and a green suite. The milestones follow
 knows it is done. Section names of `INSPIRAL.md` and `CODE.md` are used
 below without links.
 
-**Status.** M0 to M5 are done; M6a is done (2026-11-20) on branch
-`inspiral-m6a-solved`, its pull request not yet opened; M6b and M7 are
-not started; of M8,
+**Status.** M0 to M5 are done; M6a is done (2026-11-20), merged with
+pull request #21; M6b and M7 are not started; of M8,
 M8a and M8b are done (2026-11-11), M8a's gate having passed, and M8c is
 done (2026-11-14), merged with pull request #15. M8d, data that are the
 field far from an accelerated particle, is done (2026-11-15), merged with
@@ -213,11 +212,11 @@ results".
 
 ### M6a: One particle, solved
 
-Done (2026-11-20) on branch `inspiral-m6a-solved`, its pull request not
-yet opened: the solve, the predictor and the hand-over are `CODE.md`'s
-("The equations of motion"), and the spring's runs against the circle,
-the `ä` system's conditioning and the cost under "The equations of
-motion" in "Measured results".
+Done (2026-11-20); merged with pull request #21. The solve, the
+predictor and the hand-over are `CODE.md`'s ("The equations of
+motion"), and the spring's runs against the circle, the `ä` system's
+conditioning and the cost under "The equations of motion" in "Measured
+results".
 
 ### M6b: The binary's parts
 
