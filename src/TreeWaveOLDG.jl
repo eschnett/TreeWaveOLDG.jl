@@ -45,7 +45,7 @@ import ForwardDiff
 using IMEXRungeKutta: IMEXProblem, RK4, init, solve!, step!
 using KernelAbstractions: @kernel, @index, @Const, Backend, CPU, get_backend,
                           allocate, synchronize
-using LinearAlgebra: Symmetric, cholesky, det, dot, eigvals
+using LinearAlgebra: Symmetric, cholesky, det, dot, eigvals, norm
 using MultiFloats: Float64x2
 using SpecialFunctions: besselj0
 using StaticArrays: SMatrix, SVector, push, setindex
@@ -92,7 +92,7 @@ export ParticleModel, Trajectory, trajectory_at, self_inertia, particle_density,
 # The transfer between particles and grid
 export TransferTables, gauss_nodes_weights, sinh_rule, ParticleSupport, project_source!,
        projection_scratch, support_elements, pairing, reconstruct, reconstruct_gradient,
-       ball_rule, SharedNodes, average_shared!
+       ball_rule, SharedNodes, average_shared!, source_pairing
 
 # The coupled problem
 export InspiralProblem, Prescribed, uniform_motion, field_state, particle_state,
@@ -102,6 +102,11 @@ export InspiralProblem, Prescribed, uniform_motion, field_state, particle_state,
 # Prescribed paths
 export circular_motion, hyperbolic_motion, retarded_field, point_model,
        ramped_circular_motion, binary_circular_motion, smoothstep
+
+# Dynamic particles
+export SpringForce, NoForce, spring_circle, predicted_acceleration, predicted_jets,
+       SupportRule, support_integrals, field_force, own_force, other_force, Dynamic,
+       solve_jets, dynamic_initial_state
 
 # Waveforms
 export SphereExtraction, sphere_values, sphere_modes, harmonic_modes, spherical_harmonics,
@@ -125,6 +130,8 @@ include("particle.jl")
 include("transfer.jl")
 include("inspiral.jl")
 include("prescribed.jl")
+include("predictor.jl")
+include("dynamic.jl")
 include("extraction.jl")
 
 end

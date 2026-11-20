@@ -199,6 +199,17 @@ below takes about a minute on four threads:
 julia --project=. -t 4,0 bin/prescribed.jl --path=hyperbolic --hdiv=2 --levels=3 --tend=0.25 --ball --R1=48
 ```
 
+A particle that moves under its forces ("The equations of motion"),
+held on M4's circle by a spring, from the circle's retarded field, in
+the package environment; `--prescribed` runs the circle on the same grid.
+On Symmetry `sbatch bin/symmetry/dynamic.sh` after its `setup` runs
+M6a's series, the runs given in `TREEWAVEOLDG_RUNS`. The run below takes
+about three minutes on four threads:
+
+```bash
+julia --project=. -t 4,0 bin/dynamic.jl --hdiv=2 --levels=3 --tend=0.125 --rx1=10 --rx2=14 --onset=0.5 --v=0.2
+```
+
 The movie of two charges on a circle ("The movie"): `bin/orbit_movie.jl`
 writes frames of the field in the orbit's plane, `bin/orbit_exact.jl`
 the exact field's frames for the same options (about a second per frame
@@ -480,6 +491,12 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   impulse in time that no stage sees, and the window then sends out a
   pulse that no resolution removes; at `t = 0` the data take the jump.
   A ramp that ends during the run needs `n₂ ≥ 4` ("Assumed pasts").
+- **A dynamic particle's solve reads `wave_rhs!`'s rate of `v` before the
+  source is subtracted.** `inspiral_rhs!` calls `rhs_trajectories`
+  between `wave_rhs!` and the projection; do not move it after the
+  projection, and keep `source_pairing` choosing the projection's rule
+  per element, or the solve reads another source than the evolution
+  writes ("The equations of motion").
 - **The asserted rates are measurements.** If one moves, re-measure and
   update "Measured results" rather than widen a tolerance.
 

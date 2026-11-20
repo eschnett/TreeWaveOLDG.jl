@@ -471,6 +471,35 @@ end
                                                              continuous=true)
 end
 
+@testset "The source's pairing without a field is the projection's, paired" begin
+    # Guards `source_pairing`, the local `⟨K, A P S⟩` that the dynamic
+    # particle's solve reads the source's force through: it must project
+    # the source on the support's elements and on every element sharing a
+    # node with them, as `project_source!` does there, and average and
+    # pair as the continuous pairing does, for `ρ` and `∇ρ`, with a
+    # support straddling element faces.
+    P = 3
+    forest = wave_forest(Float64, Val(3), P, 2; roots=4)
+    p = WaveProblem(forest, Element(Float64, P))
+    t = TransferTables(Float64, P)
+    hₑ = TWT.minimum_spacing(forest) * (P + 1)
+    m = ParticleModel(; Q=0.07, ℓ=0.02hₑ, M=1.0)
+    c = SVector(0.5, 0.5, 0.5)
+    # On a circle about an element corner, its support across the faces.
+    tr = circular_motion(c + SVector(0.003, -0.002, 0.004) * hₑ, 0.01hₑ, 0.2).path(0.0)[1]
+    S = ParticleSource((m,), Window(c, 0.1, 0.2; continuity=4), (tr,); order=3)
+    s = ParticleSupport(m, tr)
+    ρ(x) = particle_density(m, x, tr.z, tr.v)
+    ∇ρ(x) = ForwardDiff.gradient(ρ, x)
+    du = statevector(p.fs)
+    du .= 0
+    project_source!(du, p, t, S, (s,); ball=(tr.z, 3hₑ), factor=1.0, var=1)
+    for continuous in (false, true), K in (ρ, ∇ρ)
+        ref = pairing(p, t, du, K, s; continuous)
+        @test source_pairing(p, t, S, K, s; continuous) ≈ ref rtol = 1e-12
+    end
+end
+
 @testset "The source is averaged as the pairing reads, and self-adjointly" begin
     # Guards `average_shared!`, through which the inspiral writes its
     # source: one dimension at a time it must give each node the mean over

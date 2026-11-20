@@ -1448,6 +1448,16 @@ end
 # global leaves: the state array serially, `BlockCopies` otherwise.
 function continuous_values(fs::FieldSet{T,D}, ua, b, e::NTuple{D}, var, ::Val{P1},
                            frame::ParticleFrame=ParticleFrame(fs)) where {T,D,P1}
+    read(bn, en, Kn) = ua[ntuple(d -> en[d] * P1 + Kn[d], Val(D))..., var, bn]
+    return continuous_values(fs, read, b, e, Val(P1), frame)
+end
+
+# The same for values that `read(leaf, element, node)` gives, the node a
+# tuple of one-based indices within the element, which may be any numbers
+# that add and divide: a state's, or a source's projection
+# ([`source_pairing`](@ref)).
+function continuous_values(fs::FieldSet{T,D}, read, b, e::NTuple{D}, ::Val{P1},
+                           frame::ParticleFrame=ParticleFrame(fs)) where {T,D,P1}
     E = fs.forest.N ÷ P1
     key = fs.forest.leaves[b]
     lo, hi = element_box(frame_origin(fs.forest, frame, key),
@@ -1471,13 +1481,14 @@ function continuous_values(fs::FieldSet{T,D}, ua, b, e::NTuple{D}, var, ::Val{P1
     return SVector{P1^D}(ntuple(Val(P1^D)) do n
         K = CartesianIndices(ntuple(_ -> P1, Val(D)))[n]
         dirs = ntuple(d -> K[d] == 1 ? -1 : K[d] == P1 ? 1 : 0, Val(D))
-        acc = zero(T)
-        count = 0
-        for J in CartesianIndices(ntuple(d -> dirs[d] == 0 ? 1 : 2, Val(D)))
+        acc = read(b, e, Tuple(K))
+        count = 1
+        for J in Iterators.drop(CartesianIndices(ntuple(d -> dirs[d] == 0 ? 1 : 2, Val(D))),
+                                1)
             s = ntuple(d -> J[d] == 1 ? 0 : dirs[d], Val(D))
             bn, en = neighbour(s)
             Kn = ntuple(d -> s[d] == 0 ? K[d] : s[d] < 0 ? P1 : 1, Val(D))
-            acc += ua[ntuple(d -> en[d] * P1 + Kn[d], Val(D))..., var, bn]
+            acc += read(bn, en, Kn)
             count += 1
         end
         acc / count
@@ -1780,6 +1791,141 @@ function pairing(p::WaveProblem{T,D}, t::TransferTables{T,P1}, u, K,
                              frame_spacing(p.fs.forest, frame, key), e, Val(P1), Val(D))
         g = continuous ? continuous_values(p.fs, ua, b, e, var, Val(P1), frame) :
             element_values(ua, b, e, var, Val(P1))
+        acc += nested_rule(x -> K(x) * dot(g, element_basis(t, lo, hi, x)), zero(acc), s,
+                           t, lo, hi, SVector{0,T}(), Val(D), true)
+    end
+    return acc
+end
+
+"""
+    source_pairing(p::WaveProblem, t::TransferTables, S, K, s::ParticleSupport;
+                   continuous = true, rnear = 1)
+
+`⟨K, A P S⟩`: the [`pairing`](@ref) of a particle kernel `K` with the
+projection `P S` of a source `S(x)` ([`project_source!`](@ref)),
+followed with `continuous = true` by the averaging over shared nodes
+`A` ([`average_shared!`](@ref)), as [`inspiral_rhs!`](@ref) writes the
+source and [`particle_forces`](@ref) reads the field; without a field.
+The source is projected on the elements that meet the support
+([`support_elements`](@ref)) and, for the averaging, on those that share
+a node with them, each by the rule the projection takes there with the
+same `rnear` (the nested rule split at the support within `rnear·hₑ` of
+it, a graded one beyond), and paired there. `S`
+and `K` may return dual numbers, but not of two different tags, and `K`
+a static vector. It reads no state and is the same on every rank.
+"""
+function source_pairing(p::WaveProblem{T,D}, t::TransferTables{T,P1}, S, K,
+                        s::ParticleSupport{D}; continuous::Bool=true,
+                        rnear::Real=1) where {T,D,P1}
+    return pair_projected(t, projected_source(p, t, S, s; continuous, rnear), K, s)
+end
+
+# `A P S` (or `P S`) on the elements that meet the support, as
+# `(lo, hi, values)` per element, for [`pair_projected`](@ref
+# TreeWaveOLDG.pair_projected): the projection of `source_pairing`, which
+# several kernels then read without projecting again.
+function projected_source(p::WaveProblem{T,D}, t::TransferTables{T,P1}, S,
+                          s::ParticleSupport{D}; continuous::Bool=true,
+                          rnear::Real=1) where {T,D,P1}
+    check_tables(p, t)
+    frame = ParticleFrame(p)
+    forest = p.fs.forest
+    elements = support_elements(p, s, frame)
+    box(b, e) = element_box(frame_origin(forest, frame, forest.leaves[b]),
+                            frame_spacing(forest, frame, forest.leaves[b]), e, Val(P1),
+                            Val(D))
+    hₑ = frame_hₑ(forest, frame, P1)
+    # The rule the projection takes there (`host_elements`): the nested
+    # one within `rnear·hₑ` of the particle, a graded one beyond.
+    distance(b, e) = (bx = box(b, e); sqrt(box_distance2(s.z, bx[1], bx[2], 1:D)) / hₑ)
+    nested(b, e) = distance(b, e) < rnear
+    function graded(b, e)
+        lo, hi = box(b, e)
+        band = something(findlast(<=(distance(b, e)), t.gradedfrom), 1)
+        return tensor_rule(S, t.graded[band], lo, hi, lo, Val(D))
+    end
+    integrand(lo, hi) = x -> S(x) * element_basis(t, lo, hi, x)
+    # The elements to project: the support's, and for the averaging every
+    # element that shares a node with one of them.
+    needed = copy(elements)
+    if continuous
+        dom = frame_domain(forest, frame)
+        for (b, e) in elements
+            lo, hi = box(b, e)
+            for o in CartesianIndices(ntuple(_ -> -1:1, D))
+                x = (lo + hi) / 2 + SVector(Tuple(o)) .* (hi - lo)
+                all(d -> dom[d][1] < x[d] < dom[d][2], 1:D) || continue
+                be = locate_element(p.fs, Val(P1), x, frame)[1:2]
+                be in needed || push!(needed, be)
+            end
+        end
+    end
+    # In parallel: a graded element whole, a nested one point by point of
+    # its outermost line's rule, as `project_near_host!` does, since the
+    # support's own element costs far more than all the others together.
+    # The points' integrals are summed per segment and the segments in
+    # order, as `nested_rule` sums them.
+    lo₁, hi₁ = box(needed[1]...)
+    init = zero(integrand(lo₁, hi₁)((lo₁ + hi₁) / 2))
+    A = typeof(init)
+    segments = Tuple{Int,Vector{T},Vector{T}}[]
+    for (i, be) in enumerate(needed)
+        nested(be...) || continue
+        lo, hi = box(be...)
+        line_fold((list, xs, ws) -> push!(list, (i, collect(T, xs), collect(T, ws))),
+                  segments, s, t, lo, hi, SVector{0,T}(), D == 1, false, Val(D))
+    end
+    items = Tuple{Int,Int,Int}[]        # (segment or 0 if graded, element, point)
+    for (i, be) in enumerate(needed)
+        nested(be...) || push!(items, (0, i, 0))
+    end
+    for (j, (i, xs, _)) in enumerate(segments), k in eachindex(xs)
+        push!(items, (j, i, k))
+    end
+    parts = Vector{A}(undef, length(items))
+    Threads.@threads :greedy for n in eachindex(items)
+        j, i, k = items[n]
+        if j == 0
+            parts[n] = graded(needed[i]...)
+        else
+            lo, hi = box(needed[i]...)
+            parts[n] = nested_rule(integrand(lo, hi), init, s, t, lo, hi,
+                                   SVector{1,T}(segments[j][2][k]), Val(D - 1), false)
+        end
+    end
+    values = Vector{A}(undef, length(needed))
+    sums = fill(init, length(needed))
+    for (n, (j, i, _)) in enumerate(items)
+        j == 0 && (values[i] = parts[n])
+    end
+    n = count(it -> it[1] == 0, items)  # the graded items come first
+    for (i, _, ws) in segments
+        acc = init
+        for k in eachindex(ws)
+            acc += ws[k] * parts[n += 1]
+        end
+        sums[i] += acc
+    end
+    for (i, be) in enumerate(needed)
+        nested(be...) || continue
+        lo, hi = box(be...)
+        values[i] = sums[i] ./ element_weights(t, hi[1] - lo[1], Val(D))
+    end
+    cache = Dict(zip(needed, values))
+    nodes = LinearIndices(ntuple(_ -> P1, Val(D)))
+    read(b, e, K) = cache[(b, e)][nodes[K...]]
+    return map(elements) do (b, e)
+        lo, hi = box(b, e)
+        g = continuous ? continuous_values(p.fs, read, b, e, Val(P1), frame) : cache[(b, e)]
+        (lo, hi, g)
+    end
+end
+
+# `⟨K, A P S⟩` from [`projected_source`](@ref
+# TreeWaveOLDG.projected_source), as the pairing reads a field.
+function pair_projected(t::TransferTables{T}, proj, K, s::ParticleSupport{D}) where {T,D}
+    acc = zero(K(s.z) * zero(eltype(proj[1][3])))
+    for (lo, hi, g) in proj
         acc += nested_rule(x -> K(x) * dot(g, element_basis(t, lo, hi, x)), zero(acc), s,
                            t, lo, hi, SVector{0,T}(), Val(D), true)
     end
