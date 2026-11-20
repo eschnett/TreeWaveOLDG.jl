@@ -10,7 +10,7 @@
 #         --backend=cuda [--type=f64]
 #
 # The environment `Pkg.develop`s the checkout and adds MPI and the device
-# package (`bin/symmetry/distributed_gpu.sh` builds it). The inspiral needs
+# package (`jobs/distributed_gpu.toml` names it). The inspiral needs
 # `Float64`, so it runs on CUDA only; Metal runs the field in `Float32`.
 
 using MPI

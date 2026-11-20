@@ -1,0 +1,22 @@
+# The four-patch annulus, TreeAMR's M17 acceptance: `bin/annulus.jl`, the
+# rotating Neumann Bessel mode on TreeAMR's ring of four patches, its
+# convergence over `P = 2 … 5` and root scales 1, 2, 4, 8, with and
+# without truncation, and the energy's loss at `cfl = 1/2, 1/4, 1/8`
+# ("The annulus" under "Measured results" in `CODE.md`).
+name = "annulus"
+description = "TreeWaveOLDG's four-patch annulus: convergence and energy loss"
+pin = true
+
+[site.symmetry]
+time = "1:00:00"
+
+[after]
+cmd = 'for d in $SIMLAUNCH_JOBDIRS; do echo "== $d"; cat "$d/output.log"; done'
+
+[[run]]
+label = "convergence"
+cmd = "bin/annulus.jl --P=2,3,4,5 --scales=1,2,4,8 --truncate=yes,no --m=2 --turns=0.25"
+
+[[run]]
+label = "energy"
+cmd = "bin/annulus.jl --P=3 --scales=2 --truncate=yes,no --m=2 --turns=1 --cfls=0.5,0.25,0.125"

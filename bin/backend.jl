@@ -2,7 +2,7 @@
 # TreeWave's `bin/backend.jl`. The device package is loaded only when asked
 # for: neither CUDA nor Metal is a dependency of this package or of
 # TreeAMR, so a script run on a device runs against an environment of its
-# own that adds one (`bin/symmetry/gpu.sh` builds it). The load is a
+# own that adds one (`jobs/gpu.toml` names it). The load is a
 # `Core.eval` into `Main`, and the work then runs through `invokelatest`,
 # since a script's `main` is already running when the device package adds
 # its methods: in `main`'s world every dispatch on the new backend would

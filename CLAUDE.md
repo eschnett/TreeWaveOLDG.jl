@@ -59,6 +59,18 @@ The first takes about 6m50 on the laptop, the third about 4m30. The
 kernels are `@inbounds`, so run the second one too after touching a
 kernel or the layout.
 
+Runs on a cluster go through SimLaunch's job specs in `jobs/` (its
+`CONVERTING.md` and `SPEC.md` in `~/src/jl/SimLaunch`): a snapshot of
+the checkout, prepared once per site, then one job per spec. Before a
+pull request the suite runs on Symmetry three ways in one job, about an
+hour; a changed file is a new snapshot under a new study name:
+
+```bash
+simlaunch snapshot . --study twoldg-<commit> --note "<what it is for>"
+simlaunch prepare twoldg-<commit> --site symmetry --spec jobs/suite.toml
+simlaunch submit twoldg-<commit> jobs/suite.toml --site symmetry
+```
+
 The viewer, in its own environment (CairoMakie is not a package
 dependency), about 20 seconds; it writes `bin/output/blast_2d.png`, and
 with `--adaptive` the adaptive run's `blast_2d_adaptive.png`, block
@@ -77,9 +89,9 @@ glued faces and the rotating mode's error ("The viewer"):
 julia --project=bin -t 4,0 bin/visualize_annulus.jl
 ```
 
-The benchmark, in the package environment; on Symmetry,
-`sbatch bin/symmetry/benchmark.sh` from a rsynced checkout runs it at
-1–64 threads ("Threads on Symmetry" in `CODE.md`):
+The benchmark, in the package environment; on Symmetry
+`jobs/benchmark.toml` runs it at 1–64 threads ("Threads on Symmetry" in
+`CODE.md`):
 
 ```bash
 julia --project=. -t 4,0 bin/benchmark.jl --scan=4:8
@@ -87,8 +99,7 @@ julia --project=. -t 4,0 bin/benchmark.jl --scan=4:8
 
 The same on the thirteen-patch ball, by default the benchmark ball of
 `1.9·10⁷` nodes, about a minute on four threads (5 GB);
-`sbatch bin/symmetry/ball_benchmark.sh` after its `setup` runs it at
-1–64 threads beside the flat box:
+`jobs/ball_benchmark.toml` runs it at 1–64 threads beside the flat box:
 
 ```bash
 julia --project=. -t 4,0 bin/ball_benchmark.jl
@@ -99,13 +110,13 @@ On a GPU ("On a device"): the device tests and both benchmarks take
 laptop's GPU has no `Float64`), in an environment of your own that
 `Pkg.develop`s the checkout and adds Metal, TreeAMR, StaticArrays,
 ForwardDiff and IMEXRungeKutta, since no device package is a dependency;
-about a minute. On Symmetry `sbatch bin/symmetry/gpu.sh` runs them on
-one H200 in `Float64` and `Float32`, and `bin/far_rule.jl`, the far rule
-of the source projection on the device. `bin/nested_ball.jl`,
+about a minute. On Symmetry `jobs/gpu.toml` runs them on one H200 in
+`Float64` and `Float32`, and `bin/far_rule.jl`, the far rule of the
+source projection on the device. `bin/nested_ball.jl`,
 `bin/prescribed.jl` and `bin/uniform_motion.jl` take `--backend=cuda`
 too, the particle drivers in `Float64` only, so not on Metal;
-`bin/symmetry/gpu_scans.sh` runs M8c's reflection scans with them on an
-H200, after its `SCAN=tests` job:
+`jobs/gpu_pulses.jl` and `jobs/gpu_scans.jl` run M8's scans with them
+on an H200:
 
 ```bash
 TREEWAVEOLDG_TEST_BACKEND=metal julia --project=<env> -t 4,0 test/device_tests.jl
@@ -121,9 +132,7 @@ TreeAMR, StaticArrays, Test and IMEXRungeKutta, about two minutes:
 julia --project=<env> -e 'using Test; include("test/mpi_tests.jl")'
 ```
 
-On Symmetry, from a rsynced checkout, `sbatch --export=ALL,MODE=plain`
-(or `t4`, `cb`) `bin/symmetry/suite.sh` runs the suite one way per job,
-and `sbatch bin/symmetry/distributed_gpu.sh` the CUDA device tests and
+On Symmetry `jobs/distributed_gpu.toml` runs the CUDA device tests and
 one problem on two H200s over MPI against one (`bin/distributed_gpu.jl`,
 which also takes `--backend=metal` under `mpiexec` on the laptop).
 
@@ -136,8 +145,7 @@ julia --project=. -t 4,0 bin/projection.jl --hdiv=8
 
 A particle in uniform motion against its exact remainder ("Uniform
 motion"), in the package environment; its series, clean-time runs and
-costs run on Symmetry, `sbatch bin/symmetry/uniform_motion.sh` from a
-rsynced checkout after `bash bin/symmetry/uniform_motion.sh setup`:
+costs run on Symmetry, `jobs/uniform_motion.jl`:
 
 ```bash
 julia --project=. -t 4,0 bin/uniform_motion.jl --hdiv=4 --tend=0.125 --cost
@@ -145,8 +153,8 @@ julia --project=. -t 4,0 bin/uniform_motion.jl --hdiv=4 --tend=0.125 --cost
 
 The same on nested boxes, and outgoing waves through them, the field
 alone ("Nested boxes"), in the package environment; on Symmetry
-`sbatch bin/symmetry/nested_motion.sh` and `nested_waves.sh`, each after
-its `setup`. The smallest runs take under half a minute on four threads:
+`jobs/nested_motion.jl` and `nested_waves.jl`. The smallest runs take
+under half a minute on four threads:
 
 ```bash
 julia --project=. -t 4,0 bin/uniform_motion.jl --hdiv=4 --levels=2 --tend=0.0625
@@ -155,8 +163,7 @@ julia --project=. -t 4,0 bin/nested_waves.jl --levels=2 --w0=2 --hdiv=4 --lambda
 
 The same pulse, and its dipole, through the uniform seven-patch ball's
 radiative sphere ("The radiative sphere"), in the package environment;
-on Symmetry `sbatch bin/symmetry/sphere_waves.sh` after its `setup`, with
-the runs in `TREEWAVEOLDG_RUNS`. The run below takes about two and a
+on Symmetry `jobs/sphere_waves.jl`. The run below takes about two and a
 half minutes on four threads, half of it `WaveProblem`'s serial setup;
 the plan's ball at `R₁ = 50` takes 12 hours on 64:
 
@@ -166,8 +173,7 @@ julia --project=. -t 4,0 bin/sphere_waves.jl --R1=12 --Lc=4 --n=4 --m=2 --E=4 --
 
 A particle on a prescribed path, the slow circle or hyperbolic motion
 ("Prescribed paths"), in the package environment; on Symmetry
-`sbatch bin/symmetry/prescribed.sh` after its `setup`, with the runs in
-`TREEWAVEOLDG_RUNS`. The smallest runs, on three levels at `hₑ = 1/2`,
+`jobs/prescribed.jl`. The smallest runs, on three levels at `hₑ = 1/2`,
 take about half a minute on four threads; `--reading` reads the exact
 remainder's force without evolving it:
 
@@ -190,10 +196,8 @@ Both particle drivers take `--ball`: the outermost nested cube becomes
 the seven-patch ball's cube, with shells to a Sommerfeld sphere at
 `--R1` ("Particles in the ball"). With `R1 = 3Lc` the ball keeps the
 boxes' step and gives their numbers to rounding. On Symmetry
-`sbatch bin/symmetry/ball_motion.sh` after its `setup` runs the particle
-in uniform motion and at rest in the ball, and `prescribed.sh` the
-circle with `TREEWAVEOLDG_EXTRA="--ball --levels=3 --R1=50"`. The run
-below takes about a minute on four threads:
+`jobs/ball_motion.jl` runs the particle in uniform motion and at rest in
+the ball. The run below takes about a minute on four threads:
 
 ```bash
 julia --project=. -t 4,0 bin/prescribed.jl --path=hyperbolic --hdiv=2 --levels=3 --tend=0.25 --ball --R1=48
@@ -202,9 +206,9 @@ julia --project=. -t 4,0 bin/prescribed.jl --path=hyperbolic --hdiv=2 --levels=3
 A particle that moves under its forces ("The equations of motion"),
 held on M4's circle by a spring, from the circle's retarded field, in
 the package environment; `--prescribed` runs the circle on the same grid.
-On Symmetry `sbatch bin/symmetry/dynamic.sh` after its `setup` runs
-M6a's series, the runs given in `TREEWAVEOLDG_RUNS`. The run below takes
-about three minutes on four threads:
+On Symmetry `jobs/dynamic.jl` runs M6a's `d/4`, and
+`jobs/dynamic_series.jl` the rest of its series, a job per run. The run
+below takes about three minutes on four threads:
 
 ```bash
 julia --project=. -t 4,0 bin/dynamic.jl --hdiv=2 --levels=3 --tend=0.125 --rx1=10 --rx2=14 --onset=0.5 --v=0.2
@@ -215,8 +219,8 @@ writes frames of the field in the orbit's plane, `bin/orbit_exact.jl`
 the exact field's frames for the same options (about a second per frame
 of the default grids), and `bin/visualize_orbit.jl`, in the viewers'
 environment, the images and the `.mp4` into `bin/output/`. The full run
-goes to an H200 (`SCAN=movie` of `bin/symmetry/gpu_scans.sh`, after a
-`SCAN=tests` that builds its environment). The small run below takes
+goes to an H200 (the run `movie-h4` of `jobs/gpu_scans.jl`). The small
+run below takes
 about half an hour on four threads:
 
 ```bash
@@ -237,8 +241,7 @@ julia --project=. -t 4,0 bin/dispersion.jl --front --truncate=yes
 
 The four-patch annulus ("The annulus"), its convergence series and
 energy loss, in the package environment, a few seconds per run on four
-threads; on Symmetry `sbatch bin/symmetry/annulus.sh` after its `setup`,
-from a rsynced checkout:
+threads; on Symmetry `jobs/annulus.toml`:
 
 ```bash
 julia --project=. -t 4,0 bin/annulus.jl --P=3 --scales=1,2 --truncate=yes
@@ -274,8 +277,7 @@ julia --project=. -t 4,0 bin/sevenpatch.jl --P=2,3 --scales=1,2 --Rm=2
 with shells out to a radiative sphere ("A refined cube"), in the package
 environment, a few minutes at these options on four threads, most of it
 the shells' truncation tables; `--cost=yes` times it beside the nested
-boxes. On Symmetry `sbatch bin/symmetry/nested_ball.sh` after its
-`setup`:
+boxes. On Symmetry `jobs/nested_ball.jl`:
 
 ```bash
 julia --project=. -t 4,0 bin/nested_ball.jl --levels=2 --w0=2 --hdiv=4 --lambda=4 --tend=1
@@ -524,7 +526,7 @@ guards.
   changes and tags run nothing. So run the full suite locally before
   opening a pull request: that is the macOS run the pull request does not
   get. Do not drop its `check_bounds: 'yes'` line ("The right-hand side").
-- `Manifest.toml` (root and `bin/`), `bin/output/` and `TODO.md` are
-  gitignored. `bin/` has its own Manifest, so after a dependency change
+- `Manifest.toml` (root and `bin/`), `bin/output/`, `simlaunch-data/`
+  (where `simlaunch fetch` puts results) and `TODO.md` are gitignored. `bin/` has its own Manifest, so after a dependency change
   update both, or the viewer fails on an API the tests already use. `TODO.md` is the owner's
   own list: do not edit it, and move nothing into or out of it.

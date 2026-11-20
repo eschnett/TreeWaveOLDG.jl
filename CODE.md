@@ -2906,8 +2906,9 @@ two levels and the particles on its finest level.
   outgoing pulse `[g(r - t) - g(r + t)]/r`, `g(s) = exp(-(s/σ)²)
   cos(2πs/λ)`, `σ = λ/2`, through the levels, the field alone, and
   records the error and the exact solution in the ball of each level's
-  cube, `w_k = 2^k·w₀`, and the energy. `bin/symmetry/nested_motion.sh`
-  and `bin/symmetry/nested_waves.sh` run them on a Symmetry node.
+  cube, `w_k = 2^k·w₀`, and the energy. The job specs
+  `jobs/nested_motion.jl` and `jobs/nested_waves.jl` run them on a
+  Symmetry node.
 
 **What the coarse-fine faces send back.** Measured on Symmetry (under
 [Nested boxes](#nested-boxes-1) in "Measured results"):
@@ -3137,7 +3138,8 @@ its pulse written without a `Float64` literal, and on Metal in `Float32`
 it gives the CPU's numbers to `Float32` rounding; on the CPU the three
 drivers give their earlier rows bit for bit. A device test runs the
 particles in the ball against the host, in `Float64`, so on CUDA only.
-`bin/symmetry/gpu_scans.sh` runs the reflection scans on an H200.
+`jobs/gpu_pulses.jl` and `jobs/gpu_scans.jl` run the reflection scans
+on an H200.
 
 **Not done.** The thirteen-patch ball's frame is the seven-patch ball's
 (a test), and no particle has run in it.
@@ -3379,8 +3381,8 @@ smooth one, and a smooth departure from it:
   form.
 
 `bin/prescribed.jl` takes them as `--past=spinup --T --ramp --n` and
-`--depart --onset --n2` on the circle, and `bin/symmetry/gpu_scans.sh`
-as `SCAN=past` and `SCAN=depart`. The data, the reference and
+`--depart --onset --n2` on the circle, and `jobs/gpu_scans.jl` as its
+runs `past-n4-h6` and `depart-n20-n4-h6`. The data, the reference and
 `--reading` all take `p.motion.path`, so they follow the path with no
 change. A departure that jumps in `a` (`n2 = 0`) gives the remainder at
 `t = 0` an `r⁰` structure about the particle, `Ψ̂` reading the new `a`
@@ -3601,15 +3603,14 @@ and the retarded field's, run below with the frame's time marked. The run on an 
   `bin/output/` is gitignored.
 - `bin/benchmark.jl`: the cost of a step and its parts, one
   tab-separated row per phase, run in the package environment;
-  `bin/symmetry/benchmark.sh` runs it at several thread counts on a
-  Symmetry AMD node, with `bin/symmetry/simwatch.sh` reporting its
-  stages to SimWatch.
+  `jobs/benchmark.toml` runs it at several thread counts on a Symmetry
+  AMD node.
 - `bin/ball_benchmark.jl`: the same on the thirteen-patch ball, by
   default the benchmark ball (under "Threads on Symmetry" in [Measured
   results](#measured-results)), with the sizes, step, memory and build
   time; `--scan` over the roots separates the three layers' costs.
-  `bin/symmetry/ball_benchmark.sh` runs it at several thread counts and
-  the flat box beside it.
+  `jobs/ball_benchmark.toml` runs it at several thread counts and the
+  flat box beside it.
 - `bin/backend.jl`: `--backend=cpu|cuda|metal` and `--type=f64|f32` for
   both benchmarks, loading the device package only when asked for, and
   their timer, which waits for the device.
@@ -3617,17 +3618,15 @@ and the retarded field's, run below with the frame's time marked. The run on an 
   against the host, the gate for moving the particles there.
   `bin/source_probe.jl`: the source alone on a CUDA device, its
   registers, local memory and time per point for variants of the call.
-  `bin/symmetry/gpu.sh` runs the device tests, both benchmarks and it on
-  one H200 of Symmetry, in an environment of its own that adds CUDA.
+  `jobs/gpu.toml` runs the device tests, both benchmarks and it on one
+  H200 of Symmetry, in the test environment with CUDA added.
 - `bin/distributed_gpu.jl`: a periodic box, the seven-patch ball's
   radiative sphere and, in `Float64`, a particle on nested boxes, over
   MPI with a device per rank, against the same problems on one device:
   whether the states are equal bit for bit, their largest difference and
   the forces' ([Running distributed](#running-distributed)).
-  `bin/symmetry/distributed_gpu.sh` runs the CUDA device tests and then
-  it on two H200s, in an environment of its own that adds CUDA and MPI.
-- `bin/symmetry/suite.sh`: the test suite on a Symmetry AMD node, one way
-  per job (`MODE=plain`, `t4` or `cb`).
+  `jobs/distributed_gpu.toml` runs the CUDA device tests and then it on
+  two H200s, in the test environment with CUDA and MPI added.
 - `bin/projection.jl`: the cost of the transfer on the first run's
   source, one tab-separated row per quantity, run in the package
   environment.
@@ -3637,9 +3636,9 @@ and the retarded field's, run below with the frame's time marked. The run on an 
   error against the exact remainder, its force and, with `--cost`, the
   cost of a right-hand side and its parts and the bytes per node, one
   tab-separated row per quantity, run in the package environment;
-  `bin/symmetry/uniform_motion.sh` runs M3's convergence series,
+  `jobs/uniform_motion.jl` runs M3's convergence series,
   `bin/projection.jl` and its clean-time runs on a Symmetry AMD node, and
-  `bin/symmetry/nested_motion.sh` M3b's on nested boxes.
+  `jobs/nested_motion.jl` M3b's on nested boxes.
 - `bin/prescribed.jl`: one particle of the first run on the slow circle
   or in hyperbolic motion on nested boxes, or with `--ball` in the
   seven-patch ball's cube, its force every step in
@@ -3650,21 +3649,22 @@ and the retarded field's, run below with the frame's time marked. The run on an 
   and the retarded field's ([Waveforms](#waveforms)); `--past` and
   `--depart` give the circle an assumed past and a departure ([Assumed
   pasts](#assumed-pasts));
-  `bin/symmetry/prescribed.sh` runs it on a Symmetry AMD node, one
-  run per `path:hdiv:order[:tend]` of `TREEWAVEOLDG_RUNS`.
+  `jobs/prescribed.jl` runs it on a Symmetry AMD node.
 - `bin/dynamic.jl`: the spring-held particle on M4's circle, from the
   circle's retarded field, the force taking over over `--onset`; the
   remainder's force in components, the drift from the circle, the
   solve's iterations and projections, and the `ä` block's conditioning
   and `δm_h`; `--prescribed` runs the circle on the same grid and steps
   ([The equations of motion](#the-equations-of-motion)).
+  `jobs/dynamic.jl` and `jobs/dynamic_series.jl` run M6a's series on a
+  Symmetry AMD node.
 - `bin/waves_io.jl`: `--waves` of `bin/prescribed.jl` and
   `bin/orbit_movie.jl`, the modes on spheres and the retarded field's.
 - `bin/orbit_movie.jl`, `bin/orbit_exact.jl`, `bin/plane_io.jl`,
   `bin/visualize_orbit.jl`: the movie of two charges on a circle, its
   run in the ball, its exact frames, their format, and its viewer in the
-  viewers' environment ([The movie](#the-movie)); `SCAN=movie` of
-  `bin/symmetry/gpu_scans.sh` runs it on an H200.
+  viewers' environment ([The movie](#the-movie)); the run `movie-h4`
+  of `jobs/gpu_scans.jl` runs it on an H200.
 - `bin/waveforms.jl`: the waveforms of a series of `--waves` files
   against their reference or M8e's uniform start's exact solution, in
   the package environment ([Waveforms](#waveforms)).
@@ -3677,38 +3677,52 @@ and the retarded field's, run below with the frame's time marked. The run on an 
 - `bin/ball.jl`: the seven-patch ball with nested cubes in its cube,
   included by `bin/uniform_motion.jl` and `bin/prescribed.jl` for their
   `--ball` ([Particles in the ball](#particles-in-the-ball)).
-  `bin/symmetry/ball_motion.sh` runs `uniform_motion.jl --ball`, M3b's
-  series and the particle at rest past the boxes' clean time, each beside
-  the boxes of the cube's levels, on a Symmetry AMD node; `prescribed.sh` takes `--ball` through
-  `TREEWAVEOLDG_EXTRA`.
+  `jobs/ball_motion.jl` runs `uniform_motion.jl --ball`, M3b's series
+  and the particle at rest past the boxes' clean time, each beside the
+  boxes of the cube's levels, on a Symmetry AMD node.
 - `bin/annulus.jl`: the annulus's convergence series and energy loss,
   one tab-separated row per run, in the package environment;
-  `bin/symmetry/annulus.sh` runs it on a Symmetry AMD node.
+  `jobs/annulus.toml` runs it on a Symmetry AMD node.
 - `bin/sevenpatch.jl`: the plane wave's convergence series on the
   seven-patch ball, or with `--Rm` the thirteen-patch ball, or with
   `--boundary=radiative` the outgoing pulse's under a radiative boundary,
   one tab-separated row per run, in the package environment.
 - `bin/nested_waves.jl`: the exact outgoing pulse through nested boxes,
   the field alone, its error and the exact solution in each level's
-  ball, run in the package environment; `bin/symmetry/nested_waves.sh`
-  runs it on a Symmetry AMD node.
+  ball, run in the package environment; `jobs/nested_waves.jl` runs it
+  on a Symmetry AMD node.
 - `bin/sphere_waves.jl`: the same pulse, and its dipole, through the
   uniform seven-patch ball's radiative sphere, or with `--Rm --m2` the
   thirteen-patch ball's, the field alone, its
   error and the exact solution in physical balls about the centre and
   the energy, run in the package environment;
-  `bin/symmetry/sphere_waves.sh` runs it on a Symmetry AMD node ([The
+  `jobs/sphere_waves.jl` runs it on a Symmetry AMD node ([The
   radiative sphere](#the-radiative-sphere)).
 - `bin/nested_ball.jl`: the same pulse through nested cubes inside the
   seven-patch ball's cube, with shells out to a radiative sphere, its
   error and the exact solution in each level's ball and the whole ball,
   and with `--cost` the right-hand side's and the truncation's time per
   node and the problem's bytes beside `nested_waves.jl`'s nested boxes,
-  run in the package environment; `bin/symmetry/nested_ball.sh` runs it
-  on a Symmetry AMD node.
+  run in the package environment; `jobs/nested_ball.jl` runs it on a
+  Symmetry AMD node.
 - `test/reference.jl`: dense global operators built from the element's
   tables, and the state rearranged into global arrays, which the kernels
   are checked against.
+- `jobs/`: the job specs of SimLaunch (`~/src/jl/SimLaunch`, its
+  `SPEC.md`), one per study on a cluster, each naming its runs: the
+  suite three ways in one job (`suite.toml`), the benchmarks, the device
+  runs and the studies of the milestones, with a `[site.symmetry]` table
+  each. SimLaunch takes a snapshot of the checkout, prepares its
+  environments and compiled caches on the site, writes the batch script
+  and reports each run to SimWatch; a run's output is its job
+  directory's `output.log`, and the files it writes land beside it. A
+  study whose runs were given by a variable of its old script has the
+  runs of that script's default, and a spec of its own for the longer
+  series where one ran (`dynamic_series.jl`); a scan of single runs is
+  submitted run by run (`gpu_scans.jl`, `--run`).
+- `bin/symmetry/`: the batch scripts that ran the studies before the
+  specs, and `simwatch.sh`, which they share, kept for those whose spec
+  has not yet given their numbers on the cluster; each goes when it has.
 
 `Project.toml` requires TreeAMR 0.2.9 (for the element centering, for
 the forests of patches of its M17, which the annulus runs on, and for
@@ -5075,8 +5089,15 @@ Each time is the least of five, in ns per node; the flat box is
   `1.80·10⁷` nodes, take the step to 0.55 of the cube's
   (`dt = 8.6·10⁻³`) and match the benchmark ball per node up to 32
   threads; at 64 their gradient pass took 1.56 ns per node against 1.03
-  at 32, and the step 22.1 ns against 16.1. That is not explained, and
-  wants a rerun **(open)**.
+  at 32, and the step 22.1 ns against 16.1. Reruns on `cn108` (EPYC
+  7543, 2026-11-20) show the jump comes and goes between runs of one
+  layout: through `jobs/ball_benchmark.toml` (job 606984) the benchmark
+  ball took 0.519 s a step at 64 threads, its gradient pass 2.0 ns per
+  node, while `(4, 1, 44)` took 0.282 s; the old batch script on the same
+  node and code (607027) and the spec again (607029) gave the benchmark
+  ball 0.316 and 0.299 s, `(4, 1, 44)` 0.277 and 0.281. Up to 32 threads
+  all three agree within 3 %. Why a 64-thread run is sometimes 1.6–1.7
+  times slower is not explained **(open)**.
 - On the laptop (four threads) the same ball takes 1.51 s a step, 79 ns
   per node against the flat box's 17.4: the ratio is 4.5 there.
 

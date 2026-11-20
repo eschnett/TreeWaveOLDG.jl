@@ -9,7 +9,7 @@
 #         [--backend=cpu|cuda|metal] [--type=f64|f32]
 #
 # Like `bin/nested_waves.jl`, which it mirrors, this runs against the
-# package environment; `bin/symmetry/nested_ball.sh` runs it on a Symmetry
+# package environment; `jobs/nested_ball.jl` runs it on a Symmetry
 # node.
 #
 # The forest is the seven-patch ball (`sevenpatch_forest`) whose cube holds
@@ -70,13 +70,13 @@
 # With `--backend=cuda` or `metal` the ball is built on that device
 # (`bin/backend.jl`), in `--type`'s precision (`f32` on Metal, which has no
 # `Float64`), from an environment that adds the device package
-# (`bin/symmetry/gpu_scans.sh` builds one); the pulse, the exact solution
+# (`jobs/gpu_scans.jl` names one); the pulse, the exact solution
 # and every norm are evaluated there as well, the norms by `ball_norm`.
 
 using TreeWaveOLDG
 using TreeWaveOLDG: ForwardDiff, step!, statelength, level, maxlevel, node_weight
 # TreeAMR through TreeWaveOLDG: the cluster's environment holds only the
-# package (`bin/symmetry/nested_ball.sh`).
+# package (`jobs/nested_ball.jl`).
 using TreeWaveOLDG.TreeAMR: TreeAMR, WithPatch, patch, statevector
 
 include(joinpath(@__DIR__, "backend.jl"))

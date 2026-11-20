@@ -1,0 +1,48 @@
+# What one GPU does with TreeWaveOLDG: the device tests against the host
+# in Float64 and Float32, the flat box of `benchmark.toml` and the
+# benchmark ball of `ball_benchmark.toml` on the device, and the far rule
+# of the source projection, the gate for moving the particles there
+# (`PLAN.md`, "Particles on a device"; "Threads and devices" in `CODE.md`
+# has the tables). The environment adds CUDA to the test environment:
+# neither the package nor its tests may depend on a device package, since
+# CI has none. A run that fails is reported and the others still run.
+name = "gpu"
+description = "TreeWaveOLDG on one H200: device tests and benchmarks"
+env = "test+cuda"
+threads = 8
+
+[site.symmetry]
+time = "1:00:00"
+resources = { gpus = 1 }
+
+[after]
+cmd = 'for d in $SIMLAUNCH_JOBDIRS; do echo "== $d"; cat "$d/output.log"; done'
+
+[[run]]
+label = "device_tests"
+cmd = "test/device_tests.jl"
+vars = { TREEWAVEOLDG_TEST_BACKEND = "cuda" }
+
+[[run]]
+label = "flat-f64"
+cmd = "bin/benchmark.jl --backend=cuda --type=f64 --D=3 --P=3 --scan=4:16,8:8 --reps=5"
+
+[[run]]
+label = "flat-f32"
+cmd = "bin/benchmark.jl --backend=cuda --type=f32 --D=3 --P=3 --scan=4:16,8:8 --reps=5"
+
+[[run]]
+label = "ball-f64"
+cmd = "bin/ball_benchmark.jl --backend=cuda --type=f64 --scan=4:4:44 --reps=5"
+
+[[run]]
+label = "ball-f32"
+cmd = "bin/ball_benchmark.jl --backend=cuda --type=f32 --scan=4:4:44 --reps=5"
+
+[[run]]
+label = "far"
+cmd = "bin/far_rule.jl --backend=cuda --hdiv=8 --order=3 --reps=3"
+
+[[run]]
+label = "far-offgrid"
+cmd = "bin/far_rule.jl --backend=cuda --hdiv=8 --order=3 --reps=3 --offgrid"

@@ -32,7 +32,7 @@
 # package, and every time waits for the device to finish; by owner and
 # broadcast are then the same, IMEXRungeKutta's broadcast path.
 #
-# `bin/symmetry/benchmark.sh` runs it at several thread counts on a
+# `jobs/benchmark.toml` runs it at several thread counts on a
 # Symmetry node. "Threads on Symmetry" in `CODE.md` has the tables.
 
 # Everything through TreeWaveOLDG, which has TreeAMR's and IMEXRungeKutta's

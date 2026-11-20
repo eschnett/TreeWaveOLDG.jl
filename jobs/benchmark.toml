@@ -1,0 +1,27 @@
+# What one node does with TreeWaveOLDG: `bin/benchmark.jl` at 1, 8, 16,
+# 32 and 64 threads, 3D, P = 3, 16.8M nodes in two block sizes (4096
+# blocks of 16³ and 512 of 32³) ("Threads on Symmetry" in `CODE.md`).
+#
+# Threads are pinned by Julia, and every array's pages are first written
+# by the thread that owns them. Below 64 threads, pinning fills one NUMA
+# domain after another, so only the 64-thread rows compare like with
+# like.
+#
+# To compare against another version on the same node, in the same job
+# (two nominally identical nodes have measured 20% apart), take the
+# snapshot with it as a variant, `--variant base=<checkout>`, and add a
+# run before this one with `variant = "base"` and the same `cmd`.
+name = "benchmark"
+description = "TreeWaveOLDG's flat box: a thread scan on one node"
+pin = true
+
+[site.symmetry]
+time = "1:00:00"
+
+[after]
+cmd = 'for d in $SIMLAUNCH_JOBDIRS; do echo "== $d"; cat "$d/output.log"; done'
+
+[[run]]
+label = "threads"
+cmd = "bin/benchmark.jl --D=3 --P=3 --scan=4:16,8:8 --reps=5"
+threads = [1, 8, 16, 32, 64]
