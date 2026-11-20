@@ -2279,8 +2279,8 @@ validation step 5.
 
 #### M6a: One particle, solved
 
-**Status:** done (2026-11-20) on branch `inspiral-m6a-solved`; its
-runs are jobs 606324 to 606328, 606429, 606769 and 606770, and their
+**Status:** done (2026-11-20), merged with pull request #21; its runs
+are jobs 606324 to 606328, 606429, 606769 and 606770, and their
 results are in `CODE.md` ("The equations of motion" under "Measured
 results"). As planned before the work, which departed from it in the
 own near field's averages, taken by quadrature, and in solving `a`,
