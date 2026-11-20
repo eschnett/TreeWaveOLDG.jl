@@ -21,7 +21,7 @@
 # With files, `HDIV=FILE` pairs of `bin/prescribed.jl --flux=FILE` runs
 # from the retarded field: per radius, the flux's mean over the whole
 # orbits from `tmin` (its circle is off the spheres' centre, so only the
-# mean is the power),
+# mean is the power) and its relative error and order,
 # the retarded field's at the same points, the run's largest relative
 # error against it and its order between successive files, and the
 # retarded field's flux against the dipole power at `--v`, `--rc`.
@@ -92,7 +92,8 @@ function compare(files)
     period = 2π * rc / v
     @printf("# dipole power P = %.10e at v = %g, rc = %g; ", P, v, rc)
     @printf("whole orbits of %.4f from t = %g\n", period, tmin)
-    println("hdiv\tradius\tmean F\tmean ref\tref/P-1\tmax |F-ref|/ref\torder")
+    println("hdiv\tradius\tmean F\tmean ref\tref/P-1\tmean F/ref-1\torder\t" *
+            "max |F-ref|/ref\torder")
     previous = Dict{String,Float64}()
     for (h, file) in files
         head, data = readflux(file)
@@ -109,12 +110,15 @@ function compare(files)
             r === nothing && error("$file has no column ref_$name: not from retarded data")
             F, ref = data[keep, j], data[keep, r]
             e = maximum(abs.(F - ref) ./ abs.(ref))
-            order = haskey(previous, name) ?
-                    log(previous[name] / e) / log(h / previous[name * "h"]) : NaN
             F̄, ref̄ = sum(F) / length(F), sum(ref) / length(ref)
-            @printf("%g\t%s\t%.10e\t%.10e\t%.4e\t%.3e\t%.2f\n", h, name[3:end], F̄,
-                    ref̄, ref̄ / P - 1, e, order)
+            ē = F̄ / ref̄ - 1
+            rate(key, x) = haskey(previous, key) ?
+                           log(abs(previous[key] / x)) / log(h / previous[name * "h"]) : NaN
+            @printf("%g\t%s\t%.10e\t%.10e\t%.4e\t%.3e\t%.2f\t%.3e\t%.2f\n", h,
+                    name[3:end], F̄, ref̄, ref̄ / P - 1, ē, rate(name * "mean", ē), e,
+                    rate(name, e))
             previous[name] = e
+            previous[name * "mean"] = ē
             previous[name * "h"] = h
         end
     end
