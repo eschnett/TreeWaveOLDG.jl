@@ -9,7 +9,7 @@
 #         --run particles-t4 --run particles-cb
 #
 # A new part is a new entry in `parts` and a new snapshot.
-parts = [("particles", "predictor_tests.jl dynamic_tests.jl"),
+parts = [("particles", "predictor_tests.jl dynamic_tests.jl diagnostics_tests.jl"),
          ("flux", "extraction_tests.jl prescribed_tests.jl")]
 args = ["--depwarn=yes", "--warn-overwrite=yes"]
 runs = [(label = "$part-$mode", cmd = "test/some_tests.jl $files", threads = 4,

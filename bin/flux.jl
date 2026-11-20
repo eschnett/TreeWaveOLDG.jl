@@ -19,7 +19,9 @@
 # flux is `γ⁴Q²a²/12π` (measured, 2026-11-20).
 #
 # With files, `HDIV=FILE` pairs of `bin/prescribed.jl --flux=FILE` runs
-# from the retarded field: per radius, the flux's mean over `t ≥ tmin`,
+# from the retarded field: per radius, the flux's mean over the whole
+# orbits from `tmin` (its circle is off the spheres' centre, so only the
+# mean is the power),
 # the retarded field's at the same points, the run's largest relative
 # error against it and its order between successive files, and the
 # retarded field's flux against the dipole power at `--v`, `--rc`.
@@ -87,12 +89,20 @@ function compare(files)
     rc = parse(Float64, option("rc", "0.5"))
     tmin = parse(Float64, option("tmin", "0"))
     P = dipole_power(v, rc)
-    @printf("# dipole power P = %.10e at v = %g, rc = %g; t >= %g\n", P, v, rc, tmin)
+    period = 2π * rc / v
+    @printf("# dipole power P = %.10e at v = %g, rc = %g; ", P, v, rc)
+    @printf("whole orbits of %.4f from t = %g\n", period, tmin)
     println("hdiv\tradius\tmean F\tmean ref\tref/P-1\tmax |F-ref|/ref\torder")
     previous = Dict{String,Float64}()
     for (h, file) in files
         head, data = readflux(file)
-        keep = data[:, 1] .>= tmin
+        # Whole orbits: a sphere off the circle's centre sees the energy
+        # inside it change as the charge goes round, so its flux is the
+        # power only on average over an orbit.
+        tlast = data[end, 1]
+        norbits = floor(Int, (tlast - tmin) / period + 1e-9)
+        norbits >= 1 || error("$file reaches t = $tlast, short of an orbit from $tmin")
+        keep = tmin .<= data[:, 1] .< tmin + norbits * period
         for (j, name) in enumerate(head)
             startswith(name, "F_") || continue
             r = findfirst(==("ref_" * name), head)

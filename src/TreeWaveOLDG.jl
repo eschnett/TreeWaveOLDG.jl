@@ -45,7 +45,7 @@ import ForwardDiff
 using IMEXRungeKutta: IMEXProblem, RK4, init, solve!, step!
 using KernelAbstractions: @kernel, @index, @Const, Backend, CPU, get_backend,
                           allocate, synchronize
-using LinearAlgebra: Symmetric, cholesky, det, dot, eigvals, norm
+using LinearAlgebra: Symmetric, cholesky, cross, det, dot, eigvals, norm
 using MultiFloats: Float64x2
 using SpecialFunctions: besselj0
 using StaticArrays: SMatrix, SVector, push, setindex
@@ -109,6 +109,9 @@ export SpringForce, NoForce, NewtonianForce, NoInteraction, spring_circle,
        support_integrals, field_force, own_force, other_force, Dynamic, solve_jets,
        dynamic_initial_state
 
+# The binary's diagnostics
+export binding_constant, orbit_diagnostics, dipole_ddot, eccentricity_fit
+
 # Waveforms
 export SphereExtraction, sphere_values, sphere_modes, sphere_gradients, sphere_flux,
        harmonic_modes, spherical_harmonics, ball_patch_point, PlaneExtraction, plane_values
@@ -133,6 +136,7 @@ include("inspiral.jl")
 include("prescribed.jl")
 include("predictor.jl")
 include("dynamic.jl")
+include("diagnostics.jl")
 include("extraction.jl")
 
 end
