@@ -1884,6 +1884,15 @@ patches.
   times `ω` and `ä` times `ω²`, so `ä`'s part falls little with `hₑ`
   while the force's falls by 2.4 from `d/4` to `d/6`. What rings the
   field stays open.
+- 2026-11-21: the prescribed circle at `v = 0.1` and 0.05
+  (`jobs/ringing.jl`, at the owner's request) put the ringing's band at
+  `ω hₑ ≈ 8` to 9 at every speed, with the same amplitude, which rises at
+  `t ≈ 4` and falls fourfold by `t = 24`. So it is a transient of the
+  grid's own modes, not the moving source's projection, which would
+  have moved the band as `v/hₑ`, and not driven by the motion. `ä`'s
+  departure away from the faces follows it, 1.3 % to 0.55 % after the
+  hand-over. That the transient is the initial data's error from the
+  coarser levels is likely and was not checked.
 
 ### What the plan said of its finished milestones
 

@@ -3817,7 +3817,8 @@ higher derivatives that other self-force schemes have reported (owner,
   Symmetry AMD node, `jobs/binary_smoke.toml` a few steps first.
   `--ell` and `--source-addot=predicted` are experiments on the solved
   `ä` ([The binary](#the-binary) under "Measured results"), which
-  `jobs/addot.jl` runs.
+  `jobs/addot.jl` runs; `jobs/ringing.jl` runs the circle at lower
+  speeds.
 - `bin/flux.jl`: without files, the retarded flux of a charge on a
   circle against the dipole power at several speeds; with
   `HDIV=FILE` pairs of `--flux` files, the flux's mean over whole orbits
@@ -7471,10 +7472,49 @@ is an argument, not a demonstration; the runs check it as follows.
     force's part falls by 2.4 from `d/4` to `d/6`, but `ω²` grows by
     2.25, so `ä`'s part falls little: the inward part not at all (rms
     0.74 % and 0.77 %), the tangential from 0.78 % to 0.56 %, the
-    normal from 0.51 % to 0.28 %. Whether it is the grid's own
-    high-frequency modes, rung by the face crossings' impulses, or the
-    moving source's projection beating against the elements, is not
-    traced **(open)**.
+    normal from 0.51 % to 0.28 %.
+  - **The ringing is the grid's own modes, passing through, not the
+    motion's** (`jobs/ringing.jl`, Symmetry, 2026-11-21, jobs 607835
+    and 607836, 45 min each on one AMD node). The past's circle,
+    prescribed, at `d/4` at `v = 0.1` and 0.05 to `t = 16`, beside the
+    circle at 0.2. The remainder's force, its spikes clipped at five
+    median deviations, from `t = 8` to 16:
+
+    | `v` | 0.2 | 0.1 | 0.05 |
+    |---|---|---|---|
+    | `F_t`'s mean `ω`, `ω∈[2,120)` | 34.7 | 37.1 | 32.7 |
+    | `F_r`'s | 33.8 | 34.9 | 33.1 |
+
+    So the band does not move with `v`, as a source's projection
+    beating against the elements would, `ω ∝ v/hₑ`: it is the grid's
+    own modes at `ω hₑ ≈ 8` to 9. Nor does its amplitude follow the
+    motion. In `ω∈[20,60)` it is `F_t`, rms, by time:
+
+    | `t` | 0–2 | 2–4 | 4–8 | 8–12 | 12–16 | 16–24 | 24–32 |
+    |---|---|---|---|---|---|---|---|
+    | circle, `v = 0.2` | `4.1·10⁻⁸` | `2.9·10⁻⁸` | `9.1·10⁻⁸` | `9.4·10⁻⁸` | `6.7·10⁻⁸` | `4.7·10⁻⁸` | `2.4·10⁻⁸` |
+    | circle, `v = 0.1` | `2.8·10⁻⁸` | `1.3·10⁻⁸` | `7.9·10⁻⁸` | `9.0·10⁻⁸` | `4.0·10⁻⁸` | | |
+    | circle, `v = 0.05` | `1.5·10⁻⁸` | `1.5·10⁻⁸` | `4.7·10⁻⁸` | `1.3·10⁻⁷` | `4.6·10⁻⁸` | | |
+    | binary `d/4` | `4.1·10⁻⁸` | `2.9·10⁻⁸` | `9.1·10⁻⁸` | `9.5·10⁻⁸` | `7.5·10⁻⁸` | `5.2·10⁻⁸` | `2.6·10⁻⁸` |
+    | binary `d/6`, `ω∈[30,90)` | `6.5·10⁻⁹` | `2.1·10⁻⁸` | `4.1·10⁻⁸` | `3.1·10⁻⁸` | `2.3·10⁻⁸` | `1.7·10⁻⁸` | `1.6·10⁻⁸` |
+
+    It reaches the particle at `t ≈ 4`, the same at every speed while
+    `F_RR` goes as `v⁴`, and passes, four times less by `t = 24` to 32.
+    So it is a transient of the grid's high-frequency modes that the
+    particle's motion does not drive. That it is the initial data's
+    error coming in from the coarser levels, whose finest cube's faces
+    are 4 away, is likely and not checked **(open)**. `ä`'s departure
+    away from the faces follows it after the hand-over, rms over steps
+    beyond `2ℓ` from a face:
+
+    | `t` | 16–20 | 20–24 | 24–28 | 28–32 |
+    |---|---|---|---|---|
+    | `d/4` | 1.33 % | 0.98 % | 0.57 % | 0.55 % |
+    | `d/4`, `Δt/2` | 1.33 % | 0.99 % | 0.58 % | 0.56 % |
+    | `d/6` | 1.11 % | 0.47 % | 0.56 % | 0.62 % |
+
+    Before the hand-over the blend holds `ä` near the past's, so its
+    departure there says little of the field.
   - **The source's `ä` does not feed back:** with the predictor's `ä` in
     the source, the solved `ä` is the same as with its own, in every row.
   - **Nor does it move the orbit:** over the orbit after the hand-over,
@@ -7645,11 +7685,12 @@ TreeHydro's ([On a device](#on-a-device)).
   `INSPIRAL.md`'s `10⁻¹²` does not cover (see [Quadrature](#quadrature)):
   whether it matters, and if so a split at `R₁` and `R₂` like the one at
   the support, or a smoother window.
-- What rings the grid's field near a moving particle at `ω hₑ ≈ 8` to
-  10, about 1 % of `F_RR` in the force. The binary's solved `ä` reads it
-  times `ω²`, 1 to 2 % of `ä` away from the element faces, falling
-  little with `hₑ`. Is it the grid's own high-frequency modes rung by
-  the face crossings, or the moving source's projection? And should
+- Where the transient of the grid's high-frequency modes comes from,
+  `ω hₑ ≈ 8` to 9, which reaches the particle at `t ≈ 4` whatever its
+  speed and has fallen fourfold by `t = 24`. The initial data's error
+  coming in from the coarser levels is likely. The force carries it at
+  about 1 % of `F_RR`, and the binary's solved `ä` reads it times `ω²`,
+  1 to 2 % of `ä` away from the faces, 0.55 % by `t = 24`. Should
   `ä`'s jump at a face crossing, up to three times `ä` at `d/4` and
   scaling as `ℓ⁻²`, be smoothed, as the averaging smooths the force's?
   Neither reaches the orbit: writing the source with the predictor's
