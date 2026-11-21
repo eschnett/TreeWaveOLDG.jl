@@ -1867,6 +1867,15 @@ patches.
   not feed back. `Dynamic`'s `source_addot` and `bin/binary.jl`'s
   `--ell` and `--source-addot` stay as experiments. The full suite
   passed on Symmetry three ways on the same commit.
+- 2026-11-21: the binary's `δm_h/M ≈ 3.9·10⁻⁴`, left open in the
+  morning, traced (`CODE.md`, "The binary" under "Measured results"):
+  it is the other charge's potential in the equation's mass
+  `m = M₀ + QΦ̄ₑ`, `γQΦ̄_b = q²/(4πdγ)` at `d = 1`, which the residual's
+  analytic parts alone give to five digits, and the cross block is
+  `Ψ̂₂`'s order-3 near field. What is left for the grid is
+  `1.5·10⁻⁷ M` typically. The recorded `δm_h` measures the grid's
+  self-inertia only for a lone particle; subtracting `QΦ̄ₑ` for the
+  binary was proposed, not done.
 
 ### What the plan said of its finished milestones
 

@@ -7471,11 +7471,24 @@ is an argument, not a demonstration; the runs check it as follows.
 - **`δm_h/M` from a fresh Jacobian** is `γ − 1 = 2.06·10⁻²` while the
   blend holds the past (the blend's Jacobian), and after the hand-over
   `3.89` to `3.91·10⁻⁴` in every run, at `d/4`, `d/6` and half the step,
-  with the other particle's `ä` block at `2.57·10⁻⁴`. That is about
-  `q²/4π = 3.98·10⁻⁴`, against M6a's `7·10⁻¹⁰` for one particle; where
-  it comes from is not traced **(open)**. It does not depend on the
-  resolution, so it is not the grid's self-inertia, and the `ä` system
-  stays within `4·10⁻⁴` of `MγI`.
+  with the other particle's `ä` block at `2.57·10⁻⁴`, against M6a's
+  `7·10⁻¹⁰` for one particle. **It is the other charge's potential, not
+  the grid:** the equation's mass is `m = M₀ + QΦ̄ₑ` ([The equations of
+  motion](#the-equations-of-motion)), and `QΦ̄ₑ` holds `other_force`'s
+  `γ∫ρ₁Ψ̂₂`. On the binary's circle at `d = 1` that is `3.8269·10⁻⁴`,
+  `q²/(4πdγ²)`, so `Ë`'s `ä` block is `MγI` plus `γQΦ̄_b = 3.9058·10⁻⁴`,
+  isotropic. The other particle's `ä` enters through `Ψ̂₂`'s order-3
+  near field at particle 1, `diag(0.94, −2.57, −1.79)·10⁻⁴` along the
+  separation, the velocity and the normal, of norm `2.5693·10⁻⁴`. Those
+  are the analytic parts of the residual alone, without a grid
+  (scratch computation, 2026-11-21). The runs' fresh values times `d(t)`
+  are these to `4·10⁻⁴` of them (median, every run and resolution), and
+  to `4·10⁻³` at the worst step at `d/4` and `6·10⁻⁴` at `d/6`, as the
+  orbit shrinks. So the grid's part is at most `1.5·10⁻⁶ M`, and
+  typically `1.5·10⁻⁷ M`. `δm_h/M` as recorded measures the grid's
+  self-inertia only for a lone particle; for the binary,
+  `‖∂Ë/∂ä − (M + QΦ̄ₑ)γI‖` would **(proposed)**. The `ä` system stays
+  within `4·10⁻⁴` of `MγI`, its condition number within `6·10⁻⁴` of 1.
 - **Not checked:** anything beyond `t = 32`, one orbit after the
   hand-over; `d/8`, whose step would take the run to about 28 hours,
   past `amdq`'s 24, without a checkpoint; and other speeds.
@@ -7610,9 +7623,6 @@ TreeHydro's ([On a device](#on-a-device)).
   `INSPIRAL.md`'s `10⁻¹²` does not cover (see [Quadrature](#quadrature)):
   whether it matters, and if so a split at `R₁` and `R₂` like the one at
   the support, or a smoother window.
-- Where the binary's `δm_h/M ≈ 3.9·10⁻⁴`, about `q²/4π`, comes from,
-  against one particle's `7·10⁻¹⁰`; it does not depend on the resolution
-  ([The binary](#the-binary) under "Measured results").
 - Where the binary's solved `ä` departs from the circle's by 1 to 2 %
   away from the element faces, a grid error that does not depend on `ℓ`
   and falls from `d/4` to `d/6`; and whether the jump at a face
