@@ -1855,6 +1855,18 @@ patches.
   binary's `δm_h/M` is `3.9·10⁻⁴`, about `q²/4π`, at every resolution,
   both recorded as open. `d/8` was not run: about 28 hours, past
   `amdq`'s 24, without a checkpoint.
+- 2026-11-21: two experiments on the solved `ä`, at the owner's
+  question whether there were two problems in it, a 1 % that does not
+  converge and noise at the faces (`CODE.md`, "The binary" under
+  "Measured results"). Particles of twice the size cut the jump at a
+  face about as `ℓ⁻²` and left the departure away from the faces as it
+  was, to the digits shown; so that departure is the grid's, falling
+  from `d/4` to `d/6`, not the tail of the crossings, as it had seemed
+  in the morning's reading of the runs. The source written with the predictor's
+  `ä` left the solved `ä` and the orbit as they were, so the noise does
+  not feed back. `Dynamic`'s `source_addot` and `bin/binary.jl`'s
+  `--ell` and `--source-addot` stay as experiments. The full suite
+  passed on Symmetry three ways on the same commit.
 
 ### What the plan said of its finished milestones
 

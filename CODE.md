@@ -3815,6 +3815,9 @@ higher derivatives that other self-force schemes have reported (owner,
   ([Diagnostics](#diagnostics)); `--prescribed` runs the past's circle
   on the same grid and steps. `jobs/binary.jl` runs M6b's runs on a
   Symmetry AMD node, `jobs/binary_smoke.toml` a few steps first.
+  `--ell` and `--source-addot=predicted` are experiments on the solved
+  `ä` ([The binary](#the-binary) under "Measured results"), which
+  `jobs/addot.jl` runs.
 - `bin/flux.jl`: without files, the retarded flux of a charge on a
   circle against the dipole power at several speeds; with
   `HDIV=FILE` pairs of `--flux` files, the flux's mean over whole orbits
@@ -7418,7 +7421,47 @@ is an argument, not a demonstration; the runs check it as follows.
   per window of four time units its rms moves between 0.9 % and 16 % at
   `d/4` and 1.4 % and 6.5 % at `d/6` with no trend. It does not reach
   the orbit, which `ä` enters only through the source's jets. Away
-  from the faces, 1 %, falling little with `hₑ` **(open)**.
+  from the faces it is 1 to 2 %, the less the farther from a face, and
+  less at `d/6`; see the next item **(open)**.
+- **Two experiments on `ä`** (`jobs/addot.jl`, Symmetry, 2026-11-21,
+  `d/4`): particles of `ℓ = 2·10⁻³` to `t = 16` (job 607661, 2 h 29 min),
+  and the source written with the predictor's `ä` in place of the solved
+  one to `t = 32` (`Dynamic(…; source_addot = :predicted)`, job 607662,
+  5 h 20 min), each against the `d/4` run above. The departure as in
+  the table, but by the distance of `o − (d/2)â` from the nearest face
+  across the orbit's plane, which puts a tenth more in the first row
+  (0.44 at `d/4` from `t = 4` to 32), over `t = 4` to 16. The first row
+  is by each run's own `ℓ`, the others by the distance alone (below
+  `2·10⁻³`, `ℓ = 2·10⁻³` gives 0.22):
+
+  | distance | `ℓ = 10⁻³` | `ℓ = 2·10⁻³` | predicted `ä` in the source | `d/6` |
+  |---|---|---|---|---|
+  | below `2ℓ` of the run | 0.52 (3.7) | 0.15 (1.25) | 0.52 (3.7) | 0.18 (1.6) |
+  | `2·10⁻³` to `5·10⁻³` | 0.021 | 0.021 | 0.021 | 0.018 |
+  | `5·10⁻³` to `10⁻²` | 0.019 | 0.019 | 0.019 | 0.016 |
+  | `10⁻²` to `2·10⁻²` | 0.018 | 0.018 | 0.018 | 0.016 |
+  | `2·10⁻²` to `4·10⁻²` | 0.014 | 0.014 | 0.014 | 0.010 |
+  | beyond | 0.011 | 0.011 | 0.011 | 0.006 |
+
+  - **The jump at a face is the particle's size's:** doubling `ℓ` cuts
+    it 3.4-fold, and its largest 2.9-fold, about the `ℓ⁻²` of the
+    field's jump across the support read through `Ë`.
+  - **The departure away from the faces is not:** at `ℓ = 2·10⁻³` it is
+    the `ℓ = 10⁻³` run's to the digits shown, at every distance. It
+    falls from `d/4` to `d/6` by up to 1.8, most far from the faces, and
+    falls with the distance from a face. So it is the grid's error, not
+    the tail of the crossings' impulse, and not noise of the size `ℓ⁻²`
+    sets. Which part of the field it comes from is not traced
+    **(open)**.
+  - **The source's `ä` does not feed back:** with the predictor's `ä` in
+    the source, the solved `ä` is the same as with its own, in every row.
+  - **Nor does it move the orbit:** over the orbit after the hand-over,
+    `ḋ` is the same to `10⁻⁵` of itself, `ΔE` per unit time and the mean
+    `F_t` to `10⁻⁴`, the mean `F_r` to 1.3 %. The separation differs from
+    the `d/4` run's by at most `9·10⁻⁷`, about twice what half the step
+    changes (`3.6·10⁻⁷` at `t = 32`), against the `1.7·10⁻³` the orbit
+    shrinks. The solve converges as before (at most 6 iterations,
+    `δm_h/M` the same).
 - **`jerkgap`, the solved `ä`'s rate against the predictor's `a⃛`,** has a
   median of 0.5 and a largest of `10³` (`3·10³` at half the step): the
   `ä` above divided by a step. It measures the noise, not `a⃛`.
@@ -7570,8 +7613,10 @@ TreeHydro's ([On a device](#on-a-device)).
 - Where the binary's `δm_h/M ≈ 3.9·10⁻⁴`, about `q²/4π`, comes from,
   against one particle's `7·10⁻¹⁰`; it does not depend on the resolution
   ([The binary](#the-binary) under "Measured results").
-- Why the binary's solved `ä` departs from the circle's by 1 % away from
-  the element faces, falling little from `d/4` to `d/6`, and whether the
-  jump at a face crossing, up to three times `ä` at `d/4`, should be
-  smoothed, as the averaging smooths the force's ([The binary](#the-binary)
-  under "Measured results").
+- Where the binary's solved `ä` departs from the circle's by 1 to 2 %
+  away from the element faces, a grid error that does not depend on `ℓ`
+  and falls from `d/4` to `d/6`; and whether the jump at a face
+  crossing, up to three times `ä` at `d/4` and scaling as `ℓ⁻²`, should
+  be smoothed, as the averaging smooths the force's. Writing the source
+  with the predictor's `ä` changes neither `ä` nor the orbit
+  ([The binary](#the-binary) under "Measured results").
