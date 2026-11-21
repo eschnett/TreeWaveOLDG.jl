@@ -6,7 +6,8 @@
 #         [--w0=4] [--R1=50] [--hshell=1] [--order=3] [--tend=32] \
 #         [--cfl=0.5] [--v=0.2] [--T=30] [--ramp=10] [--n=4] [--onset=2π/Ω] \
 #         [--n2=4] [--rx1=100] [--rx2=110] [--every=1] [--jevery=0.125] \
-#         [--source-tol=0.1] [--flux=FILE] [--fradii=4,6,8,12] [--prescribed]
+#         [--source-tol=0.1] [--flux=FILE] [--fradii=4,6,8,12] [--prescribed] \
+#         [--ell=1e-3] [--source-addot=solved]
 #
 # Two particles of `M = 1`, `Q = ±√0.005`, `ℓ = 10⁻³`, at separation 1, each
 # at speed `v`, on `binary_circular_motion`'s circle about the centre
@@ -23,6 +24,13 @@
 # about `hshell` to a Sommerfeld sphere at `R1`; the window `R₁ = 1.25`,
 # `R₂ = 2.5`, about `o`. `--prescribed` runs the past's circle instead, on
 # the same grid and steps.
+#
+# Two options are experiments on the solved `ä`'s jumps where a support
+# straddles an element face (`CODE.md`, "The binary" under "Measured
+# results"): `--ell` sets the particles' size `ℓ`, and
+# `--source-addot=predicted` writes the source with the predictor's `ä` in
+# place of the solved one (`Dynamic`'s `source_addot`), which the rows
+# still record.
 #
 # Every `every` steps it prints one row per quantity, `bin/dynamic.jl`'s
 # columns:
@@ -87,15 +95,18 @@ function binary_evolve(backend)
     jevery = parse(Float64, option("jevery", "0.125"))
     source_tol = parse(Float64, option("source-tol", "0.1"))
     prescribed = "--prescribed" in ARGS
+    ℓ = parse(Float64, option("ell", "1e-3"))
+    source_addot = Symbol(option("source-addot", "solved"))
     start = time()
     P = 3
     wave = ball_wave(hdiv, levels, w0; R1, hshell=parse(Float64, hs), P, backend)
     o = OFFSET
     q = sqrt(0.005)
-    ms = (ParticleModel(; Q=q, ℓ=1e-3, M=1.0), ParticleModel(; Q=-q, ℓ=1e-3, M=1.0))
+    ms = (ParticleModel(; Q=q, ℓ, M=1.0), ParticleModel(; Q=-q, ℓ, M=1.0))
     f, past = newtonian_binary(ms, d0, v; centre=o, past=T, ramp, n)
     motion = prescribed ? past :
-             Dynamic((NoForce(), NoForce()), past; interaction=f, onset, n2, source_tol)
+             Dynamic((NoForce(), NoForce()), past; interaction=f, onset, n2, source_tol,
+                     source_addot)
     p = InspiralProblem(wave, ms, Window(o, 1.25, 2.5; continuity=P + 1), motion; order)
     retarded = Window(o, rx1, rx2; continuity=4)
     u0 = prescribed ? inspiral_initial_state(p; retarded) :
@@ -110,6 +121,8 @@ function binary_evolve(backend)
     emit(tag..., 0.0, "ddot0", dipole_ddot(ms, f, d0))
     emit(tag..., 0.0, "Omega", Ω)
     emit(tag..., 0.0, "onset", onset)
+    emit(tag..., 0.0, "ell", ℓ)
+    emit(tag..., 0.0, "source_addot_predicted", source_addot === :predicted ? 1 : 0)
     emit(tag..., 0.0, "nodes", statelength(p.wave.fs) ÷ 2)
     emit(tag..., 0.0, "steps", integ.nsteps)
     emit(tag..., 0.0, "dt", integ.dt)

@@ -102,6 +102,18 @@ end
     @test tr.a ≈ S(0) * F / m.M rtol = 1e-4
     @test tr.ȧ ≈ S(1) * F / m.M rtol = 1e-4
     @test tr.ä ≈ S(2) * F / m.M rtol = 1e-4
+    # With `source_addot = :predicted` the source takes the predictor's
+    # `ä`, blended as `a⃛` is, and the solve still finds and records its
+    # own: a run comparing the two must not have both read one `ä`.
+    dyp = Dynamic((ConstantForce(F),), past; onset, source_addot=:predicted)
+    pp = InspiralProblem(wave, (m,), Window(c, 1.0, 1.75; continuity=P + 1), dyp)
+    trp = TreeWaveOLDG.trajectories(dyp, pp, u, t)[1]
+    zv = particle_state(u, pp)[1]
+    pred = predicted_jets((m,), (ConstantForce(F),), (zv[1],), (zv[2],))[1]
+    @test trp.ä ≈ smoothstep(4, t / onset) * pred.ä atol = 1e-12
+    @test dyp.scratch.last.trajs[1].ä ≈ S(2) * F / m.M rtol = 1e-4
+    @test trp.a ≈ S(0) * F / m.M rtol = 1e-4
+    @test_throws ArgumentError Dynamic((ConstantForce(F),), past; source_addot=:smoothed)
     # The Jacobian found during the ramp is the blend's, and the chord
     # iteration converges with it after the take-over too, so without
     # finding it again there the solve would keep it for good, and

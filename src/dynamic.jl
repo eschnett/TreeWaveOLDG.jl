@@ -187,7 +187,8 @@ renew_jacobian!(m) = (m.scratch.renew = true; m)
 
 """
     Dynamic(external, past; interaction = NoInteraction(), onset = 0, n2 = 4,
-            rule = SupportRule(T), tol = 1e-10, source_tol = 0.1)
+            rule = SupportRule(T), tol = 1e-10, source_tol = 0.1,
+            source_addot = :solved)
 
 A motion in which each particle moves under its forces (INSPIRAL.md,
 "Equations of motion"): `a`, `ȧ` and `ä` of every particle are solved
@@ -218,6 +219,13 @@ than `source_tol` from where it was found, relative to their size: the
 source reads the jets so weakly that never finding it again moves the
 force by `3·10⁻⁸ F_RR` while the force takes over, where the jets move
 up to 9% from the guess (`CODE.md`, "The equations of motion").
+
+`source_addot = :predicted` writes the source, and projects it in the
+solve, with the predictor's `ä` (blended with the past's as `a⃛` is) in
+place of the solved one, which the solve still finds and
+`m.scratch.last.trajs` records: an experiment on what the solved `ä`'s
+jumps at element faces do to the run (`CODE.md`, "The binary" under
+"Measured results"), not a scheme.
 """
 struct Dynamic{X<:Tuple,I,P<:Prescribed,T}
     external::X
@@ -228,13 +236,16 @@ struct Dynamic{X<:Tuple,I,P<:Prescribed,T}
     rule::SupportRule{T}
     tol::T
     source_tol::T
+    source_addot::Symbol
     scratch::DynamicScratch
 end
 
 function Dynamic(external::Tuple, past::Prescribed; interaction=NoInteraction(),
                  onset::Real=0, n2::Integer=4, rule=nothing, tol::Real=1e-10,
-                 source_tol::Real=0.1)
+                 source_tol::Real=0.1, source_addot::Symbol=:solved)
     T = eltype(first(past.path(0.0)).z)
+    source_addot in (:solved, :predicted) || throw(ArgumentError(
+        "source_addot must be :solved or :predicted, got :$source_addot"))
     onset >= 0 || throw(ArgumentError("the onset must not be negative, got $onset"))
     length(external) == length(past.path(zero(T))) || throw(ArgumentError(
         "$(length(external)) external forces for $(length(past.path(zero(T)))) particles"))
@@ -242,7 +253,8 @@ function Dynamic(external::Tuple, past::Prescribed; interaction=NoInteraction(),
     isbits(interaction) || throw(ArgumentError(
         "the interaction must be isbits, got a $(typeof(interaction))"))
     return Dynamic(external, interaction, past, T(onset), Int(n2), rule, T(tol),
-                   T(source_tol), DynamicScratch(nothing, nothing, nothing, nothing, false))
+                   T(source_tol), source_addot,
+                   DynamicScratch(nothing, nothing, nothing, nothing, false))
 end
 
 retarded_path(m::Dynamic) = m.past.path
@@ -402,6 +414,10 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     σ = handover(m, T(t))
     mix(f) = ntuple(k -> (1 - σ) * getfield(past[k], f) + σ * getfield(pred[k], f), Val(K))
     higher = ntuple(k -> (mix(:a⃛)[k], mix(:a⃜)[k]), Val(K))
+    # The jets the source is written with: the solved ones, or with
+    # `source_addot = :predicted` the predictor's `ä` in their place.
+    sourced(X) = m.source_addot === :solved ? X :
+                 ntuple(k -> (X[k][1], X[k][2], mix(:ä)[k]), Val(K))
     LΠ = rate_laplacian(m.scratch, p, fu, T(t))
     pack(X) = reduce(vcat, (vcat(x...) for x in X))
     unpack(x) = ntuple(k -> ntuple(j -> SVector{3,T}(x[9(k - 1) + 3(j - 1) .+ (1:3)]), 3),
@@ -419,7 +435,7 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     else
         Vector{T}(pack(ntuple(k -> (mix(:a)[k], mix(:ȧ)[k], mix(:ä)[k]), Val(K))))
     end
-    sources = source_projections(p, zs, vs, higher, unpack(x))
+    sources = source_projections(p, zs, vs, higher, sourced(unpack(x)))
     xp = copy(x)                        # where the sources were found
     resid(x) = pack(dynamic_residual(m, p, fu, fdu, LΠ, zs, vs, higher, past, T(t),
                                      unpack(x), sources))
@@ -476,7 +492,7 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
             (projected || norm(x - xp) <= m.source_tol * norm(x)) &&
                 (converged = true; break)
             push!(moves, norm(x - xp) / norm(x))
-            sources = source_projections(p, zs, vs, higher, unpack(x))
+            sources = source_projections(p, zs, vs, higher, sourced(unpack(x)))
             xp = copy(x)
             projections += 1
             r = resid(x)
@@ -508,5 +524,8 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     push!(moves, norm(x - xp) / norm(x))
     sc.last = (; t=T(t), iterations, projections, residual=norm(r), jacobian=J, σ=σJ,
                fresh, trajs, reach=min(reach, T(Inf)), moves)
-    return trajs
+    m.source_addot === :solved && return trajs
+    S = sourced(X)
+    return ntuple(k -> Trajectory(; z=zs[k], v=vs[k], a=S[k][1], ȧ=S[k][2], ä=S[k][3],
+                                  a⃛=higher[k][1], a⃜=higher[k][2]), Val(K))
 end
