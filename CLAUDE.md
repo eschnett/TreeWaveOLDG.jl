@@ -214,6 +214,35 @@ below takes about three minutes on four threads:
 julia --project=. -t 4,0 bin/dynamic.jl --hdiv=2 --levels=3 --tend=0.125 --rx1=10 --rx2=14 --onset=0.5 --v=0.2
 ```
 
+The binary of the first run in the ball under its forces ("Initial
+data", "Diagnostics"), from the retarded field of its assumed past, every
+step its orbit, forces, jets and solve; `--prescribed` runs the past's
+circle. On Symmetry `jobs/binary.jl` runs M6b's `d/4`, `d/4` at half the
+step, `d/6` and the circle, a run each, 10 to 12 hours per binary run on
+64 threads and an hour and a half for the circle, and
+`jobs/binary_smoke.toml` the run below, about six minutes on 64 threads:
+
+```bash
+julia --project=. -t 4,0 bin/binary.jl --hdiv=2 --levels=1 --w0=4 --R1=8 --rx1=10 --rx2=12 --tend=0.25
+```
+
+The flux through spheres ("Diagnostics"): `bin/prescribed.jl --flux=FILE`
+writes it beside the retarded field's, and `bin/flux.jl` gives the
+retarded flux against the dipole power at several speeds (seconds), or
+with `HDIV=FILE` pairs the grid's mean over whole orbits, its error and
+order. On Symmetry `jobs/flux.jl` runs M6b's `d/4`, `d/6` and `d/8` on an
+H200, about two hours for the three:
+
+```bash
+julia --project=. -t 4,0 bin/flux.jl
+julia --project=. bin/flux.jl --v=0.2 4=flux-h4.tsv 6=flux-h6.tsv 8=flux-h8.tsv
+```
+
+A few of the suite's files, on four threads and with
+`--check-bounds=yes` side by side, go to Symmetry through
+`jobs/tests_by_part.jl`, whose `parts` name them (`test/some_tests.jl`);
+a new part is a new snapshot.
+
 The movie of two charges on a circle ("The movie"): `bin/orbit_movie.jl`
 writes frames of the field in the orbit's plane, `bin/orbit_exact.jl`
 the exact field's frames for the same options (about a second per frame
@@ -499,6 +528,11 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   projection, and keep `source_pairing` choosing the projection's rule
   per element, or the solve reads another source than the evolution
   writes ("The equations of motion").
+- **A dynamic particle's solved `ä` jumps at a face crossing,** by up to
+  three times itself at `d/4` while the support straddles an element
+  face, halving with `hₑ`; it is noise there, not an instability, and
+  `jerkgap` measures it. Read `ä`'s trend away from the faces ("The
+  binary" under "Measured results").
 - **The asserted rates are measurements.** If one moves, re-measure and
   update "Measured results" rather than widen a tolerance.
 

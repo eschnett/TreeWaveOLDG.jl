@@ -99,7 +99,7 @@ end
 
 """
     newtonian_binary(models, separation, speed; centre = (0, 0, 0), phase = 0,
-                     normal = (0, 0, 1), past = Inf, ramp = 2π/Ω, n = 4)
+                     normal = (0, 0, 1), past = Inf, ramp = 0, n = 4)
 
 The [`NewtonianForce`](@ref) that holds the two particles of `models`, of
 equal physical mass, on [`binary_circular_motion`](@ref)`(centre,

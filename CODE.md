@@ -56,7 +56,14 @@ map, and on the nested boxes' step give their numbers there (M8c; see
 the field far out, the retarded field to the sphere or uniform motion's
 field outside the window, M5's circle runs clean in the ball to
 `t = 90`, and the dispersion relation explains why error outruns light
-(M8d; [Why the error outruns light](#why-the-error-outruns-light)). The
+(M8d; [Why the error outruns light](#why-the-error-outruns-light)). A
+particle can move under its forces, its `a`, `ȧ` and `ä` solved together
+(M6a; [The equations of motion](#the-equations-of-motion)), and two of
+them form `INSPIRAL.md`'s first binary in that ball, held by a Newtonian
+force and started from the retarded field of an assumed past; its
+diagnostics and the flux through spheres, which matches the retarded
+field's at second order, are M6b's ([Initial data](#initial-data),
+[Diagnostics](#diagnostics)). The
 thirteen-patch ball
 adds six exactly radial shells outside a middle sphere, where `√g`
 factorizes and the truncation is a radial projection times an angular
@@ -124,6 +131,8 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   - [Waveforms](#waveforms)
   - [Assumed pasts](#assumed-pasts)
   - [The movie](#the-movie)
+  - [Initial data](#initial-data)
+  - [Diagnostics](#diagnostics)
 - [File layout](#file-layout)
 - [Tests](#tests)
 - [Measured results](#measured-results)
@@ -149,6 +158,8 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   - [The movie](#the-movie-1)
   - [Prescribed paths](#prescribed-paths-1)
   - [The equations of motion](#the-equations-of-motion-1)
+  - [The flux](#the-flux)
+  - [The binary](#the-binary)
 - [What carried over from TreeWave, and what did not](#what-carried-over-from-treewave-and-what-did-not)
 - [Possible extensions](#possible-extensions)
 - [Open questions](#open-questions)
@@ -2218,7 +2229,7 @@ moves under its forces. With `F = ∫(∇ρ)g − v∫ρġ` and `QΦ̄ = γ∫ρ
 averages of "Equations of motion" for a field `g` with rate `ġ`, the
 equation of motion of particle `k` is
 
-    E = (M₀ + QΦ̄ₑ) γ a − F_grid − F_own − Σ_b F_b − (I − vvᵀ) F_ext = 0,
+    E = (M₀ + QΦ̄ₑ) γ a − F_grid − F_own − Σ_b F_b − (I − vvᵀ)(F_ext + F_N) = 0,
 
 with three parts:
 
@@ -2231,7 +2242,11 @@ with three parts:
   with the window taken to be 1 on the support.
 
 `F_ext = external[k](z, v)` is an `isbits` callable, such as
-`SpringForce(centre, k)`.
+`SpringForce(centre, k)`. `F_N` is the `interaction` between the
+particles, also `isbits`, `NoInteraction()` unless one is given: the
+binary's `NewtonianForce(G)` ([Initial data](#initial-data)), read at the
+other particles' positions along their jets, so that its `τ`-derivatives
+enter `Ė` and `Ë`. It enters as `F_ext` does, through `(I − vvᵀ)`.
 
 **The own field by quadrature (departure).** `own_force` and
 `other_force` integrate over the support with `SupportRule`:
@@ -2325,11 +2340,11 @@ solve. `m.scratch.last` records the iterations, the projections, how far
 the jets moved from each (`moves`) and the Jacobian.
 
 **The predictor** (`predicted_jets`) is the instantaneous acceleration
-under `F_ext` and the other particles' `Φ_C` in point form, with the
-physical masses. It is differentiated along its own motion by iterating
-on the Taylor polynomials: each pass makes one more derivative exact,
-and five give `a⃜`. The spring's jets are its circle's to roundoff,
-`Ω² = k/(γM)` (`spring_circle`). A two-body orbit's Taylor polynomial
+under `F_ext`, the interaction and the other particles' `Φ_C` in point
+form, with the physical masses. It is differentiated along its own
+motion by iterating on the Taylor polynomials: each pass makes one more
+derivative exact, and five give `a⃜`. The spring's jets are its
+circle's to roundoff, `Ω² = k/(γM)` (`spring_circle`). A two-body orbit's Taylor polynomial
 follows its RK4 integration to seventh order in `t`.
 
 **The data and the hand-over** follow [Assumed pasts](#assumed-pasts).
@@ -2356,7 +2371,14 @@ at `d/4` (9.4 million nodes, job 606323), a step takes 2.34 s against
 which the solve 0.31 s: one source projection (0.064 s), `LΠ` (0.048 s)
 and three chord iterations of 0.088 s, each residual's largest part the
 own near field's quadrature with its two `τ`-derivatives (0.055 s,
-serial). A new Jacobian costs nine residuals more. The solve's cost does
+serial then). That quadrature, and the other particles' fields', are now
+threaded over chunks of 32 of the rule's 2 048 points, summed in the
+chunks' order so the result does not depend on the thread count
+(`support_integrals`); it halved the binary's step at `d/4`, from 9.2 s
+to 4.6 s ([The binary](#the-binary) under "Measured results"). A new
+Jacobian costs nine residuals more per particle. `renew_jacobian!` has
+the next solve find it afresh, for a diagnostic that needs it at the
+current state. The solve's cost does
 not grow with the resolution, since the support meets one element and
 its 26 neighbours at every `hₑ`; `LΠ`, a whole `wave_rhs!` per stage,
 does, and at `d/12` it doubles the circle's step ([The equations of
@@ -3507,6 +3529,125 @@ charges and their tracks. The modes `r Re Φ_ℓm` at `r = 50`, the run's
 and the retarded field's, run below with the frame's time marked. The run on an H200 and how close it is to the exact field are under
 [The movie](#the-movie-1) in "Measured results".
 
+### Initial data
+
+`INSPIRAL.md`'s binary of "Parameters for a first run", as far as
+`INSPIRAL-PLAN.md`'s M6b takes it: the orbit, the force that holds it,
+the data, and the hand-over from the orbit to the forces. The warm-up and
+the release of "Initial data", steps 3 and 4, are M7's.
+
+**The binding force.** `NewtonianForce(G)`
+([`src/predictor.jl`](src/predictor.jl)) is the instantaneous attraction
+`G MₖM_b (z_b − zₖ)/|z_b − zₖ|³` with the physical masses, an `isbits`
+interaction that `Dynamic(external, past; interaction)` and the predictor
+both read ([The equations of motion](#the-equations-of-motion)). It
+dominates the binding: in the scalar theory like charges attract and
+opposite ones repel, so the binary's `±q` take `q²/4π = 4.0·10⁻⁴` off
+`G ≈ 0.08`, and `K = G M₁M₂ + Q₁Q₂/4π` is the binding constant
+(`binding_constant`).
+
+**The orbit.** `newtonian_binary(models, separation, speed; centre,
+past, ramp, n)` returns `(NewtonianForce(G), motion)`, `motion` being
+`binary_circular_motion` ([The movie](#the-movie)) at radius
+`separation/2` about `centre`, and `G` the one for which the predictor's
+acceleration, Newton's attraction with the other particle's boosted
+static field, is the circle's `v²/r`. That acceleration is affine in `G`,
+so two evaluations give `G` exactly, and the orbit's half-turn symmetry
+gives both particles the same. `INSPIRAL.md` fixes `G = 0.0804` and finds
+`Ω`; here `v = 0.2` is fixed, `Ω = 0.4` at `d₀ = 1`, and `G = 0.08204`,
+so that M8's grids and its measured pasts carry over (`HISTORY.md`,
+2026-11-20). The masses must be equal, since `binary_circular_motion`
+has one radius, so `Σ γMv = 0` and the centre of mass is `centre`; a
+pair of charges that alone attract more than the circle needs is
+refused.
+
+**The data and the hand-over.** The data are the retarded field of
+M8f's assumed past, the circle spun up from rest with `n = 4` over
+`ramp = 10` and joined at `−T = −30` ([Assumed pasts](#assumed-pasts)),
+out to `rx1` beyond the sphere, and the force takes over from the past
+over one orbit, `onset = 2π/Ω`, with `n₂ = 4`, by `Dynamic`'s blend of
+residuals. So the data are exactly the past's, nothing jumps, and the
+start-up is no numerical junk: the plan's "released at once with no
+warm-up" on M3b's boxes is replaced by the ball and this past (owner,
+2026-11-20). What the hand-over leaves is a small eccentricity, `2·10⁻⁴`
+([The binary](#the-binary) under "Measured results").
+
+**The run.** [`bin/binary.jl`](bin/binary.jl) runs it in the seven-patch
+ball with `bin/prescribed.jl`'s `--ball` layout: three nested cubes, the
+finest of half-width 4 at `hₑ = 1/hdiv`, in the cube of `Lc = 16`,
+shells of radial width about 1 to a Sommerfeld sphere at `R1 = 50`, the
+window `R₁ = 1.25`, `R₂ = 2.5`, and the orbit's centre
+`o = (1.23, 0.71, 0.93)·10⁻²` off the element faces of its plane.
+`--prescribed` runs the past's circle on the same grid and steps.
+
+### Diagnostics
+
+`INSPIRAL.md`'s "Diagnostics", in [`src/diagnostics.jl`](src/diagnostics.jl)
+and, for the flux, [`src/extraction.jl`](src/extraction.jl). The plan
+left open whether the diagnostics get a file of their own; they do,
+since they read the particles' state and nothing of the grid.
+
+**The orbit.** `orbit_diagnostics(models, interaction, zs, vs; normal)`
+gives the separation `d` and its rate, the phase of `z₁ − z₂` about
+`normal` and its rate `ω = ((z₁ − z₂) × (v₁ − v₂))⋅n̂/d²`, the orbital
+energy `Σ M(γ − 1) − K/d` with the physical masses and the analytic
+binding, the centre of mass `Σ γMz/Σ γM` and the momentum `Σ γMv`. The
+energy is the orbit's alone: the field's energy near the particles is
+not counted, and the remainder's force is not in `K`.
+
+**The leading order.** `dipole_ddot(models, interaction, d)` is
+`ḋ = −Δq² K/(6πd²)`, `Δq = Q₁/M₁ − Q₂/M₂`, from the dipole power
+`|d̈|²/12π` and the Newtonian energy `−K/2d`, correct to `O(v²)`:
+`−8.66·10⁻⁵` for the binary of [Initial data](#initial-data).
+
+**The eccentricity.** `eccentricity_fit(t, d, ω)` fits
+`d = c₀ + c₁t + c₂t² + A cos ωt + B sin ωt` by least squares and gives
+`e = √(A² + B²)/c₀`; over less than two orbits the trend's curvature and
+the oscillation cannot be told apart, and a fit over one orbit drops
+`c₂`, as the binary's below does.
+
+**The flux** `F(R) = −∮ Π ∂_rΦ dA` through spheres about a centre.
+`SphereExtraction(…; gradient = true)` keeps, beside the reading's
+weights ([Waveforms](#waveforms)), those of the same element polynomial's
+derivatives, TreeAMR's `basisweights(…, Val(1))` divided by the block's
+spacing, and on the ball by the cube's scale, so `sphere_gradients` is
+physical. It reads the gradient on a brick and in the ball's cube alone,
+whose map is affine with one scale, and refuses a sphere that reaches the
+shells. `sphere_flux` sums `−R² Σ_j w_j Π_j r̂_j⋅∇Φ_j` with the sphere
+rule's weights (`sphere_weights`, summing to `4π`), of the state or of
+values a reference gives. The reference is the retarded field:
+`retarded_gradient` is its gradient in closed form, `∂ₓΦ|ₛ + (∂Φ/∂s)∇s`
+with `∇s = −R̂/(1 − R̂⋅v)` from the retarded time's equation, both
+partials by dual numbers. Beyond the window's `R₂` the remainder is the
+field, so the flux there is the field's.
+
+- **Its exact value.** A charge on a circle centred on the sphere has a
+  field that turns rigidly, so its flux is the same through every sphere
+  and at every time: `γ⁴Q²a²/12π`, the dipole power times `γ⁴`
+  (measured to the digits printed, [The flux](#the-flux)). Two opposite
+  charges half an orbit apart radiate `0.964` of the point dipole's
+  power `|d̈|²/12π` at `v = 0.2`, an `O(v²)` difference.
+- **Off the centre.** A sphere whose centre is not the circle's sees the
+  energy inside it change as the charge goes round, so only the flux's
+  mean over whole orbits is the power. `bin/flux.jl` compares that mean.
+- **The files.** `bin/prescribed.jl` and `bin/binary.jl` take
+  `--flux=FILE`, the flux through `--fradii` (4, 6, 8, 12) every
+  `--fluxevery` (`1/16`), with the retarded field's at the same points
+  beside it when the data are the retarded field of the run's path
+  (`bin/waves_io.jl`).
+
+**What `bin/binary.jl` records**, every step: the orbit; per particle the
+remainder's force along the inward radius, the velocity and their normal
+(`Fr`, `Ft`, `Fn`); the jets `a`, `ȧ`, `ä` as solved and the
+predictor's `a⃛` and `a⃜`, and `jerkgap`, the solved `ä`'s rate across
+the step against the predictor's `a⃛`; Newton's iterations, projections
+and residual; and `δm_h/M = ‖∂Ë/∂ä − MγI‖/M` of each particle, from a
+Jacobian found afresh every `--jevery` (`1/8`, `renew_jacobian!`) and
+from the kept one between. These watch for the instabilities in the
+higher derivatives that other self-force schemes have reported (owner,
+2026-11-20), by their growth in time and its dependence on `hₑ` and `Δt`
+([The binary](#the-binary) under "Measured results").
+
 ## File layout
 
 - `src/TreeWaveOLDG.jl`: the module and its exports.
@@ -3578,19 +3719,27 @@ and the retarded field's, run below with the frame's time marked. The run on an 
   `ramped_circular_motion`, the circle with an assumed past and a
   departure ([Assumed pasts](#assumed-pasts));
   `binary_circular_motion`, two charges half an orbit apart on one
-  circle, as a `PathTuple` ([The movie](#the-movie)).
+  circle, as a `PathTuple` ([The movie](#the-movie)); `retarded_gradient`,
+  the retarded field's gradient ([Diagnostics](#diagnostics)).
 - `src/predictor.jl`: the acceleration predictor, `predicted_acceleration`
-  and `predicted_jets`, and the external forces `SpringForce`, `NoForce`
+  and `predicted_jets`, the external forces `SpringForce`, `NoForce`
   and `spring_circle` ([The equations of
-  motion](#the-equations-of-motion)).
+  motion](#the-equations-of-motion)), and the interactions
+  `NewtonianForce` and `NoInteraction` with the binary's
+  `newtonian_binary` ([Initial data](#initial-data)).
 - `src/dynamic.jl`: `Dynamic`, the particles moving under their forces;
   `SupportRule`, `support_integrals`, `own_force` and `other_force`, the
   analytic fields' averages; the residuals `dynamic_residual`, their
-  solve `solve_jets`, and `dynamic_initial_state` ([The equations of
-  motion](#the-equations-of-motion)).
+  solve `solve_jets`, `renew_jacobian!`, and `dynamic_initial_state`
+  ([The equations of motion](#the-equations-of-motion)).
+- `src/diagnostics.jl`: the binary's `binding_constant`,
+  `orbit_diagnostics`, `dipole_ddot` and `eccentricity_fit`
+  ([Diagnostics](#diagnostics)).
 - `src/extraction.jl`: the waveforms, `SphereExtraction`,
   `sphere_values` and `sphere_modes`, with the seven-patch ball's inverse
-  map `ball_patch_point`, `spherical_harmonics` and the sphere's rule;
+  map `ball_patch_point`, `spherical_harmonics` and the sphere's rule
+  and weights; with `gradient = true` `sphere_gradients` and the flux
+  `sphere_flux` ([Diagnostics](#diagnostics));
   `PlaneExtraction` and `plane_values`, the field on a grid in a plane
   ([The movie](#the-movie)).
 - `derivations/`: the Wolfram Language derivations (`profile.wl`,
@@ -3648,8 +3797,10 @@ and the retarded field's, run below with the frame's time marked. The run on an 
   outside the window; `--waves` writes the field's modes on spheres
   and the retarded field's ([Waveforms](#waveforms)); `--past` and
   `--depart` give the circle an assumed past and a departure ([Assumed
-  pasts](#assumed-pasts));
-  `jobs/prescribed.jl` runs it on a Symmetry AMD node.
+  pasts](#assumed-pasts)); `--flux` writes the flux through spheres and
+  the retarded field's ([Diagnostics](#diagnostics));
+  `jobs/prescribed.jl` runs it on a Symmetry AMD node, and
+  `jobs/flux.jl` M6b's flux check on an H200.
 - `bin/dynamic.jl`: the spring-held particle on M4's circle, from the
   circle's retarded field, the force taking over over `--onset`; the
   remainder's force in components, the drift from the circle, the
@@ -3658,8 +3809,20 @@ and the retarded field's, run below with the frame's time marked. The run on an 
   ([The equations of motion](#the-equations-of-motion)).
   `jobs/dynamic.jl` and `jobs/dynamic_series.jl` run M6a's series on a
   Symmetry AMD node.
-- `bin/waves_io.jl`: `--waves` of `bin/prescribed.jl` and
-  `bin/orbit_movie.jl`, the modes on spheres and the retarded field's.
+- `bin/binary.jl`: the binary of [Initial data](#initial-data) in the
+  ball under its forces, from the retarded field of its assumed past,
+  every step its orbit, forces, jets, solve and `δm_h`
+  ([Diagnostics](#diagnostics)); `--prescribed` runs the past's circle
+  on the same grid and steps. `jobs/binary.jl` runs M6b's runs on a
+  Symmetry AMD node, `jobs/binary_smoke.toml` a few steps first.
+- `bin/flux.jl`: without files, the retarded flux of a charge on a
+  circle against the dipole power at several speeds; with
+  `HDIV=FILE` pairs of `--flux` files, the flux's mean over whole orbits
+  against the retarded field's, its error and order
+  ([Diagnostics](#diagnostics)).
+- `bin/waves_io.jl`: `--waves` and `--flux` of `bin/prescribed.jl`,
+  `bin/binary.jl` and `bin/orbit_movie.jl`, the modes and the flux on
+  spheres and the retarded field's.
 - `bin/orbit_movie.jl`, `bin/orbit_exact.jl`, `bin/plane_io.jl`,
   `bin/visualize_orbit.jl`: the movie of two charges on a circle, its
   run in the ball, its exact frames, their format, and its viewer in the
@@ -3837,8 +4000,12 @@ one thread on CI, is otherwise silent until its summary.
   points are refused; the plane's grid is its cell centres, its points
   beyond the ball's sphere and outside a periodic brick are `NaN` and
   the rest TreeAMR's `interpolate` to `10⁻¹³`, converging at order above
-  `P + ½` through the cube, its refined levels and the shells. About
-  25 s.
+  `P + ½` through the cube, its refined levels and the shells; the
+  gradient is a quadratic's exactly on a brick and in the ball's cube,
+  physical through the cube's scale, and a smooth function's converges at
+  order `P`; a sphere reaching the shells is refused it; and the flux of
+  `Φ = g(r²)`, `Π = h(r²)` is `−4πR²h(R²)2Rg′(R²)` exactly from exact
+  values and converges from the grid's. About 25 s.
 - `sevenpatch_tests.jl`: the seven-patch ball — with the identity map
   as a full geometry the Cartesian path's right-hand side is the flat
   one's bit for bit, in 2D and 3D, `P = 2, 3`, and its truncation the
@@ -4011,7 +4178,11 @@ one thread on CI, is otherwise silent until its summary.
   `10⁻¹⁴` at `v = 0.05` and `0.2`, and a free particle's acceleration is
   zero; the Taylor polynomial of a two-body orbit's predicted jets, two
   opposite charges in `BigFloat`, follows its RK4 integration to seventh
-  order in `t`.
+  order in `t`, with and without Newton's force; Newton's force is equal
+  and opposite and enters as an external force does; `newtonian_binary`'s
+  `G` makes the predictor's acceleration the circle's to roundoff for
+  both particles, with `Σ γMv = 0`; and unequal masses and charges that
+  alone bind too strongly are refused.
 - `dynamic_tests.jl`: at rest the own near field's force and potential
   are M1's coefficients to roundoff, and moving at `v = 0.2` in three
   directions its order-1 force is `−δm γ a`, with a finer rule changing
@@ -4023,9 +4194,21 @@ one thread on CI, is otherwise silent until its summary.
   the circle's retarded field, gets the circle's `ȧ` and `ä` to `10⁻²`,
   its tangential acceleration `Mγ a·τ̂` is the remainder's tangential
   force to `10⁻³`, and across the motion it leaves the circle by the
-  remainder's and the own near field's forces to `10⁻²`. About two and
-  a half minutes on four threads, most of it compiling the source on
-  dual numbers.
+  remainder's and the own near field's forces to `10⁻²`;
+  `renew_jacobian!` makes the next solve, and only it, find the Jacobian
+  afresh; and the binary (`Q = ±0.1`, `v = 0.3`, `d = 1/2`) on coarse
+  nested boxes centred on its orbit keeps the half-turn symmetry in its
+  solved `a`, `ȧ`, `ä` to `10⁻¹¹`, `10⁻⁹` and `10⁻⁷` (measured `10⁻¹²`, `10⁻¹⁰`, `10⁻⁸`, read through the grid's
+  second differences of an unsymmetric field), follows the circle to
+  `5·10⁻³`, and over two steps keeps its centre of mass to `10⁻¹³`. About
+  two and a half minutes on four threads, most of it compiling the source
+  on dual numbers.
+- `diagnostics_tests.jl`: on `newtonian_binary`'s circle the orbit's
+  separation, frequency, phase, centre of mass and momentum are the
+  circle's, and its energy `−K/2d` to `O(v²)`; `dipole_ddot` is the first
+  run's `−8.5·10⁻⁵` and zero for equal charges over mass; and the
+  eccentricity fit recovers an oscillation's amplitude about a falling,
+  curving trend. Seconds.
 - `prescribed_tests.jl`: the circle's and hyperbolic motion's `v`, `a`,
   `ȧ`, `ä`, `a⃛` and `a⃜` are the dual-number derivatives of their
   positions; along the exact circle at `v = 0.2` the order-3 source is
@@ -4070,7 +4253,10 @@ one thread on CI, is otherwise silent until its summary.
   `π` bit for bit, half an orbit apart, and `isbits`; and on a small
   ball with two charges from their retarded field, the plane's total
   field and rate are that field away from the charges at `t = 0`, to an
-  error that falls by more than 4 and 8 from `hₑ = 1/2` to `1/4`.
+  error that falls by more than 4 and 8 from `hₑ = 1/2` to `1/4`; and
+  `retarded_gradient` is the boosted Coulomb field's gradient in uniform
+  motion to `10⁻¹²`, and the retarded field's centred differences on the
+  circle and in hyperbolic motion to `10⁻⁷`.
 - `device_tests.jl`, after the others, on the device `TREEWAVEOLDG_TEST_BACKEND=cuda`
   or `metal` names, loaded only then and not a test dependency, or with
   the CPU standing in, as on CI, where it checks the plumbing: the state
@@ -7098,6 +7284,176 @@ each of RK4's four stages, about the circle's step again at `d/12`.
 Laplacian of `Π_r` on those alone would take the growing part away
 **(proposed)**.
 
+### The flux
+
+**The retarded field against the dipole power** (`bin/flux.jl`, on the
+laptop, seconds): a charge `Q = √0.005` on a circle of radius 0.5 about
+the spheres' centre, through spheres of radius 4, 6, 8 and 12 at
+`t = 0` and `1.3`, `nθ = 24`. Every sphere and both times give the same
+flux to the digits printed, and `F/P − 1` is `γ⁴ − 1`:
+
+| `v` | `F/P − 1` | `γ⁴ − 1` |
+|---|---|---|
+| 0.05 | `5.0188·10⁻³` | `5.0188·10⁻³` |
+| 0.1 | `2.0304·10⁻²` | `2.0304·10⁻²` |
+| 0.2 | `8.5069·10⁻²` | `8.5069·10⁻²` |
+
+So the flux is `γ⁴Q²a²/12π`, and the dipole formula holds to `O(v²)`.
+
+**The grid against the retarded field** (`jobs/flux.jl`, Symmetry,
+2026-11-20, job 607078 on one H200 of `cn111`, `Float64`, the three runs
+in turn in 2 h 10 min): M8e's circle in the ball, `v = 0.2`, radius 0.5
+about `o`, from the retarded field (`--data=retarded`, `rx1 = 100`), three
+levels, `R1 = 50`, to `t = 32`; the flux every `1/16` through spheres
+about the cube's centre, `1.7·10⁻²` from the circle's. Over the two
+whole orbits from `t = 0`, the mean of the grid's flux against the mean
+of the retarded field's at the same points, and the largest pointwise
+error, relative, with the orders between successive resolutions:
+
+| `R` | `d/4` mean | `d/6` | `d/8` | orders | `d/4` max | `d/6` | `d/8` | orders |
+|---|---|---|---|---|---|---|---|---|
+| 4 | `2.2·10⁻⁴` | `9.4·10⁻⁵` | `4.5·10⁻⁵` | 2.1, 2.6 | `6.7·10⁻²` | `1.3·10⁻²` | `5.5·10⁻³` | 4.0, 3.0 |
+| 6 | `6.1·10⁻⁴` | `2.6·10⁻⁴` | `1.9·10⁻⁴` | 2.1, 1.2 | `1.4·10⁻²` | `2.2·10⁻³` | `7.3·10⁻⁴` | 4.5, 3.9 |
+| 8 | `6.5·10⁻⁴` | `3.7·10⁻⁴` | `1.6·10⁻⁴` | 1.4, 2.8 | `6.7·10⁻³` | `1.4·10⁻³` | `5.7·10⁻⁴` | 3.9, 3.1 |
+| 12 | `2.5·10⁻³` | `1.1·10⁻³` | `7.1·10⁻⁴` | 2.0, 1.6 | `5.2·10⁻³` | `1.9·10⁻³` | `1.1·10⁻³` | 2.5, 2.1 |
+
+- **M6b's flux check passes:** the grid's flux converges to the retarded
+  field's, the mean at about second order and the pointwise value at
+  second to fourth, and the retarded field's mean is the dipole power
+  times `1.0851`, `γ⁴` but for `10⁻⁵` from the sphere being off the
+  circle's centre. Over the orbits from `t = 8` the mean errors differ
+  by up to a fifth, with the same orders.
+- **Why the mean converges slower than the points:** the pointwise error
+  changes sign over the sphere and over the orbit, so it cancels in the
+  mean, and what is left is the part that does not; it is largest on the
+  sphere at 12, which lies on the cube's coarsest level, at four times
+  the finest `hₑ`. Not traced further.
+
+### The binary
+
+`jobs/binary.jl` on Symmetry, 2026-11-20 and 21, Julia 1.13, 64 threads
+pinned, one AMD node per run: `d/4` (job 607090, `cn085`, EPYC 7532),
+`d/4` at half the step (`--cfl=0.25`, 607121, `cn087`, EPYC 7532),
+`d/6` (607122, `cn091`, EPYC 7532), and the past's circle at `d/4`
+(`--prescribed`, 607096, `cn093`, EPYC 7543). The binary of [Initial
+data](#initial-data): `M = 1`, `Q = ±√0.005`, `ℓ = 10⁻³`, `d₀ = 1`,
+`v = 0.2`, `G = 0.08204`, `K = 0.08164`, from the retarded field of the
+spun-up past, the force taking over over `t = 0` to `15.71` (one orbit),
+to `t = 32`. The first `d/4` run predates the threaded quadrature, which
+gives the same numbers.
+
+**The orbit is the same in all three runs.** Over the orbit after the
+hand-over, `t = 15.71` to `31.42`, and to `t = 32` for the drifts:
+
+| | `d/4` | `d/4`, `Δt/2` | `d/6` |
+|---|---|---|---|
+| `ḋ`, the orbit's mean | `−8.0845·10⁻⁵` | `−8.0842·10⁻⁵` | `−8.0855·10⁻⁵` |
+| `ΔE` per unit time | `−3.2883·10⁻⁶` | `−3.2877·10⁻⁶` | `−3.2881·10⁻⁶` |
+| eccentricity | `1.95·10⁻⁴` | `1.96·10⁻⁴` | `1.95·10⁻⁴` |
+| centre of mass from `o`, largest | `4.2·10⁻⁷` | `4.7·10⁻⁷` | `1.2·10⁻⁷` |
+| momentum, largest | `1.0·10⁻⁷` | `9.4·10⁻⁸` | `2.2·10⁻⁸` |
+
+- **The inspiral is at the leading order to `O(v²)`:** `ḋ` is 0.931 of
+  `dipole_ddot` at the orbit's mean separation (`−8.68·10⁻⁵`). The flux
+  of the two charges is 0.964 of the dipole power at `v = 0.2`
+  ([Diagnostics](#diagnostics)), and the energy's relation to `d` has
+  `O(v²)` terms too; not taken further, the flux balance being M7's.
+- **The energy and the flux:** the orbit loses `3.288·10⁻⁶` per unit
+  time; the grid's flux through the sphere at 4, averaged from
+  `t = 19.7` to 32, short of an orbit, is `3.285·10⁻⁶`, and the past's
+  circle radiates `3.273·10⁻⁶`. The orbit's energy counts no field
+  energy, so this is a check of size, not a balance.
+- **The eccentricity** is the fit of `c₀ + c₁t + A cos ωt + B sin ωt` at
+  `ω = 0.4006` over the orbit after the hand-over, whose residual is
+  `1.4·10⁻⁶`; from `t = 8` it is `2.0·10⁻⁴`. The hand-over leaves it, the
+  same at every resolution and step.
+- **The centre of mass drifts as the grid's error,** at about third order
+  from `d/4` to `d/6` and not with the step; the circle's stays at
+  `2·10⁻¹⁵`.
+
+**The forces after the hand-over** are the circle's. Per particle, the
+remainder's force along the velocity, the inward radius and their
+normal, mean and scatter over `t = 15.71` to 32:
+
+| | `d/4` | `d/4`, `Δt/2` | `d/6` | circle, `d/4` |
+|---|---|---|---|---|
+| `F_t` | `−7.88·10⁻⁶`, `7·10⁻⁸` | `−7.88·10⁻⁶`, `5·10⁻⁸` | `−7.88·10⁻⁶`, `2.3·10⁻⁸` | `−7.85·10⁻⁶`, `5·10⁻⁸` |
+| `F_r` | `−3.8·10⁻⁷`, `9·10⁻⁸` | `−3.7·10⁻⁷`, `6·10⁻⁸` | `−3.7·10⁻⁷`, `3.3·10⁻⁸` | `−3.7·10⁻⁷`, `5·10⁻⁸` |
+| largest `|F_n|` | `1.0·10⁻⁷` | `1.0·10⁻⁷` | `4.9·10⁻⁸` | `9.9·10⁻⁸` |
+
+The tangential force opposes the motion at 1.86 times a single charge's
+`F_RR = 4.24·10⁻⁶` on the same circle, the other charge's field adding
+to it; the two particles agree to `10⁻³` of it.
+
+**What was checked for instabilities in the higher derivatives.** Other
+self-force schemes report them in the highest derivatives they evolve,
+from a third-order equation in time whose runaway solutions an error
+excites. Here no equation of higher order in time is solved: `a`, `ȧ`
+and `ä` come from `E`, `Ė` and `Ë` at each stage, algebraically given
+the state, and `a⃛` and `a⃜` from the predictor's point particles. That
+is an argument, not a demonstration; the runs check it as follows.
+
+- **`a`, `ȧ`, `a⃛` and `a⃜` are smooth and the same in every run** to the
+  digits recorded, `|a|` rising from `0.0800` to `0.0802` as the orbit
+  shrinks. `ȧ`'s departure from the circle's `ω n̂ × a`, `10⁻⁴` to
+  `7·10⁻⁴` of it, is the same in every run to a tenth, the inspiral's.
+- **The solved `ä` jumps where the particle's support straddles an
+  element face.** Its departure from the circle's `−ω²a`, rms over `|ä|`,
+  by the distance of the particle's centre from the nearest face of the
+  finest level, from `t = 4` to 32:
+
+  | distance | steps | `d/4` | `d/4`, `Δt/2` | `d/6` |
+  |---|---|---|---|---|
+  | below `2ℓ` | 4 % | 0.41 (3.1) | 0.39 (3.1) | 0.19 (1.7) |
+  | `2ℓ` to `5ℓ` | 7 % | 0.015 | 0.015 | 0.015 |
+  | `5ℓ` to `10ℓ` | 14 % | 0.015 | 0.015 | 0.013 |
+  | `10ℓ` to `20ℓ` | 21 % | 0.013 | 0.013 | 0.014 |
+  | beyond | 54 % | 0.010 | 0.010 | 0.007 |
+
+  with the largest in parentheses. A face crossing lasts `2ℓ/v`, about a
+  step; the pairing reads the field's jump there (as the force's
+  impulses of [The averaging](#the-averaging) do), and `Ë` its second
+  derivative in time, so `ä` takes the impulse at its largest. It halves
+  from `d/4` to `d/6`, is the same at half the step, and does not grow:
+  per window of four time units its rms moves between 0.9 % and 16 % at
+  `d/4` and 1.4 % and 6.5 % at `d/6` with no trend. It does not reach
+  the orbit, which `ä` enters only through the source's jets. Away
+  from the faces, 1 %, falling little with `hₑ` **(open)**.
+- **`jerkgap`, the solved `ä`'s rate against the predictor's `a⃛`,** has a
+  median of 0.5 and a largest of `10³` (`3·10³` at half the step): the
+  `ä` above divided by a step. It measures the noise, not `a⃛`.
+- **Newton's solve:** at most 7 iterations, 2.9 on average, at most two
+  projections of the source, a residual below `4.5·10⁻¹⁴`, in every run
+  and throughout.
+- **`δm_h/M` from a fresh Jacobian** is `γ − 1 = 2.06·10⁻²` while the
+  blend holds the past (the blend's Jacobian), and after the hand-over
+  `3.89` to `3.91·10⁻⁴` in every run, at `d/4`, `d/6` and half the step,
+  with the other particle's `ä` block at `2.57·10⁻⁴`. That is about
+  `q²/4π = 3.98·10⁻⁴`, against M6a's `7·10⁻¹⁰` for one particle; where
+  it comes from is not traced **(open)**. It does not depend on the
+  resolution, so it is not the grid's self-inertia, and the `ä` system
+  stays within `4·10⁻⁴` of `MγI`.
+- **Not checked:** anything beyond `t = 32`, one orbit after the
+  hand-over; `d/8`, whose step would take the run to about 28 hours,
+  past `amdq`'s 24, without a checkpoint; and other speeds.
+
+**Cost**, seconds per step on 64 threads, from the runs' wall clock:
+
+| run | nodes | steps | s/step |
+|---|---|---|---|
+| binary `d/4`, quadrature serial (EPYC 7532) | `2.0·10⁷` | 4 096 | 9.2 |
+| binary `d/4`, `Δt/2`, threaded (EPYC 7532) | `2.0·10⁷` | 8 192 | 4.6 |
+| binary `d/6`, threaded (EPYC 7532) | `5.1·10⁷` | 6 144 | 6.8 |
+| circle `d/4` (EPYC 7543) | `2.0·10⁷` | 4 096 | 1.3 |
+
+Threading the support's quadrature halved the binary's step; what is left
+beyond the circle's, about 3.3 s at `d/4`, is two particles' solves and
+`LΠ`. The quarter ball the owner suggested (2026-11-20), the half-spaces
+`x ≥ 0` and `z ≥ 0` with a reflection and a half-turn, would cut the
+mesh by four and, with the second particle the first's image, halve the
+solve; it would need the transfer to fold across both faces
+**(proposed)**, for M7.
+
 ## What carried over from TreeWave, and what did not
 
 Carried over: the equation and its variables, the periodic box, the sine
@@ -7166,6 +7522,17 @@ TreeHydro's ([On a device](#on-a-device)).
   (`INSPIRAL.md`, "The transfer operator", and M4's fallback in
   `HISTORY.md`, "Gates of the finished milestones"), should the gradient's
   jump that the averaged reading leaves matter.
+- **(proposed)** The binary in a quarter ball, `x ≥ 0` and `z ≥ 0` with a
+  reflection at `z = 0` and a half-turn at `x = 0` (the owner,
+  2026-11-20): a quarter of the mesh and, with the second particle the
+  first's image, half the solve, if M7's runs need it. Every read of the
+  transfer, which today looks for no images, would have to fold across
+  both faces, and the ball's shells take the reflection too ([The
+  binary](#the-binary) under "Measured results").
+- **(proposed)** A Laplacian of `Π_r` on the support's elements alone in
+  the dynamic solve, in place of a whole `wave_rhs!` per stage ([The
+  equations of motion](#the-equations-of-motion-1) under "Measured
+  results"); deferred to M7, where `d/12` and finer need it.
 
 ## Open questions
 
@@ -7200,3 +7567,11 @@ TreeHydro's ([On a device](#on-a-device)).
   `INSPIRAL.md`'s `10⁻¹²` does not cover (see [Quadrature](#quadrature)):
   whether it matters, and if so a split at `R₁` and `R₂` like the one at
   the support, or a smoother window.
+- Where the binary's `δm_h/M ≈ 3.9·10⁻⁴`, about `q²/4π`, comes from,
+  against one particle's `7·10⁻¹⁰`; it does not depend on the resolution
+  ([The binary](#the-binary) under "Measured results").
+- Why the binary's solved `ä` departs from the circle's by 1 % away from
+  the element faces, falling little from `d/4` to `d/6`, and whether the
+  jump at a face crossing, up to three times `ä` at `d/4`, should be
+  smoothed, as the averaging smooths the force's ([The binary](#the-binary)
+  under "Measured results").
