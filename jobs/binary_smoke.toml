@@ -1,0 +1,16 @@
+# `bin/binary.jl` for a few steps on the smallest ball whose finest cube
+# holds the window (one level of half-width 4 at `hₑ = 1/2`, `R1 = 8`):
+# the binary, and the past's circle, before `binary.jl`'s runs.
+name = "binary_smoke"
+description = "TreeWaveOLDG M6b: bin/binary.jl for a few steps"
+
+[site.symmetry]
+time = "1:00:00"
+
+[[run]]
+label = "binary"
+cmd = "bin/binary.jl --hdiv=2 --levels=1 --w0=4 --R1=8 --hshell=1 --rx1=10 --rx2=12 --tend=0.25 --jevery=0.0625 --flux=flux-smoke.tsv --fradii=3"
+
+[[run]]
+label = "circle"
+cmd = "bin/binary.jl --hdiv=2 --levels=1 --w0=4 --R1=8 --hshell=1 --rx1=10 --rx2=12 --tend=0.25 --prescribed --flux=flux-smoke-circle.tsv --fradii=3"

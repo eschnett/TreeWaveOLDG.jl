@@ -146,6 +146,85 @@ end
     @test log2(errs[1] / errs[2]) > P + 0.5
 end
 
+# A quadratic, which the element polynomials hold exactly at `P ≥ 2`, and
+# its gradient.
+extraction_q(x) = 0.3x[1]^2 - 0.2x[1] * x[2] + 0.5x[3] + 0.1x[3]^2 + 1
+extraction_∇q(x) = SVector(0.6x[1] - 0.2x[2], -0.2x[1], 0.5 + 0.2x[3])
+
+function extraction_state(wave, f)
+    fill_at_nodes!(at_physical(wave, (x, var) -> f(x)), wave.fs, wave.element)
+    u = statevector(wave.fs)
+    gather!(u, wave.fs)
+    return u
+end
+
+@testset "The gradient is the element polynomial's, physical in the ball's cube" begin
+    # Guards `sphere_gradients` (M6b's flux): the derivative weights must
+    # be the reading's polynomial's, divided by the block's spacing and,
+    # in the cube, by the map's scale; a weight taken along the wrong
+    # dimension, a lost spacing or a logical gradient fails the
+    # quadratic, which the elements hold exactly, and a point in the
+    # wrong element stops the smooth function's error from falling at
+    # order `P`.
+    P = 3
+    errs = Float64[]
+    for s in (1, 2)
+        forest, geo = sevenpatch_forest(Float64, P, 2; roots=(4s, 2s), Lc=1.0, R1=3.0,
+                                        refined=((s, 3s), (s, 3s), (s, 3s)))
+        wave = WaveProblem(forest, Element(Float64, P); geometry=geo,
+                           boundary=RadiativeBoundary())
+        ex = SphereExtraction(wave, [0.3, 0.7, 0.95]; lmax=2, gradient=true)
+        g = sphere_gradients(ex, wave, extraction_state(wave, extraction_q))
+        @test maximum(j -> norm(g[j] - extraction_∇q(ex.points[j])), eachindex(g)) < 1e-12
+        g = sphere_gradients(ex, wave, extraction_state(wave, extraction_f))
+        ∇f(x) = TreeWaveOLDG.ForwardDiff.gradient(extraction_f, x)
+        push!(errs, maximum(j -> norm(g[j] - ∇f(ex.points[j])), eachindex(g)))
+    end
+    @test log2(errs[1] / errs[2]) > P - 0.5
+    # On a brick, the same quadratic.
+    forest = wave_forest(Float64, Val(3), P, 2; roots=4, L=4.0)
+    wave = WaveProblem(forest, Element(Float64, P))
+    ex = SphereExtraction(wave, [0.5, 1.5]; lmax=2, centre=(2, 2, 2), gradient=true)
+    g = sphere_gradients(ex, wave, extraction_state(wave, extraction_q))
+    @test maximum(j -> norm(g[j] - extraction_∇q(ex.points[j])), eachindex(g)) < 1e-12
+    @test_throws "gradient = true" sphere_gradients(SphereExtraction(wave, [0.5]; lmax=2,
+                                                                     centre=(2, 2, 2)),
+                                                    wave, statevector(wave.fs))
+end
+
+@testset "The flux through a sphere is -∮ Π ∂_rΦ" begin
+    # Guards `sphere_flux`: for `Φ = g(r²)` and `Π = h(r²)` the flux through
+    # the sphere of radius `R` is `-4πR² h(R²) 2R g′(R²)`, which the rule
+    # integrates exactly from the exact values, and the grid's converges
+    # to at order `P` or better; a wrong sign, a lost `R²`, a radial
+    # derivative taken along the wrong direction or the rule's weights not
+    # summing to `4π` breaks it.
+    g(q) = exp(-4q) * cos(3q)
+    dg(q) = -exp(-4q) * (4cos(3q) + 3sin(3q))
+    h(q) = sin(2q) + 0.3
+    state(x, var) = (q = x[1]^2 + x[2]^2 + x[3]^2; var == 1 ? g(q) : h(q))
+    exact(R) = -4π * R^2 * h(R^2) * 2R * dg(R^2)
+    P = 3
+    radii = [0.4, 0.6, 0.9]
+    errs = Float64[]
+    for s in (1, 2)
+        forest, geo = sevenpatch_forest(Float64, P, 2; roots=(4s, 2s), Lc=1.0, R1=3.0,
+                                        refined=((s, 3s), (s, 3s), (s, 3s)))
+        wave = WaveProblem(forest, Element(Float64, P); geometry=geo,
+                           boundary=RadiativeBoundary())
+        fill_at_nodes!(at_physical(wave, state), wave.fs, wave.element)
+        u = statevector(wave.fs)
+        gather!(u, wave.fs)
+        ex = SphereExtraction(wave, radii; lmax=2, gradient=true)
+        Π = [state(x, 2) for x in ex.points]
+        ∇Φ = [TreeWaveOLDG.ForwardDiff.gradient(y -> state(y, 1), x) for x in ex.points]
+        @test sphere_flux(ex, Π, ∇Φ) ≈ exact.(radii) rtol = 1e-13
+        push!(errs, maximum(abs, sphere_flux(ex, wave, u) - exact.(radii)))
+    end
+    @test log2(errs[1] / errs[2]) > P - 0.5
+    @test errs[2] < 1e-3 * maximum(abs, exact.(radii))
+end
+
 @testset "The extraction refuses what it cannot read" begin
     # A geometry without an inverse map would read points at the wrong
     # place; a radius beyond the sphere is no point of the ball; a sphere
@@ -162,6 +241,7 @@ end
     wave = WaveProblem(forest, Element(Float64, 2); geometry=geo,
                        boundary=RadiativeBoundary())
     @test_throws "beyond the ball's sphere" SphereExtraction(wave, [3.5])
+    @test_throws "cube only" SphereExtraction(wave, [1.5]; gradient=true)
     @test_throws "must exceed lmax" SphereExtraction(wave, [1.0]; lmax=4, nθ=4)
 end
 

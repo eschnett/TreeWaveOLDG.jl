@@ -45,6 +45,7 @@ end
     testfile("ball_inspiral_tests.jl")
     testfile("prescribed_tests.jl")
     testfile("dynamic_tests.jl")
+    testfile("diagnostics_tests.jl")
     testfile("device_tests.jl")
     testfile("mpi_tests.jl")
 end

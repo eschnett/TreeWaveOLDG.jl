@@ -1795,6 +1795,66 @@ patches.
   a whole `wave_rhs!` per stage, doubles the circle's step at `d/12`. A
   Laplacian of `Π_r` on the support's elements alone is proposed in
   `CODE.md`.
+- 2026-11-20: M6b started, the binary's parts (`CODE.md`, "Initial
+  data" and "Diagnostics"). Erik Schnetter settled the plan's questions:
+  - **The ball and M8f's past**, not M3b's boxes released at once: the
+    boxes' kinked far data and short clean time are what M8 removed.
+  - **`v = 0.2` fixed and `G` solved** (0.08204), rather than
+    `INSPIRAL.md`'s `G = 0.0804` and `Ω` solved, so that M8's grids and
+    measured pasts carry over.
+  - **The flux check on M8e's `v = 0.2` circle in the ball**, not on M4's
+    `v = 0.05` boxes, the plan's text: the ball's data are the retarded
+    field, clean from the start, and the flux's `O(v²)` departure from
+    the dipole power is then large enough to see.
+  - **`LΠ` on the support's elements alone deferred to M7.** Asked what
+    it would take, he was told: gathering `Π_r` on the `5³` elements
+    about the support and applying the element's Laplacian tables there,
+    tested against `wave_rhs!`; a second copy of the Laplacian's
+    arithmetic for about 2 s of a step estimated at 8–9 s.
+  - **The quarter ball** (`x ≥ 0`, `z ≥ 0`, with a reflection and a
+    half-turn), his suggestion, to be recommended if the runs proved very
+    expensive; not for M6b, since the transfer would have to fold every
+    read across both faces.
+
+  Through M6a's session he asked that the runs watch for the
+  instabilities in the higher derivatives that other self-force schemes
+  report: every step the jets, the solved `ä`'s rate against the
+  predicted `a⃛`, Newton's residual and a fresh Jacobian's `δm_h`, at
+  two resolutions and half the step. He also had the large runs,
+  test files included, go to a cluster rather than the laptop.
+
+  Writing the tests found that opposite charges repel in the scalar
+  theory and like ones attract; a comment in the predictor's tests said
+  otherwise and was fixed. The binary's symmetry test first asked for
+  `10⁻⁸` in every jet; `ȧ` and `ä` keep it to `10⁻¹⁰` and `10⁻⁸`
+  because each time derivative reads the unsymmetric field through
+  another of the grid's second differences, so the test's tolerances are
+  per jet. The first flux test, of a field like `1/r`, had a singularity
+  at a node; it takes `g(r²)` and `h(r²)`.
+
+  The flux runs found that a sphere whose centre is not the circle's
+  sees a flux that changes over the orbit, the energy inside it moving
+  as the charge goes round, so `bin/flux.jl` compares means over whole
+  orbits. On the centred sphere the retarded field's flux is
+  `γ⁴Q²a²/12π` exactly.
+
+  The first binary step at `d/4` took 9.2 s, the own and other fields'
+  quadrature over the support serial on the host; threaded over chunks
+  of the rule summed in order, the same numbers, it took 4.6 s. The runs
+  at half the step and at `d/6`, which would have taken about 18 hours,
+  were cancelled after their first hour and restarted on the threaded
+  code at his request; the `d/4` run and the circle ran on.
+- 2026-11-21: M6b's runs finished (`CODE.md`, "The flux" and "The
+  binary" under "Measured results"). The flux converges to the
+  retarded field's at about second order in the orbit's mean, so the
+  plan's done-when for the flux holds. The binary's orbit is the same at
+  `d/4`, `d/6` and half the step, its centre of mass drifting as the
+  grid's error. Nothing grew that depends on the resolution or the step;
+  the solved `ä` jumps by up to three times itself where the support
+  straddles an element face, halving from `d/4` to `d/6`, and the
+  binary's `δm_h/M` is `3.9·10⁻⁴`, about `q²/4π`, at every resolution,
+  both recorded as open. `d/8` was not run: about 28 hours, past
+  `amdq`'s 24, without a checkpoint.
 
 ### What the plan said of its finished milestones
 
@@ -2914,6 +2974,9 @@ force's take-over, for M6b to take.
   `10⁻⁸`. Settled 2026-11-14 by the owner: `R₁` large enough that the
   sphere is causally disconnected from the run, 100 for M8d, and no
   scans in `R₁`.
+- M6b: whether diagnostics get their own file. Settled 2026-11-20:
+  `src/diagnostics.jl`, since they read the particles' state and nothing
+  of the grid (`CODE.md`, "Diagnostics").
 - M8c and the inspiral: initial data that are the field far from an
   accelerated particle. `(1 − W)Ψ̂` of order 3 grows like `r²` and is a
   hundred times the field at `r = 48`, and on the circle what it sent in

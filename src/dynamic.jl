@@ -35,13 +35,45 @@ the number type, so that it works on dual numbers along the motion.
 """
 function support_integrals(m::ParticleModel, traj::Trajectory, rule::SupportRule, h)
     (; z, v) = traj
+    γ = lorentz_factor(v)
+    scale = m.ℓ^3 / γ
+    S = typeof(scale * first(h(z)))
+    # The rule's points in chunks of a fixed size, threaded, and the
+    # chunks' sums added in their order: the result is the same at every
+    # thread count. A dynamic step evaluates these sums along nested dual
+    # numbers in `τ` for its own field and the other particles' at every
+    # residual, which serially was most of the solve's cost.
+    n = length(rule.w)
+    nchunks = cld(n, SUPPORT_CHUNK)
+    parts = Vector{Tuple{S,S,SVector{3,S}}}(undef, nchunks)
+    Threads.@threads :dynamic for k in 1:nchunks
+        lo = (k - 1) * SUPPORT_CHUNK + 1
+        parts[k] = support_sum(m, traj, rule, h, lo:min(n, lo + SUPPORT_CHUNK - 1), S)
+    end
+    Iρg, Iρġ, I∇ρg = parts[1]
+    for k in 2:nchunks
+        Iρg += parts[k][1]
+        Iρġ += parts[k][2]
+        I∇ρg += parts[k][3]
+    end
+    return scale * Iρg, scale * Iρġ, scale * I∇ρg
+end
+
+# The points of a chunk: 2048 of `SupportRule`'s defaults in 64 chunks,
+# one per thread of a Symmetry node.
+const SUPPORT_CHUNK = 32
+
+# `support_integrals`' sums over the rule's points `js`, without the
+# scale `ℓ³/γ`.
+function support_sum(m::ParticleModel, traj::Trajectory, rule::SupportRule, h, js,
+                     ::Type{S}) where {S}
+    (; z, v) = traj
     ℓ = m.ℓ
     γ = lorentz_factor(v)
     c = γ / (γ + 1)
-    scale = ℓ^3 / γ
-    S = typeof(scale * first(h(z)))
     Iρg, Iρġ, I∇ρg = zero(S), zero(S), zero(SVector{3,S})
-    for (y, w) in zip(rule.y, rule.w)
+    for j in js
+        y, w = rule.y[j], rule.w[j]
         ly = ℓ * y
         x = z + ly - (c * dot(v, ly)) * v
         q = dot(ly, ly)
@@ -53,7 +85,7 @@ function support_integrals(m::ParticleModel, traj::Trajectory, rule::SupportRule
         Iρġ += w * ρ * ġ
         I∇ρg += (w * g) * ∇ρ
     end
-    return scale * Iρg, scale * Iρġ, scale * I∇ρg
+    return Iρg, Iρġ, I∇ρg
 end
 
 # The particle's own near field, `Ψ - Φ_C`: the near-field terms and the
@@ -138,24 +170,41 @@ mutable struct DynamicScratch
     w::Any                              # (Π_r, 0), whose rate is (0, LΠ_r)
     dw::Any
     last::Any                           # what the last solve did
+    renew::Bool                         # find the next solve's Jacobian afresh
 end
 
 """
-    Dynamic(external, past; onset = 0, n2 = 4, rule = SupportRule(T), tol = 1e-10,
-            source_tol = 0.1)
+    renew_jacobian!(m::Dynamic)
+
+Have the next solve of `m`'s jets find its Jacobian afresh rather than
+keep the last one, so that `m.scratch.last.jacobian` is then the one at
+that solve's state: its `ä` block's distance from `MγI` is the grid's
+self-inertia at the current `γ`, which a kept Jacobian misreads by the
+change in `γ` since it was found (`CODE.md`, "The equations of motion"
+under "Measured results"). For diagnostics; it costs a Jacobian.
+"""
+renew_jacobian!(m) = (m.scratch.renew = true; m)
+
+"""
+    Dynamic(external, past; interaction = NoInteraction(), onset = 0, n2 = 4,
+            rule = SupportRule(T), tol = 1e-10, source_tol = 0.1,
+            source_addot = :solved)
 
 A motion in which each particle moves under its forces (INSPIRAL.md,
 "Equations of motion"): `a`, `ȧ` and `ä` of every particle are solved
 together from the state, from the equation of motion
 
-    m γ a = F_grid + F_own + Σ_b F_b + (I - v vᵀ) F_ext,   m = M₀ + QΦ̄ₑ,
+    m γ a = F_grid + F_own + Σ_b F_b + (I - v vᵀ)(F_ext + F_N),   m = M₀ + QΦ̄ₑ,
 
 and its first two time derivatives, by Newton's method. `F_grid` is the
 remainder's force ([`particle_forces`](@ref)), `F_own` the particle's
 own near field's ([`own_force`](@ref)), `F_b` the other particles'
-fields' ([`other_force`](@ref)), and `F_ext = external[k](z, v)` an
-`isbits` callable such as [`SpringForce`](@ref). `a⃛` and `a⃜` come from
-the predictor ([`predicted_jets`](@ref)).
+fields' ([`other_force`](@ref)), `F_ext = external[k](z, v)` an
+`isbits` callable such as [`SpringForce`](@ref), and `F_N` the
+`interaction` with the other particles, such as the binary's
+[`NewtonianForce`](@ref), along their jets. `a⃛` and `a⃜` come from
+the predictor ([`predicted_jets`](@ref)), which takes the same external
+forces and interaction.
 
 `past` is a [`Prescribed`](@ref) motion: the initial data are its
 retarded field, and the force takes over from it as
@@ -170,27 +219,42 @@ than `source_tol` from where it was found, relative to their size: the
 source reads the jets so weakly that never finding it again moves the
 force by `3·10⁻⁸ F_RR` while the force takes over, where the jets move
 up to 9% from the guess (`CODE.md`, "The equations of motion").
+
+`source_addot = :predicted` writes the source, and projects it in the
+solve, with the predictor's `ä` (blended with the past's as `a⃛` is) in
+place of the solved one, which the solve still finds and
+`m.scratch.last.trajs` records: an experiment on what the solved `ä`'s
+jumps at element faces do to the run (`CODE.md`, "The binary" under
+"Measured results"), not a scheme.
 """
-struct Dynamic{X<:Tuple,P<:Prescribed,T}
+struct Dynamic{X<:Tuple,I,P<:Prescribed,T}
     external::X
+    interaction::I
     past::P
     onset::T
     n2::Int
     rule::SupportRule{T}
     tol::T
     source_tol::T
+    source_addot::Symbol
     scratch::DynamicScratch
 end
 
-function Dynamic(external::Tuple, past::Prescribed; onset::Real=0, n2::Integer=4,
-                 rule=nothing, tol::Real=1e-10, source_tol::Real=0.1)
+function Dynamic(external::Tuple, past::Prescribed; interaction=NoInteraction(),
+                 onset::Real=0, n2::Integer=4, rule=nothing, tol::Real=1e-10,
+                 source_tol::Real=0.1, source_addot::Symbol=:solved)
     T = eltype(first(past.path(0.0)).z)
+    source_addot in (:solved, :predicted) || throw(ArgumentError(
+        "source_addot must be :solved or :predicted, got :$source_addot"))
     onset >= 0 || throw(ArgumentError("the onset must not be negative, got $onset"))
     length(external) == length(past.path(zero(T))) || throw(ArgumentError(
         "$(length(external)) external forces for $(length(past.path(zero(T)))) particles"))
     rule === nothing && (rule = SupportRule(T))
-    return Dynamic(external, past, T(onset), Int(n2), rule, T(tol), T(source_tol),
-                   DynamicScratch(nothing, nothing, nothing, nothing))
+    isbits(interaction) || throw(ArgumentError(
+        "the interaction must be isbits, got a $(typeof(interaction))"))
+    return Dynamic(external, interaction, past, T(onset), Int(n2), rule, T(tol),
+                   T(source_tol), source_addot,
+                   DynamicScratch(nothing, nothing, nothing, nothing, false))
 end
 
 retarded_path(m::Dynamic) = m.past.path
@@ -294,7 +358,8 @@ function dynamic_residual(m::Dynamic, p::InspiralProblem{T,K}, fu, fdu, LΠ, zs,
                 F += Fb
                 Q += Qb
             end
-            Fx = m.external[k](tr.z, tr.v)
+            Fx = m.external[k](tr.z, tr.v) +
+                 pair_force(m.interaction, p.models, map(j -> j.z, jτ), k)
             Eφ = (mk.M₀ + Q) * γ * tr.a - F - (Fx - dot(tr.v, Fx) * tr.v)
             σ = handover(m, t + τ)
             return σ * Eφ + (1 - σ) * mk.M * (tr.a - trajectory_at(past[k], τ).a)
@@ -345,10 +410,14 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     fu = field_state(u, p)
     zv = particle_state(u, p)
     zs, vs = map(first, zv), map(last, zv)
-    pred = predicted_jets(p.models, m.external, zs, vs)
+    pred = predicted_jets(p.models, m.external, zs, vs; interaction=m.interaction)
     σ = handover(m, T(t))
     mix(f) = ntuple(k -> (1 - σ) * getfield(past[k], f) + σ * getfield(pred[k], f), Val(K))
     higher = ntuple(k -> (mix(:a⃛)[k], mix(:a⃜)[k]), Val(K))
+    # The jets the source is written with: the solved ones, or with
+    # `source_addot = :predicted` the predictor's `ä` in their place.
+    sourced(X) = m.source_addot === :solved ? X :
+                 ntuple(k -> (X[k][1], X[k][2], mix(:ä)[k]), Val(K))
     LΠ = rate_laplacian(m.scratch, p, fu, T(t))
     pack(X) = reduce(vcat, (vcat(x...) for x in X))
     unpack(x) = ntuple(k -> ntuple(j -> SVector{3,T}(x[9(k - 1) + 3(j - 1) .+ (1:3)]), 3),
@@ -366,7 +435,7 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     else
         Vector{T}(pack(ntuple(k -> (mix(:a)[k], mix(:ȧ)[k], mix(:ä)[k]), Val(K))))
     end
-    sources = source_projections(p, zs, vs, higher, unpack(x))
+    sources = source_projections(p, zs, vs, higher, sourced(unpack(x)))
     xp = copy(x)                        # where the sources were found
     resid(x) = pack(dynamic_residual(m, p, fu, fdu, LΠ, zs, vs, higher, past, T(t),
                                      unpack(x), sources))
@@ -399,8 +468,9 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     # converges with it all the same, so it would be kept for good. It is
     # found again when the blend has moved by a quarter, and when the
     # force has taken over.
-    fresh = sc.last === nothing || size(sc.last.jacobian) != (n, n) ||
+    fresh = sc.renew || sc.last === nothing || size(sc.last.jacobian) != (n, n) ||
             (σ != sc.last.σ && (σ == 1 || abs(σ - sc.last.σ) > 1 // 4))
+    sc.renew = false
     J = fresh ? jacobian() : sc.last.jacobian
     σJ = fresh ? σ : sc.last.σ          # the blend at which `J` was found
     iterations = 0
@@ -422,7 +492,7 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
             (projected || norm(x - xp) <= m.source_tol * norm(x)) &&
                 (converged = true; break)
             push!(moves, norm(x - xp) / norm(x))
-            sources = source_projections(p, zs, vs, higher, unpack(x))
+            sources = source_projections(p, zs, vs, higher, sourced(unpack(x)))
             xp = copy(x)
             projections += 1
             r = resid(x)
@@ -454,5 +524,8 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     push!(moves, norm(x - xp) / norm(x))
     sc.last = (; t=T(t), iterations, projections, residual=norm(r), jacobian=J, σ=σJ,
                fresh, trajs, reach=min(reach, T(Inf)), moves)
-    return trajs
+    m.source_addot === :solved && return trajs
+    S = sourced(X)
+    return ntuple(k -> Trajectory(; z=zs[k], v=vs[k], a=S[k][1], ȧ=S[k][2], ä=S[k][3],
+                                  a⃛=higher[k][1], a⃜=higher[k][2]), Val(K))
 end
