@@ -7,7 +7,7 @@
 #         [--cfl=0.5] [--v=0.2] [--T=30] [--ramp=10] [--n=4] [--onset=2π/Ω] \
 #         [--n2=4] [--rx1=100] [--rx2=110] [--every=1] [--jevery=0.125] \
 #         [--source-tol=0.1] [--flux=FILE] [--fradii=4,6,8,12] [--prescribed] \
-#         [--ell=1e-3] [--source-addot=solved]
+#         [--ell=1e-3] [--source-addot=solved] [--mpi]
 #
 # Two particles of `M = 1`, `Q = ±√0.005`, `ℓ = 10⁻³`, at separation 1, each
 # at speed `v`, on `binary_circular_motion`'s circle about the centre
@@ -57,15 +57,39 @@
 #   `ä` blocks;
 # - the wall-clock seconds since the start.
 #
+# - what the step cost, in wall-clock seconds: `step_seconds` in all, and
+#   of it `solve_seconds`, the jets' solves at the step's stages
+#   (`solve_seconds`), split into `laplacian_seconds`, `projection_seconds`,
+#   `residual_seconds` and `jacobian_seconds` (the last a part of the
+#   residuals'); the rest is the field's right-hand side and the source.
+#   `report_seconds` is the last report's, these rows' own cost.
+#
 # At `t = 0` also `G`, `K`, the leading-order `ddot0` (`dipole_ddot`),
-# `nodes`, `steps`, `dt` and `setup_seconds`. With `--flux=FILE` the flux
+# `nodes`, `steps`, `dt`, `ranks` and `setup_seconds`.
+#
+# With `--mpi` it runs over MPI under `mpiexec`, in an environment that
+# has MPI.jl (SimLaunch's `mpi` kind): the ball's forest takes
+# `MPI.COMM_WORLD`, and rank 0 alone prints and writes the flux
+# ("Running distributed" in `CODE.md`). Every rank solves the jets, on
+# the same numbers, so the run is the serial one to the bit. With `--flux=FILE` the flux
 # through spheres in the cube about `o` of radii `--fradii`, every
 # `--fluxevery` (`bin/waves_io.jl`), with the retarded field's beside it
 # only with `--prescribed`.
 
 include(joinpath(@__DIR__, "prescribed.jl"))
-using TreeWaveOLDG: lorentz_factor
+using TreeWaveOLDG: lorentz_factor, rank_reduce
 using LinearAlgebra: I, cross, opnorm
+
+const MPI_RUN = "--mpi" in ARGS
+MPI_RUN && @eval using MPI
+
+# `MPI.COMM_WORLD`, initialized, under `--mpi`; otherwise a serial run.
+function binary_comm()
+    MPI_RUN || return nothing
+    MPI.Init()
+    QUIET[] = MPI.Comm_rank(MPI.COMM_WORLD) != 0
+    return MPI.COMM_WORLD
+end
 
 function binary_main()
     withbackend((backend, _) -> binary_evolve(backend), option("backend", "cpu"), "f64")
@@ -97,9 +121,10 @@ function binary_evolve(backend)
     prescribed = "--prescribed" in ARGS
     ℓ = parse(Float64, option("ell", "1e-3"))
     source_addot = Symbol(option("source-addot", "solved"))
+    comm = binary_comm()
     start = time()
     P = 3
-    wave = ball_wave(hdiv, levels, w0; R1, hshell=parse(Float64, hs), P, backend)
+    wave = ball_wave(hdiv, levels, w0; R1, hshell=parse(Float64, hs), P, backend, comm)
     o = OFFSET
     q = sqrt(0.005)
     ms = (ParticleModel(; Q=q, ℓ, M=1.0), ParticleModel(; Q=-q, ℓ, M=1.0))
@@ -123,7 +148,8 @@ function binary_evolve(backend)
     emit(tag..., 0.0, "onset", onset)
     emit(tag..., 0.0, "ell", ℓ)
     emit(tag..., 0.0, "source_addot_predicted", source_addot === :predicted ? 1 : 0)
-    emit(tag..., 0.0, "nodes", statelength(p.wave.fs) ÷ 2)
+    emit(tag..., 0.0, "nodes", rank_reduce(+, p.wave.fs, statelength(p.wave.fs) ÷ 2))
+    emit(tag..., 0.0, "ranks", comm === nothing ? 1 : MPI.Comm_size(comm))
     emit(tag..., 0.0, "steps", integ.nsteps)
     emit(tag..., 0.0, "dt", integ.dt)
     emit(tag..., 0.0, "setup_seconds", time() - start)
@@ -133,7 +159,11 @@ function binary_evolve(backend)
     previous = Ref{Any}(nothing)        # the last report's time and jets
     nextfresh = Ref(0.0)
     renewed = Ref(false)                # the step's Jacobian was found afresh
+    spent = prescribed ? nothing : solve_seconds(motion)
+    step_seconds = Ref(0.0)
+    report_seconds = Ref(0.0)
     function report(u, t)
+        t0 = time()
         zv = particle_state(u, p)
         zs, vs = map(first, zv), map(last, zv)
         od = orbit_diagnostics(ms, f, zs, vs)
@@ -184,7 +214,17 @@ function binary_evolve(backend)
             end
             fresh && emit(tag..., t, "dmhcross", opnorm(J[7:9, 16:18]) / ms[1].M)
         end
+        emit(tag..., t, "step_seconds", step_seconds[])
+        if !prescribed
+            now = solve_seconds(motion)
+            for k in keys(now)
+                emit(tag..., t, "$(k)_seconds", now[k] - spent[k])
+            end
+            spent = now
+        end
+        emit(tag..., t, "report_seconds", report_seconds[])
         emit(tag..., t, "seconds", time() - start)
+        report_seconds[] = time() - t0
         return nothing
     end
     report(integ.u, integ.t)
@@ -194,13 +234,15 @@ function binary_evolve(backend)
             renew_jacobian!(motion)
             nextfresh[] += jevery
         end
+        t0 = time()
         step!(integ)
+        step_seconds[] = time() - t0
         (integ.nstep % kf == 0 || integ.nstep == integ.nsteps) &&
             write_flux(fluxes, p, integ.u, integ.t, prescribed ? retarded : nothing)
         (integ.nstep % every == 0 || integ.nstep == integ.nsteps) || continue
         report(integ.u, integ.t)
     end
-    fluxes === nothing || close(fluxes.io)
+    fluxes === nothing || fluxes.io === devnull || close(fluxes.io)
     return nothing
 end
 

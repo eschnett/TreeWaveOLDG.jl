@@ -142,10 +142,16 @@ each point, the `(P+1)^D` positions of those nodes in a state vector and
 their weights, so that a read is a gather and a weighted sum, plain array
 operations on any backend ([`sphere_values`](@ref)). A regrid makes them
 stale. Other geometries, a point TreeAMR would fold across a
-reflecting face or a seam, a point beyond a periodic brick, which would
-read its image, and a distributed forest are refused. `points` holds the physical
+reflecting face or a seam, and a point beyond a periodic brick, which
+would read its image, are refused. `points` holds the physical
 points on the host, sphere by sphere, so that a reference's modes are
 the same quadrature of its values there (`sphere_modes(ex, values)`).
+
+Over MPI each rank keeps the stencils of the points in its own blocks,
+and a read is collective: each rank reads its points, and one
+`allgatherv` gives every rank all of them, in `points`' order. Each
+point is read by one rank with the serial arithmetic, so the values are
+the serial ones to the bit ("Running distributed" in `CODE.md`).
 
 With `gradient = true` it also keeps the weights of the same polynomial's
 derivatives, for [`sphere_gradients`](@ref) and the flux through the
@@ -168,6 +174,8 @@ struct SphereExtraction{T,IA,WA,GA}
     gscale::T                    # ∂/∂x = gscale ∂/∂ξ of the forest's positions
     varstride::Int               # a variable's offset in a state vector's block
     statelength::Int
+    comm::Any                    # the forest's communicator
+    gathered::Union{Nothing,Vector{Int}}  # over MPI, the points in gathered order
 end
 
 function SphereExtraction(wave::WaveProblem{T}, radii; lmax::Integer=6,
@@ -202,14 +210,14 @@ function SphereExtraction(wave::WaveProblem{T}, radii; lmax::Integer=6,
             "Lc = $(geo.Lc)"))
         gscale = inv(T(affine_map(geo, 1)[2]))
     end
-    index, weights, gweights = element_stencils(wave.fs, xs; gradient)
+    index, weights, gweights, gathered = element_stencils(wave.fs, xs; gradient)
     backend = get_backend(wave.fs.work)
     N = wave.fs.forest.N
     D = length(first(xs) isa PatchPoint ? first(xs).ξ : first(xs))
     return SphereExtraction(rs, c, Int(lmax), Int(nθ), nφ, points, table, rule,
                             to_backend(backend, index), to_backend(backend, weights),
                             gradient ? to_backend(backend, gweights) : nothing, gscale,
-                            N^D, statelength(wave.fs))
+                            N^D, statelength(wave.fs), wave.fs.forest.comm, gathered)
 end
 
 # Each point's element and weights, as TreeAMR's `ElementPolynomial`
@@ -221,13 +229,13 @@ end
 # (`statearray`), for variable 1, and the products of the weights, one
 # column per point. TreeAMR's kernel reads the same nodes with the same
 # weights, summed in another order (see "Waveforms" in `CODE.md` for why
-# the extraction does not call it).
+# the extraction does not call it). Over MPI only the points in the
+# rank's own blocks get a column, and the last result is every rank's
+# points concatenated in rank order, the order in which
+# [`gather_points`](@ref TreeWaveOLDG.gather_points) receives their
+# values; serially it is `nothing`.
 function element_stencils(fs::FieldSet{T,D}, xs; gradient::Bool=false) where {T,D}
     forest = fs.forest
-    # A located leaf is the forest's, not a rank's block ("Running
-    # distributed"); the tables below index blocks.
-    TreeAMR.isdistributed(forest) && throw(ArgumentError(
-        "the extraction reads a forest on one rank only, not a distributed one"))
     pts = TreeAMR.locate(T, forest, xs)
     all(pts.inside) || throw(ArgumentError("a point to extract lies outside the forest"))
     # A periodic brick locates a point beyond it at its image, which no
@@ -247,11 +255,22 @@ function element_stencils(fs::FieldSet{T,D}, xs; gradient::Bool=false) where {T,
     G, C, S = ntuple(_ -> 0, D), TreeAMR.staggers(fs), ntuple(_ -> N, D)
     st = ntuple(d -> N^(d - 1), D)
     block = N^D * fs.nvars
-    index = Matrix{Int}(undef, n^D, length(xs))
-    weights = Matrix{T}(undef, n^D, length(xs))
-    gweights = gradient ? Array{T,3}(undef, n^D, length(xs), D) : nothing
-    for j in eachindex(xs)
-        b = Int(pts.leaf[j])
+    # A located leaf is the forest's, not a rank's block ("Running
+    # distributed"): each rank keeps the points of its own blocks, by
+    # their local block.
+    own = [j for j in eachindex(xs) if local_block(forest, pts.leaf[j]) !== nothing]
+    gathered = nothing
+    if TreeAMR.isdistributed(forest)
+        gathered = TreeAMR.allgatherv(forest.comm, own)
+        sort(gathered) == collect(eachindex(xs)) || error(
+            "the ranks located $(length(gathered)) points of $(length(xs)) in their " *
+            "blocks: each point must lie in one rank's block")
+    end
+    index = Matrix{Int}(undef, n^D, length(own))
+    weights = Matrix{T}(undef, n^D, length(own))
+    gweights = gradient ? Array{T,3}(undef, n^D, length(own), D) : nothing
+    for (col, j) in enumerate(own)
+        b = local_block(forest, pts.leaf[j])
         first, ξ, _ = TreeAMR.query_stencil(basis, pts.y[j], origins[b], spacings[b],
                                             Val(G), Val(C), Val(S))
         # The weights and their derivatives in `ξ`, the position in units
@@ -260,18 +279,29 @@ function element_stencils(fs::FieldSet{T,D}, xs; gradient::Bool=false) where {T,
         h = spacings[b]
         corner = 1 + sum(ntuple(d -> (first[d] - 1) * st[d], D)) + (b - 1) * block
         for (q, I) in enumerate(CartesianIndices(ntuple(_ -> n, D)))
-            index[q, j] = corner + sum(ntuple(d -> (I[d] - 1) * st[d], D))
-            weights[q, j] = prod(ntuple(d -> W[d][1][I[d]], D))
+            index[q, col] = corner + sum(ntuple(d -> (I[d] - 1) * st[d], D))
+            weights[q, col] = prod(ntuple(d -> W[d][1][I[d]], D))
             if gradient
                 for e in 1:D
                     he = h isa Number ? h : h[e]
-                    gweights[q, j, e] =
+                    gweights[q, col, e] =
                         prod(ntuple(d -> W[d][d == e ? 2 : 1][I[d]], D)) / he
                 end
             end
         end
     end
-    return index, weights, gweights
+    return index, weights, gweights, gathered
+end
+
+# Every point's value from the values of the rank's own points: over MPI
+# one `allgatherv`, put in place by `gathered` (`element_stencils`);
+# serially `values` itself. Collective.
+function gather_points(comm, gathered, values::Vector)
+    gathered === nothing && return values
+    all = TreeAMR.allgatherv(comm, values)
+    out = similar(all)
+    out[gathered] = all
+    return out
 end
 
 """
@@ -297,7 +327,7 @@ function stencil_values(ex, u::AbstractVector, var::Integer)
     length(u) >= ex.statelength || throw(DimensionMismatch(
         "a state vector of $(length(u)) entries for a field set of $(ex.statelength)"))
     nodes = u[ex.index .+ (var - 1) * ex.varstride]
-    return vec(Array(sum(ex.weights .* nodes; dims=1)))
+    return gather_points(ex.comm, ex.gathered, vec(Array(sum(ex.weights .* nodes; dims=1))))
 end
 
 # The field's part of an inspiral's state comes first in it, so the
@@ -339,7 +369,10 @@ function sphere_gradients(ex::SphereExtraction{T}, wave::WaveProblem, u::Abstrac
     length(u) >= ex.statelength || throw(DimensionMismatch(
         "a state vector of $(length(u)) entries for a field set of $(ex.statelength)"))
     nodes = u[ex.index .+ (var - 1) * ex.varstride]
-    g = ntuple(d -> vec(Array(sum(selectdim(ex.gweights, 3, d) .* nodes; dims=1))), Val(3))
+    g = ntuple(Val(3)) do d
+        gather_points(ex.comm, ex.gathered,
+                      vec(Array(sum(selectdim(ex.gweights, 3, d) .* nodes; dims=1))))
+    end
     return [ex.gscale * SVector{3,T}(g[1][j], g[2][j], g[3][j]) for j in eachindex(g[1])]
 end
 
@@ -439,6 +472,8 @@ function PlaneExtraction(wave::WaveProblem{T}, centre, halfwidth::Real,
             "seven-patch ball only, not on a $(nameof(typeof(geo)))"))
     end
     isempty(xs) && throw(ArgumentError("no point of the plane lies in the forest"))
+    TreeAMR.isdistributed(wave.fs.forest) && throw(ArgumentError(
+        "PlaneExtraction reads a forest on one rank only, not a distributed one"))
     index, weights, _ = element_stencils(wave.fs, xs)
     backend = get_backend(wave.fs.work)
     N = wave.fs.forest.N

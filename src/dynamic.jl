@@ -171,7 +171,35 @@ mutable struct DynamicScratch
     dw::Any
     last::Any                           # what the last solve did
     renew::Bool                         # find the next solve's Jacobian afresh
+    seconds::Dict{Symbol,Float64}       # wall-clock seconds by part, summed over solves
 end
+
+DynamicScratch() = DynamicScratch(nothing, nothing, nothing, nothing, false,
+                                  Dict(k => 0.0 for k in SOLVE_PARTS))
+
+# The parts of a solve whose seconds `solve_seconds` reports: the whole
+# solve, `LΠ`'s `wave_rhs!`, the source's projections, the residuals
+# (those of the Jacobian included) and the Jacobians.
+const SOLVE_PARTS = (:solve, :laplacian, :projection, :residual, :jacobian)
+
+# `f()`, its wall-clock seconds added to part `key` of `sc`.
+function tally(f, sc::DynamicScratch, key::Symbol)
+    t0 = time_ns()
+    result = f()
+    sc.seconds[key] += (time_ns() - t0) / 1e9
+    return result
+end
+
+"""
+    solve_seconds(m::Dynamic)
+
+The wall-clock seconds `m`'s solves have taken so far, by part, as a
+named tuple: `solve` in all, and of it `laplacian` (`LΠ`'s `wave_rhs!`),
+`projection` (the source's projections near the particles), `residual`
+(every residual, the Jacobians' included) and `jacobian` (the Jacobians
+by finite differences). For the drivers' cost rows.
+"""
+solve_seconds(m) = NamedTuple{SOLVE_PARTS}(map(k -> m.scratch.seconds[k], SOLVE_PARTS))
 
 """
     renew_jacobian!(m::Dynamic)
@@ -254,7 +282,7 @@ function Dynamic(external::Tuple, past::Prescribed; interaction=NoInteraction(),
         "the interaction must be isbits, got a $(typeof(interaction))"))
     return Dynamic(external, interaction, past, T(onset), Int(n2), rule, T(tol),
                    T(source_tol), source_addot,
-                   DynamicScratch(nothing, nothing, nothing, nothing, false))
+                   DynamicScratch())
 end
 
 retarded_path(m::Dynamic) = m.past.path
@@ -407,6 +435,11 @@ before the force takes over, the past's jets. What the solve did is in
 function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     past = m.past.path(T(t))
     m.onset > 0 && t <= 0 && return past
+    return tally(() -> solve_handed_over(m, p, u, fdu, t, past), m.scratch, :solve)
+end
+
+function solve_handed_over(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t,
+                           past) where {T,K}
     fu = field_state(u, p)
     zv = particle_state(u, p)
     zs, vs = map(first, zv), map(last, zv)
@@ -418,7 +451,7 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     # `source_addot = :predicted` the predictor's `ä` in their place.
     sourced(X) = m.source_addot === :solved ? X :
                  ntuple(k -> (X[k][1], X[k][2], mix(:ä)[k]), Val(K))
-    LΠ = rate_laplacian(m.scratch, p, fu, T(t))
+    LΠ = tally(() -> rate_laplacian(m.scratch, p, fu, T(t)), m.scratch, :laplacian)
     pack(X) = reduce(vcat, (vcat(x...) for x in X))
     unpack(x) = ntuple(k -> ntuple(j -> SVector{3,T}(x[9(k - 1) + 3(j - 1) .+ (1:3)]), 3),
                        Val(K))
@@ -435,17 +468,22 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     else
         Vector{T}(pack(ntuple(k -> (mix(:a)[k], mix(:ȧ)[k], mix(:ä)[k]), Val(K))))
     end
-    sources = source_projections(p, zs, vs, higher, sourced(unpack(x)))
+    project(x) = tally(() -> source_projections(p, zs, vs, higher, sourced(unpack(x))),
+                       sc, :projection)
+    sources = project(x)
     xp = copy(x)                        # where the sources were found
-    resid(x) = pack(dynamic_residual(m, p, fu, fdu, LΠ, zs, vs, higher, past, T(t),
-                                     unpack(x), sources))
+    resid(x) = tally(sc, :residual) do
+        pack(dynamic_residual(m, p, fu, fdu, LΠ, zs, vs, higher, past, T(t), unpack(x),
+                              sources))
+    end
     r = resid(x)
     n = length(x)
     # The residual is nearly affine in the jets, and its Jacobian changes
     # slowly with the state: it is kept from the last solve, and found
     # again by finite differences when there is none or the chord
     # iteration converges slowly with it.
-    function jacobian()
+    jacobian() = tally(jacobian_fd, sc, :jacobian)
+    function jacobian_fd()
         J = Matrix{T}(undef, n, n)
         scale = pack(ntuple(k -> (pred[k].a, pred[k].ȧ, pred[k].ä), Val(K)))
         for i in 1:n
@@ -480,7 +518,9 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     projected = false                   # the sources are those of the last iterate
     moves = T[]                         # how far the jets moved from each source
     for it in 1:20
-        dx = J \ r
+        # The ranks of a distributed forest take rank 0's step, as LAPACK
+        # may differ in its last bits between CPUs ("Running distributed").
+        dx = rank_agree(p.wave.fs, J \ r)
         x -= dx
         r = resid(x)
         iterations = it
@@ -492,7 +532,7 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
             (projected || norm(x - xp) <= m.source_tol * norm(x)) &&
                 (converged = true; break)
             push!(moves, norm(x - xp) / norm(x))
-            sources = source_projections(p, zs, vs, higher, sourced(unpack(x)))
+            sources = project(x)
             xp = copy(x)
             projections += 1
             r = resid(x)

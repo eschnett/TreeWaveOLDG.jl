@@ -181,7 +181,11 @@ end
 # waited for on the device (`best`, `bin/backend.jl`).
 timed(backend, f, reps) = best(f, backend, reps)
 
+# Over MPI only rank 0 prints (`bin/binary.jl`'s `--mpi`).
+const QUIET = Ref(false)
+
 function emit(row...)
+    QUIET[] && return nothing
     println(join((Threads.nthreads(), row...), '\t'))
     flush(stdout)
     return nothing
