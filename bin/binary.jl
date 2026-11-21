@@ -7,7 +7,9 @@
 #         [--cfl=0.5] [--v=0.2] [--T=30] [--ramp=10] [--n=4] [--onset=2π/Ω] \
 #         [--n2=4] [--rx1=100] [--rx2=110] [--every=1] [--jevery=0.125] \
 #         [--source-tol=0.1] [--flux=FILE] [--fradii=4,6,8,12] [--prescribed] \
-#         [--ell=1e-3] [--source-addot=solved] [--mpi]
+#         [--ell=1e-3] [--source-addot=solved] [--mpi] [--checkpoint=DIR] \
+#         [--restart-from=DIR] [--walltime=SECONDS] [--ckevery=7200] \
+#         [--stop-at-step=N]
 #
 # Two particles of `M = 1`, `Q = ±√0.005`, `ℓ = 10⁻³`, at separation 1, each
 # at speed `v`, on `binary_circular_motion`'s circle about the centre
@@ -77,9 +79,12 @@
 # only with `--prescribed`.
 
 include(joinpath(@__DIR__, "prescribed.jl"))
-using TreeWaveOLDG: lorentz_factor, rank_reduce
+using TreeWaveOLDG: lorentz_factor, rank_reduce, resume_integrator!, solve_state,
+                    solve_state!
 using LinearAlgebra: I, cross, opnorm
+using Serialization: serialize, deserialize
 
+const PROCESS_START = time()
 const MPI_RUN = "--mpi" in ARGS
 MPI_RUN && @eval using MPI
 
@@ -134,13 +139,20 @@ function binary_evolve(backend)
                      source_addot)
     p = InspiralProblem(wave, ms, Window(o, 1.25, 2.5; continuity=P + 1), motion; order)
     retarded = Window(o, rx1, rx2; continuity=4)
-    u0 = prescribed ? inspiral_initial_state(p; retarded) :
+    ck = checkpoint_options(comm)
+    resumed = read_checkpoint(ck, p.wave.fs)
+    u0 = resumed !== nothing ? resumed.u :
+         prescribed ? inspiral_initial_state(p; retarded) :
          dynamic_initial_state(p; retarded)
     dt = oldg_timestep(p.wave; cfl)
     integ = inspiral_integrator(p, u0, 0.0, tend; dt)
+    if resumed !== nothing
+        resume_integrator!(integ, resumed.u, resumed.nstep)
+        prescribed || solve_state!(motion, resumed.solve)
+    end
     tag = (prescribed ? "circle" : "binary", hdiv, levels, w0, order)
-    println(join(("threads", "motion", "hdiv", "levels", "w0", "order", "t", "quantity",
-                  "value"), '\t'))
+    QUIET[] || println(join(("threads", "motion", "hdiv", "levels", "w0", "order", "t",
+                             "quantity", "value"), '\t'))
     emit(tag..., 0.0, "G", f.G)
     emit(tag..., 0.0, "K", binding_constant(ms, f))
     emit(tag..., 0.0, "ddot0", dipole_ddot(ms, f, d0))
@@ -153,11 +165,15 @@ function binary_evolve(backend)
     emit(tag..., 0.0, "steps", integ.nsteps)
     emit(tag..., 0.0, "dt", integ.dt)
     emit(tag..., 0.0, "setup_seconds", time() - start)
+    resumed === nothing || emit(tag..., integ.t, "resumed_step", integ.nstep)
     fluxes = flux_writer(p, o, prescribed ? retarded : nothing)
     kf = max(1, round(Int, parse(Float64, option("fluxevery", "0.0625")) / integ.dt))
-    write_flux(fluxes, p, integ.u, integ.t, prescribed ? retarded : nothing)
-    previous = Ref{Any}(nothing)        # the last report's time and jets
-    nextfresh = Ref(0.0)
+    resumed === nothing &&
+        write_flux(fluxes, p, integ.u, integ.t, prescribed ? retarded : nothing)
+    # The last report's time and jets, and the time of the next fresh
+    # Jacobian: a checkpoint carries them.
+    previous = Ref{Any}(resumed === nothing ? nothing : resumed.previous)
+    nextfresh = Ref(resumed === nothing ? 0.0 : resumed.nextfresh)
     renewed = Ref(false)                # the step's Jacobian was found afresh
     spent = prescribed ? nothing : solve_seconds(motion)
     step_seconds = Ref(0.0)
@@ -227,7 +243,10 @@ function binary_evolve(backend)
         report_seconds[] = time() - t0
         return nothing
     end
-    report(integ.u, integ.t)
+    resumed === nothing && report(integ.u, integ.t)
+    loop = time()
+    lastck = time()
+    steps = 0
     while integ.nstep < integ.nsteps
         renewed[] = !prescribed && integ.t >= nextfresh[]
         if renewed[]
@@ -239,11 +258,112 @@ function binary_evolve(backend)
         step_seconds[] = time() - t0
         (integ.nstep % kf == 0 || integ.nstep == integ.nsteps) &&
             write_flux(fluxes, p, integ.u, integ.t, prescribed ? retarded : nothing)
-        (integ.nstep % every == 0 || integ.nstep == integ.nsteps) || continue
-        report(integ.u, integ.t)
+        if integ.nstep % every == 0 || integ.nstep == integ.nsteps
+            report(integ.u, integ.t)
+        end
+        steps += 1
+        ck.dir === nothing && continue
+        integ.nstep == integ.nsteps && break
+        # Since the process started, with two steps' margin beyond
+        # SimLaunch's for the checkpoint; the ranks agree, so that they
+        # stop and write together.
+        now = time()
+        stop, due = rank_reduce((a, b) -> (a[1] | b[1], a[2] | b[2]), p.wave.fs,
+                                (now - PROCESS_START + 2 * (now - loop) / steps >
+                                 ck.walltime, now - lastck > ck.every))
+        stop |= integ.nstep == ck.stopat
+        if stop || due
+            write_checkpoint(ck, integ, prescribed ? nothing : solve_state(motion),
+                             previous[], nextfresh[])
+            lastck = time()
+            emit(tag..., integ.t, "checkpoint_step", integ.nstep)
+        end
+        if stop
+            fluxes === nothing || fluxes.io === devnull || close(fluxes.io)
+            exit(STOPPED)
+        end
     end
     fluxes === nothing || fluxes.io === devnull || close(fluxes.io)
     return nothing
+end
+
+# The checkpoint, SimLaunch's restart contract (`SPEC.md`, "Restarts"):
+# `--checkpoint=DIR` writes one into `DIR` every `--ckevery` seconds of
+# wall clock (7200), and before `--walltime` seconds since the start have
+# passed since the script started, after which the run exits with
+# `STOPPED`, as it does after step `--stop-at-step`, for a test of the
+# resumed run (`jobs/binary_restart.toml`); `--restart-from=DIR`
+# resumes from the newest whole one in `DIR`, read only. A checkpoint is
+# one file per rank, `step<n>-rank<r>-of-<R>.jls`, each written under a
+# temporary name and renamed when whole; it holds the rank's state
+# vector, the step, the solve's state (`solve_state`) and the driver's
+# own, so that the resumed run is the uninterrupted one to the bit (the
+# test "A binary resumed from a checkpoint …" in `test/dynamic_tests.jl`).
+# A resumed run needs the same options and rank count, and writes its
+# rows and its flux from the step after the checkpoint on; the initial
+# data are not computed again.
+const STOPPED = 3
+
+function checkpoint_options(comm)
+    rank, nranks = comm === nothing ? (0, 1) : (MPI.Comm_rank(comm), MPI.Comm_size(comm))
+    dir, from = option("checkpoint", ""), option("restart-from", "")
+    return (; dir=isempty(dir) ? nothing : dir, from=isempty(from) ? nothing : from,
+            walltime=parse(Float64, option("walltime", "Inf")),
+            every=parse(Float64, option("ckevery", "7200")),
+            stopat=parse(Int, option("stop-at-step", "-1")), rank, nranks)
+end
+
+checkpoint_name(ck, nstep) = "step$(nstep)-rank$(ck.rank)-of-$(ck.nranks).jls"
+
+function write_checkpoint(ck, integ, solve, previous, nextfresh)
+    mkpath(ck.dir)
+    file = joinpath(ck.dir, checkpoint_name(ck, integ.nstep))
+    tmp = file * ".tmp"
+    serialize(tmp, (; u=copy(integ.u), nstep=integ.nstep, t=integ.t, solve, previous,
+                    nextfresh, args=checkpoint_args()))
+    mv(tmp, file; force=true)
+    # This rank's older checkpoints, but the one before this: the newest
+    # may not be whole on another rank if the run is killed now.
+    keep = previous_checkpoint(ck.dir, ck, integ.nstep)
+    for (n, f) in checkpoint_steps(ck.dir, ck)
+        n < keep && rm(joinpath(ck.dir, f); force=true)
+    end
+    return nothing
+end
+
+# This rank's checkpoint files in `dir`, by step.
+function checkpoint_steps(dir, ck)
+    isdir(dir) || return Tuple{Int,String}[]
+    suffix = "-rank$(ck.rank)-of-$(ck.nranks).jls"
+    return [(parse(Int, chopsuffix(chopprefix(f, "step"), suffix)), f)
+            for f in readdir(dir) if startswith(f, "step") && endswith(f, suffix)]
+end
+
+previous_checkpoint(dir, ck, nstep) =
+    maximum((n for (n, _) in checkpoint_steps(dir, ck) if n < nstep); init=-1)
+
+# The options that must be the same in a resumed run: all but those of the
+# checkpoint itself and the flux's file.
+checkpoint_args() = sort([a for a in ARGS if !any(o -> startswith(a, "--$o"),
+                                                 ("checkpoint=", "restart-from=",
+                                                  "walltime=", "ckevery=", "flux=",
+                                                  "stop-at-step="))])
+
+# The newest checkpoint in `ck.from` that every rank has whole, or
+# `nothing` without `--restart-from`.
+function read_checkpoint(ck, fs)
+    ck.from === nothing && return nothing
+    have = Set(n for (n, _) in checkpoint_steps(ck.from, ck))
+    # The ranks' newest ones may differ if a run was killed while writing:
+    # the least of them, which every rank also has.
+    n = rank_reduce(min, fs, isempty(have) ? -1 : maximum(have))
+    rank_reduce(&, fs, n >= 0 && n in have) || error(
+        "no checkpoint in $(ck.from) that every rank of $(ck.nranks) has whole")
+    c = deserialize(joinpath(ck.from, checkpoint_name(ck, n)))
+    c.args == checkpoint_args() || error(
+        "the checkpoint was written by a run with the options $(join(c.args, ' ')), " *
+        "not $(join(checkpoint_args(), ' '))")
+    return c
 end
 
 binary_main()

@@ -97,7 +97,7 @@ export TransferTables, gauss_nodes_weights, sinh_rule, ParticleSupport, project_
 # The coupled problem
 export InspiralProblem, Prescribed, uniform_motion, field_state, particle_state,
        inspiral_initial_state, inspiral_rhs!, inspiral_stage!, inspiral_partition,
-       inspiral_integrator, particle_forces, ball_norm, ball_mean
+       inspiral_integrator, resume_integrator!, particle_forces, ball_norm, ball_mean
 
 # Prescribed paths
 export circular_motion, hyperbolic_motion, retarded_field, retarded_gradient,
@@ -107,7 +107,7 @@ export circular_motion, hyperbolic_motion, retarded_field, retarded_gradient,
 export SpringForce, NoForce, NewtonianForce, NoInteraction, spring_circle,
        newtonian_binary, predicted_acceleration, predicted_jets, SupportRule,
        support_integrals, field_force, own_force, other_force, Dynamic, solve_jets,
-       dynamic_initial_state, renew_jacobian!, solve_seconds
+       dynamic_initial_state, renew_jacobian!, solve_seconds, solve_state, solve_state!
 
 # The binary's diagnostics
 export binding_constant, orbit_diagnostics, dipole_ddot, eccentricity_fit

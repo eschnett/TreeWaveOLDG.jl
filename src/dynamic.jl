@@ -214,6 +214,26 @@ under "Measured results"). For diagnostics; it costs a Jacobian.
 renew_jacobian!(m) = (m.scratch.renew = true; m)
 
 """
+    solve_state(m::Dynamic)
+    solve_state!(m::Dynamic, s)
+
+What `m`'s next solve starts from beyond the state vector, as a named
+tuple, and setting it: the last solve's record, whose jets give the next
+guess and whose Jacobian the next solve keeps, and whether the next one
+finds its Jacobian afresh. A run resumed from a checkpoint of the state
+vector and this, in a fresh `Dynamic` of the same arguments
+([`resume_integrator!`](@ref)), takes the uninterrupted run's steps to
+the bit (`bin/binary.jl`'s `--checkpoint`).
+"""
+solve_state(m) = (; last=m.scratch.last, renew=m.scratch.renew)
+
+function solve_state!(m, s)
+    m.scratch.last = s.last
+    m.scratch.renew = s.renew
+    return m
+end
+
+"""
     Dynamic(external, past; interaction = NoInteraction(), onset = 0, n2 = 4,
             rule = SupportRule(T), tol = 1e-10, source_tol = 0.1,
             source_addot = :solved)

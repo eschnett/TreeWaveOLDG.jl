@@ -1,0 +1,41 @@
+# `bin/binary.jl`'s checkpoint against the uninterrupted run, serially
+# and over MPI, on `binary_smoke.toml`'s small ball: `whole` runs 40
+# steps; `stop` the same, stopping after step 17 with a checkpoint in the
+# study's `ck-<ranks>/`; `resume` resumes from it. The rows of `resume`
+# must be `whole`'s from step 18 on, but the seconds, to the bit. Then
+# the same at two ranks, against the serial run. The checkpoints'
+# directories are fixed, so this spec runs once per study.
+name = "binary_restart"
+description = "TreeWaveOLDG M6b: the binary's checkpoint against the uninterrupted run"
+
+[site.symmetry]
+time = "1:00:00"
+
+[[run]]
+label = "whole"
+cmd = "bin/binary.jl --hdiv=2 --levels=1 --w0=4 --R1=8 --hshell=1 --rx1=10 --rx2=12 --tend=0.17543859649122806 --onset=0.05 --jevery=0.03 --flux=flux.tsv --fradii=3"
+threads = 16
+
+[[run]]
+label = "stop"
+cmd = "bin/binary.jl --hdiv=2 --levels=1 --w0=4 --R1=8 --hshell=1 --rx1=10 --rx2=12 --tend=0.17543859649122806 --onset=0.05 --jevery=0.03 --flux=flux.tsv --fradii=3 --checkpoint=../../ck-1 --stop-at-step=17"
+threads = 16
+
+[[run]]
+label = "resume"
+cmd = "bin/binary.jl --hdiv=2 --levels=1 --w0=4 --R1=8 --hshell=1 --rx1=10 --rx2=12 --tend=0.17543859649122806 --onset=0.05 --jevery=0.03 --flux=flux.tsv --fradii=3 --restart-from=../../ck-1"
+threads = 16
+
+[[run]]
+label = "stop-r2"
+cmd = "bin/binary.jl --hdiv=2 --levels=1 --w0=4 --R1=8 --hshell=1 --rx1=10 --rx2=12 --tend=0.17543859649122806 --onset=0.05 --jevery=0.03 --flux=flux.tsv --fradii=3 --mpi --checkpoint=../../ck-2 --stop-at-step=17"
+ranks = 2
+threads = 16
+placement = "numa"
+
+[[run]]
+label = "resume-r2"
+cmd = "bin/binary.jl --hdiv=2 --levels=1 --w0=4 --R1=8 --hshell=1 --rx1=10 --rx2=12 --tend=0.17543859649122806 --onset=0.05 --jevery=0.03 --flux=flux.tsv --fradii=3 --mpi --restart-from=../../ck-2"
+ranks = 2
+threads = 16
+placement = "numa"
