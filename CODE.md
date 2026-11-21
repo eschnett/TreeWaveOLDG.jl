@@ -1826,6 +1826,37 @@ reach across ranks:
   is the serial pass's arithmetic, so the averaged source is the serial
   one to the bit. A rank with no blocks in the ball sends nothing.
 
+**Dynamic particles.** Every rank solves the jets of a `Dynamic` motion,
+on the same numbers, as every rank steps a prescribed path:
+
+- `LΠ`'s `wave_rhs!` is the field's, collective, and split over the
+  ranks like it; the source's projections near the particles
+  (`projected_source`) read no state and are the same on every rank;
+  the residual's pairings gather their blocks as the forces' do.
+- *The Newton step is rank 0's.* `J \ r` goes to LAPACK, which may
+  choose its kernels by the CPU it runs on, and the nodes of one job may
+  differ (`amdq` mixes EPYC 7532 and 7543). A rank whose step differed
+  in its last bit could converge after another iteration, or project the
+  source once more, and so call the pairings' collectives a different
+  number of times than the others, which hangs the run. `rank_agree`
+  broadcasts rank 0's step; everything else in the solve is the
+  package's own arithmetic, the same on every rank. Serially it returns
+  its argument, so the serial numbers are unchanged.
+
+So the jets, the solve's course (its iterations, projections and
+Jacobians) and the state are the serial run's to the bit at any rank
+count. The solve's own work, the support's quadrature, the projections
+and the residuals, is the same on every rank, on that rank's threads:
+it does not split, and spreading a node's cores over several ranks
+slows it down ([The binary](#the-binary) under "Measured results").
+
+**The spheres.** `SphereExtraction` keeps, on each rank, the stencils
+of the points that lie in the rank's own blocks; a read is a gather and
+a weighted sum there, as serially, and one `allgatherv` puts every
+point's value in place on every rank. Each point is read by one rank
+with the serial arithmetic, so the modes and the flux are the serial
+ones to the bit. `PlaneExtraction` still refuses a distributed forest.
+
 The messages travel on TreeAMR's own duplicate of the application's
 communicator, between its exchanges, each of which completes before it
 returns; `allgather`, `allgatherv`, `isend`, `irecv`, `waitall`,
@@ -1852,13 +1883,18 @@ without blocks; a refined reflecting box; the seven-patch ball's
 radiative sphere; the thirteen-patch ball's Dirichlet data and factored
 truncation; the adaptive blast, through a regrid that repartitions; and
 a particle in uniform motion on nested boxes and in the ball's cube,
-two RK4 steps each, its forces before and after and a reconstructed
-value and gradient, where at three ranks both have faces of the
-averaging that two ranks share (asserted). `runtests.jl` starts the job
+two RK4 steps each, its forces before and after, a reconstructed
+value and gradient, and the modes and flux on two spheres, where at
+three ranks both have faces of the averaging that two ranks share
+(asserted); and the binary's two dynamic particles in the ball's cube,
+two steps, their solved jets, the last solve's iterations, projections
+and residual, and their forces. `runtests.jl` starts the job
 before the first file where the machine has room (at least 12 CPU
 threads and 24 GB, or `TREEWAVEOLDG_TEST_MPI_CONCURRENT=1`), and
-`mpi_tests.jl`, last, collects it; about two minutes on the laptop,
-nearly all compilation.
+`mpi_tests.jl`, last, collects it; about two minutes on the laptop
+before the binary's case, nearly all compilation, and 12 minutes alone
+on a Symmetry AMD node at four threads with it (job 607833), most of it
+three ranks compiling the solve on nested dual numbers.
 
 **What is a rank's and what is the mesh's.** Over a distributed forest
 every block index, `nblocks(fs)`, `block_origins`, the state vector and
@@ -1883,13 +1919,18 @@ waiting in their next collective.
   Metal GPU gave one process's field in `Float32` bit for bit. The suite
   has no device and so no test of this, and what a step costs on
   several devices is not measured **(open)**.
-- *The `bin/` drivers* take no communicator and run serially; a viewer
-  would draw one rank's blocks.
-- *Nothing distributed is measured.* Every rank repeats the pairing on
-  the gathered blocks, a few per particle, rather than one rank
-  computing it and broadcasting the result; which costs less at many
-  ranks, and what the `allgatherv` and the averaging's messages add to
-  a step, is not measured **(open)**.
+- *The `bin/` drivers* but `bin/binary.jl` (`--mpi`) take no
+  communicator and run serially; a viewer would draw one rank's blocks.
+- *Only the binary is measured distributed* ([The
+  binary](#the-binary) under "Measured results"): on four nodes its
+  field splits, while the solve, repeated on every rank, does not, and
+  its residuals cost twice what they do on one rank, since each of
+  their pairings gathers its blocks in a collective of its own, about
+  twenty per residual. Gathering a solve's blocks once, and spreading
+  the support's quadrature over the ranks, would cut both
+  **(proposed)**. Whether one rank computing the forces and
+  broadcasting them costs less at many ranks is not measured
+  **(open)**.
 
 ## Particles
 
@@ -3580,6 +3621,26 @@ window `R₁ = 1.25`, `R₂ = 2.5`, and the orbit's centre
 `o = (1.23, 0.71, 0.93)·10⁻²` off the element faces of its plane.
 `--prescribed` runs the past's circle on the same grid and steps.
 
+**Over MPI and from checkpoints.** With `--mpi`, under `mpiexec` in an
+environment that has MPI.jl, the ball's forest takes `MPI.COMM_WORLD`
+and rank 0 alone prints and writes the flux; the run is the serial one
+to the bit ([Running distributed](#running-distributed)). With
+`--checkpoint=DIR` it writes a checkpoint every `--ckevery` seconds of
+wall clock (two hours) and before `--walltime`, then exits with 3, and
+`--restart-from=DIR` resumes from the newest one every rank has whole,
+SimLaunch's restart contract. A checkpoint is a file per rank: the
+rank's state vector, the step, the solve's record (`solve_state`: the
+last solve's jets, which give the next guess, its Jacobian, which the
+next solve keeps, and whether to find the next afresh) and the driver's
+own (the last row's jets for `jerkgap`, the next fresh Jacobian's
+time). `resume_integrator!` puts a fresh integrator at the checkpoint's
+step, with the time `step!` computes, and `solve_state!` the solve's
+record into a fresh `Dynamic`, so the resumed run takes the
+uninterrupted run's steps to the bit (tested, serially, in
+`test/dynamic_tests.jl`). A resumed run needs the same options and rank
+count, which it checks, skips the initial data, and writes its rows and
+flux from the step after the checkpoint on.
+
 ### Diagnostics
 
 `INSPIRAL.md`'s "Diagnostics", in [`src/diagnostics.jl`](src/diagnostics.jl)
@@ -3646,7 +3707,11 @@ Jacobian found afresh every `--jevery` (`1/8`, `renew_jacobian!`) and
 from the kept one between. These watch for the instabilities in the
 higher derivatives that other self-force schemes have reported (owner,
 2026-11-20), by their growth in time and its dependence on `hₑ` and `Δt`
-([The binary](#the-binary) under "Measured results").
+([The binary](#the-binary) under "Measured results"). And what each step
+cost: `step_seconds`, and of it the jets' solves (`solve_seconds`,
+`solve_seconds(m::Dynamic)`), split into `LΠ`'s `wave_rhs!`, the
+source's projections, the residuals and the Jacobians; the rest of the
+step is the field's right-hand side and the source.
 
 ## File layout
 
@@ -3688,8 +3753,8 @@ higher derivatives that other self-force schemes have reported (owner,
   `tofloat64`, `chunk_count`, `chunk_bounds` and `to_backend`, taken from
   TreeWave.
 - `src/distributed.jl`: what a run over MPI needs of this package,
-  `rank_reduce` and `agree_refusal` (TreeHydro's), `local_block` and
-  `global_leaf`, and `gather_blocks`.
+  `rank_reduce` and `agree_refusal` (TreeHydro's), `rank_agree`,
+  `local_block` and `global_leaf`, and `gather_blocks`.
 - `src/particle_forms.jl`: generated by `derivations/generate.wl`, not
   edited by hand; the profile's radial functions, the near-field terms
   and their Laplacians, the lab slice of orders 1–3 and its Laplacians
@@ -3711,7 +3776,8 @@ higher derivatives that other self-force schemes have reported (owner,
   the state's parts (`field_state`, `particle_state`),
   `inspiral_initial_state` (with the retarded field inside a window, for
   M4), `inspiral_rhs!`, `inspiral_stage!`, `inspiral_partition`,
-  `inspiral_integrator`, `particle_forces`, `ball_norm` (with a
+  `inspiral_integrator`, `resume_integrator!`, `particle_forces`,
+  `ball_norm` (with a
   hole) and `ball_mean`, both physical and `√g`-weighted on a geometry.
 - `src/prescribed.jl`: `circular_motion` and `hyperbolic_motion`, the
   retarded field of a point charge on any path by root-finding,
@@ -3730,8 +3796,10 @@ higher derivatives that other self-force schemes have reported (owner,
 - `src/dynamic.jl`: `Dynamic`, the particles moving under their forces;
   `SupportRule`, `support_integrals`, `own_force` and `other_force`, the
   analytic fields' averages; the residuals `dynamic_residual`, their
-  solve `solve_jets`, `renew_jacobian!`, and `dynamic_initial_state`
-  ([The equations of motion](#the-equations-of-motion)).
+  solve `solve_jets`, `renew_jacobian!`, `solve_seconds`, the solve's
+  record for a checkpoint `solve_state` and `solve_state!`, and
+  `dynamic_initial_state` ([The equations of
+  motion](#the-equations-of-motion), [Initial data](#initial-data)).
 - `src/diagnostics.jl`: the binary's `binding_constant`,
   `orbit_diagnostics`, `dipole_ddot` and `eccentricity_fit`
   ([Diagnostics](#diagnostics)).
@@ -3814,7 +3882,14 @@ higher derivatives that other self-force schemes have reported (owner,
   every step its orbit, forces, jets, solve and `δm_h`
   ([Diagnostics](#diagnostics)); `--prescribed` runs the past's circle
   on the same grid and steps. `jobs/binary.jl` runs M6b's runs on a
-  Symmetry AMD node, `jobs/binary_smoke.toml` a few steps first.
+  Symmetry AMD node, `jobs/binary_smoke.toml` a few steps first;
+  `--mpi` runs it over MPI and `--checkpoint` and `--restart-from` from
+  checkpoints ([Initial data](#initial-data)), as `jobs/binary_mpi.jl`
+  runs `d/8` on four nodes. `jobs/binary_profile.toml` times a few steps
+  at `d/4` and `d/8`, `jobs/binary_mpi_check.toml` runs the MPI test and
+  the binary at two and four ranks, whose rows must be the serial
+  run's, and `jobs/binary_restart.toml` stops and resumes a small run
+  serially and at two ranks against the uninterrupted one.
   `--ell` and `--source-addot=predicted` are experiments on the solved
   `ä` ([The binary](#the-binary) under "Measured results"), which
   `jobs/addot.jl` runs.
@@ -4203,9 +4278,12 @@ one thread on CI, is otherwise silent until its summary.
   nested boxes centred on its orbit keeps the half-turn symmetry in its
   solved `a`, `ȧ`, `ä` to `10⁻¹¹`, `10⁻⁹` and `10⁻⁷` (measured `10⁻¹²`, `10⁻¹⁰`, `10⁻⁸`, read through the grid's
   second differences of an unsymmetric field), follows the circle to
-  `5·10⁻³`, and over two steps keeps its centre of mass to `10⁻¹³`. About
-  two and a half minutes on four threads, most of it compiling the source
-  on dual numbers.
+  `5·10⁻³`, and over two steps keeps its centre of mass to `10⁻¹³`; the
+  same binary stopped after a step and resumed in a fresh `Dynamic` and
+  integrator from a copy of its checkpoint (`solve_state`,
+  `resume_integrator!`) takes the uninterrupted run's steps, its state
+  and jets bit for bit. About two and a half minutes on four threads,
+  most of it compiling the source on dual numbers.
 - `diagnostics_tests.jl`: on `newtonian_binary`'s circle the orbit's
   separation, frequency, phase, centre of mass and momentum are the
   circle's, and its energy `−K/2d` to `O(v²)`; `dipole_ddot` is the first
@@ -4292,10 +4370,12 @@ one thread on CI, is otherwise silent until its summary.
   reconstructed value, and to roundoff in its energies and L2 norms,
   exactly at one rank: on a line with a rank without blocks, a refined
   reflecting box, the seven- and thirteen-patch balls, the adaptive
-  blast, and a particle on nested boxes and in the ball's cube whose
-  averaging shares faces between ranks ([Running
-  distributed](#running-distributed)). About two minutes on the laptop,
-  started beside the suite where there is room.
+  blast, a particle on nested boxes and in the ball's cube whose
+  averaging shares faces between ranks, its spheres' modes and flux, and
+  the binary's two dynamic particles, their solved jets and the solve's
+  course ([Running distributed](#running-distributed)). About two
+  minutes on the laptop before the binary's case, started beside the
+  suite where there is room.
 
 ## Measured results
 
