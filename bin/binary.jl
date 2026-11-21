@@ -54,7 +54,11 @@
 #   Jacobian it used, which may have been kept; every `jevery` in time the
 #   step's first solve finds it afresh (`renew_jacobian!`), and that
 #   step's row is `dmhfresh<k>`, with `dmhcross`, the coupling of the two
-#   `ä` blocks;
+#   `ä` blocks, and `dmhgrid<k>`, `‖J_ää − mI‖/M` with the mass the
+#   equation has besides the grid's, `m = σ(M + Q_b)γ + (1 − σ)M` at the
+#   hand-over's `σ`, `Q_b` the other charge's potential (`other_force`):
+#   the grid's self-inertia, which `dmhfresh<k>` holds beside `γQ_b`
+#   (`CODE.md`, "The binary" under "Measured results");
 # - the wall-clock seconds since the start.
 #
 # At `t = 0` also `G`, `K`, the leading-order `ddot0` (`dipole_ddot`),
@@ -64,7 +68,7 @@
 # only with `--prescribed`.
 
 include(joinpath(@__DIR__, "prescribed.jl"))
-using TreeWaveOLDG: lorentz_factor
+using TreeWaveOLDG: lorentz_factor, other_force
 using LinearAlgebra: I, cross, opnorm
 
 function binary_main()
@@ -183,6 +187,19 @@ function binary_evolve(backend)
                 emit(tag..., t, fresh ? "dmhfresh$k" : "dmh$k", dmh)
             end
             fresh && emit(tag..., t, "dmhcross", opnorm(J[7:9, 16:18]) / ms[1].M)
+            # The mass the equation of motion has besides the grid's:
+            # `M` and the other charge's potential `Q_b`, through the
+            # hand-over's blend `σ`.
+            if fresh
+                σ = l.σ
+                for (k, b, blk) in ((1, 2, 7:9), (2, 1, 16:18))
+                    γ = lorentz_factor(vs[k])
+                    Qb = other_force(ms[k], l.trajs[k], ms[b], l.trajs[b], motion.rule;
+                                     order)[2]
+                    mass = σ * (ms[k].M + Qb) * γ + (1 - σ) * ms[k].M
+                    emit(tag..., t, "dmhgrid$k", opnorm(J[blk, blk] - mass * I) / ms[k].M)
+                end
+            end
         end
         emit(tag..., t, "seconds", time() - start)
         return nothing

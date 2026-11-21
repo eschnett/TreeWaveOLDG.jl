@@ -9,7 +9,9 @@
 # smaller step (`cfl = 1/4` against `1/2`) is numerical, a drift that does
 # not is physical ("The equations of motion" under "Measured results" in
 # `CODE.md`). `circle-h4` runs the past's circle on the same grid and
-# steps. One job per run, side by side:
+# steps. `dmhgrid-h4` runs `binary-h4` to `t = 20`, past the hand-over,
+# with the grid's own part of `δm_h` (`dmhgrid<k>`), which `binary-h4`
+# did not record. One job per run, side by side:
 #
 #     simlaunch submit <study> jobs/binary.jl --site symmetry --run binary-h4
 #
@@ -24,4 +26,6 @@ bi = "bin/binary.jl --levels=3 --w0=4 --R1=50 --hshell=1 --tend=32 --every=1"
  run = [(label = "binary-h4", cmd = "$bi --hdiv=4 --flux=flux-binary-h4.tsv"),
         (label = "binary-h4-dt2", cmd = "$bi --hdiv=4 --cfl=0.25"),
         (label = "binary-h6", cmd = "$bi --hdiv=6 --flux=flux-binary-h6.tsv"),
-        (label = "circle-h4", cmd = "$bi --hdiv=4 --prescribed --flux=flux-circle-h4.tsv")])
+        (label = "circle-h4", cmd = "$bi --hdiv=4 --prescribed --flux=flux-circle-h4.tsv"),
+        (label = "dmhgrid-h4",
+         cmd = "bin/binary.jl --levels=3 --w0=4 --R1=50 --hshell=1 --tend=20 --every=1 --hdiv=4 --jevery=0.25")])
