@@ -7451,8 +7451,30 @@ is an argument, not a demonstration; the runs check it as follows.
     falls from `d/4` to `d/6` by up to 1.8, most far from the faces, and
     falls with the distance from a face. So it is the grid's error, not
     the tail of the crossings' impulse, and not noise of the size `ℓ⁻²`
-    sets. Which part of the field it comes from is not traced
-    **(open)**.
+    sets.
+  - **It is the field's ringing at a frequency of the grid, read times
+    `ω²`** (from the same runs' records, 2026-11-21, `t = 16` to 32,
+    the face crossings' spikes clipped). Split along `â`, the velocity
+    and the normal, it has a mean below `10⁻³` of `|ä|` in each, and no
+    dependence on where in its element the particle is. But it is
+    smooth from step to step, a lag-one autocorrelation of 0.95. Its
+    spectrum lies at `ω ≈ 30` to 40 at `d/4` and 45 to 60 at `d/6`,
+    `ω hₑ ≈ 8` to 10, the same at half the step; the orbit's `Ω` is
+    0.4. In that band, `ä`'s departure over `ȧ`'s is 47 at `d/4` and 68
+    at `d/6`, about the band's `ω`. `ä`'s departure over `ω²`,
+    `5·10⁻⁸` and `2.4·10⁻⁸`, is the remainder's force in the band, rms
+    `F_t` `4.0·10⁻⁸` and `1.6·10⁻⁸`, `F_r` `4.7·10⁻⁸` and `2.2·10⁻⁸`.
+    The prescribed circle's force has the same band, `F_t` `4.0·10⁻⁸`
+    to the digits printed. So one ringing of the grid's field near the
+    particle, at about 1 % of `F_RR` in the force, is what `ȧ` reads
+    times `ω` and `ä` times `ω²`; the motion does not cause it. The
+    force's part falls by 2.4 from `d/4` to `d/6`, but `ω²` grows by
+    2.25, so `ä`'s part falls little: the inward part not at all (rms
+    0.74 % and 0.77 %), the tangential from 0.78 % to 0.56 %, the
+    normal from 0.51 % to 0.28 %. Whether it is the grid's own
+    high-frequency modes, rung by the face crossings' impulses, or the
+    moving source's projection beating against the elements, is not
+    traced **(open)**.
   - **The source's `ä` does not feed back:** with the predictor's `ä` in
     the source, the solved `ä` is the same as with its own, in every row.
   - **Nor does it move the orbit:** over the orbit after the hand-over,
@@ -7623,10 +7645,13 @@ TreeHydro's ([On a device](#on-a-device)).
   `INSPIRAL.md`'s `10⁻¹²` does not cover (see [Quadrature](#quadrature)):
   whether it matters, and if so a split at `R₁` and `R₂` like the one at
   the support, or a smoother window.
-- Where the binary's solved `ä` departs from the circle's by 1 to 2 %
-  away from the element faces, a grid error that does not depend on `ℓ`
-  and falls from `d/4` to `d/6`; and whether the jump at a face
-  crossing, up to three times `ä` at `d/4` and scaling as `ℓ⁻²`, should
-  be smoothed, as the averaging smooths the force's. Writing the source
-  with the predictor's `ä` changes neither `ä` nor the orbit
-  ([The binary](#the-binary) under "Measured results").
+- What rings the grid's field near a moving particle at `ω hₑ ≈ 8` to
+  10, about 1 % of `F_RR` in the force. The binary's solved `ä` reads it
+  times `ω²`, 1 to 2 % of `ä` away from the element faces, falling
+  little with `hₑ`. Is it the grid's own high-frequency modes rung by
+  the face crossings, or the moving source's projection? And should
+  `ä`'s jump at a face crossing, up to three times `ä` at `d/4` and
+  scaling as `ℓ⁻²`, be smoothed, as the averaging smooths the force's?
+  Neither reaches the orbit: writing the source with the predictor's
+  `ä` changes neither `ä` nor the orbit ([The binary](#the-binary)
+  under "Measured results").

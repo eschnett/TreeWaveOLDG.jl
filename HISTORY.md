@@ -1876,6 +1876,14 @@ patches.
   `1.5·10⁻⁷ M` typically. The recorded `δm_h` measures the grid's
   self-inertia only for a lone particle; subtracting `QΦ̄ₑ` for the
   binary was proposed, not done.
+- 2026-11-21: the 1–2 % in the binary's solved `ä` away from the faces
+  traced, from the runs' records (`CODE.md`, "The binary" under
+  "Measured results"). It is a ringing of the grid's field at
+  `ω hₑ ≈ 8` to 10, the same at half the step, which the force carries
+  at about 1 % of `F_RR`, the prescribed circle's equally. `ȧ` reads it
+  times `ω` and `ä` times `ω²`, so `ä`'s part falls little with `hₑ`
+  while the force's falls by 2.4 from `d/4` to `d/6`. What rings the
+  field stays open.
 
 ### What the plan said of its finished milestones
 
