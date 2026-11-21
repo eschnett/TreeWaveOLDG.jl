@@ -1,7 +1,8 @@
-# `--waves=FILE` of the particle drivers `bin/prescribed.jl` and
-# `bin/orbit_movie.jl`: the field's modes `Φ_ℓm` on spheres about the
-# centre (`SphereExtraction`, "Waveforms" in `CODE.md`), one row per
-# output time, and beside them the retarded field's when the data are the
+# `--waves=FILE` of the particle drivers `bin/prescribed.jl`,
+# `bin/orbit_movie.jl` and `bin/inspiral_movie.jl`: the field's modes
+# `Φ_ℓm` on spheres about the centre (`SphereExtraction`, "Waveforms" in
+# `CODE.md`), one row per output time, and beside them the retarded
+# field's when the data are the
 # retarded field. The options are `--wradii` (10,20,30,50,70,90),
 # `--lmax` (6), `--ntheta` (`2lmax + 12`) and, read by the drivers,
 # `--wevery` (0.0625); `option` is the including script's. `bin/waveforms.jl`
@@ -28,9 +29,11 @@ function wave_writer(p, c, retarded)
 end
 
 # One row of `--waves`: the state's modes, and the retarded field's, the
-# sum of every particle's.
-function write_waves(w, p, u, t, retarded)
+# sum of every particle's, along `path`, by default the motion's
+# (`bin/inspiral_movie.jl` passes the path it records).
+function write_waves(w, p, u, t, retarded; path=nothing)
     w === nothing && return nothing
+    path = path === nothing ? p.motion.path : path
     row = [t]
     flat(modes) = vec(permutedims(hcat(real.(vec(modes)), imag.(vec(modes)))))
     append!(row, flat(sphere_modes(w.ex, p, u)))
@@ -38,7 +41,7 @@ function write_waves(w, p, u, t, retarded)
         K = length(p.models)
         vals = Vector{Float64}(undef, length(w.ex.points))
         Threads.@threads for j in eachindex(vals)
-            vals[j] = sum(k -> retarded_field(p.motion.path, k, p.models[k].Q,
+            vals[j] = sum(k -> retarded_field(path, k, p.models[k].Q,
                                               w.ex.points[j], t)[1], 1:K)
         end
         append!(row, flat(sphere_modes(w.ex, vals)))
