@@ -295,12 +295,13 @@ end
 
 # Every point's value from the values of the rank's own points: over MPI
 # one `allgatherv`, put in place by `gathered` (`element_stencils`);
-# serially `values` itself. Collective.
-function gather_points(comm, gathered, values::Vector)
-    gathered === nothing && return values
-    all = TreeAMR.allgatherv(comm, values)
+# serially `values` itself. Collective. A plane, which refuses a
+# distributed forest, has all its points.
+function gather_points(ex, values::Vector)
+    hasproperty(ex, :gathered) && ex.gathered !== nothing || return values
+    all = TreeAMR.allgatherv(ex.comm, values)
     out = similar(all)
-    out[gathered] = all
+    out[ex.gathered] = all
     return out
 end
 
@@ -327,7 +328,7 @@ function stencil_values(ex, u::AbstractVector, var::Integer)
     length(u) >= ex.statelength || throw(DimensionMismatch(
         "a state vector of $(length(u)) entries for a field set of $(ex.statelength)"))
     nodes = u[ex.index .+ (var - 1) * ex.varstride]
-    return gather_points(ex.comm, ex.gathered, vec(Array(sum(ex.weights .* nodes; dims=1))))
+    return gather_points(ex, vec(Array(sum(ex.weights .* nodes; dims=1))))
 end
 
 # The field's part of an inspiral's state comes first in it, so the
@@ -370,8 +371,8 @@ function sphere_gradients(ex::SphereExtraction{T}, wave::WaveProblem, u::Abstrac
         "a state vector of $(length(u)) entries for a field set of $(ex.statelength)"))
     nodes = u[ex.index .+ (var - 1) * ex.varstride]
     g = ntuple(Val(3)) do d
-        gather_points(ex.comm, ex.gathered,
-                      vec(Array(sum(selectdim(ex.gweights, 3, d) .* nodes; dims=1))))
+        w = selectdim(ex.gweights, 3, d)
+        gather_points(ex, vec(Array(sum(w .* nodes; dims=1))))
     end
     return [ex.gscale * SVector{3,T}(g[1][j], g[2][j], g[3][j]) for j in eachindex(g[1])]
 end
