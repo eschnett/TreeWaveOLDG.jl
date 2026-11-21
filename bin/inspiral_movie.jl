@@ -9,12 +9,12 @@
 #         [--n=4] [--onset=2π/Ω] [--n2=4] [--tend=72] [--rx1=100] [--rx2=110] \
 #         [--cfl=0.5] [--pevery=0.25] [--grids=48:1024,3:512] [--every=0.125] \
 #         [--waves=FILE] [--wevery=0.0625] [--wradii=10,20,30,40] [--lmax=6] \
-#         [--backend=cpu|cuda]
+#         [--oz=1/(2hdiv)] [--backend=cpu|cuda]
 #
 # `bin/binary.jl`'s binary with a larger charge: two particles of `M = 1`
 # and `Q = ±q`, `q² = --q2`, of size `ℓ = --ell`, at separation 1, each at
 # speed `v`, on `binary_circular_motion`'s circle about
-# `o = (1.23, 0.71, 0.93)·10⁻²`, held there by Newton's force with the `G`
+# `o = (0.0123, 0.0071, oz)`, held there by Newton's force with the `G`
 # that makes the predictor's force centripetal (`newtonian_binary`). The
 # data are the retarded field of a past at rest before `−T − ramp`, spun
 # up to the orbit at `−T` with the smoothstep of order `n`, and the force
@@ -22,6 +22,11 @@
 # there the orbit shrinks at about `ḋ = −Δq²K/(6πd²)`: at the defaults
 # from `d = 1` to about 0.7 by `t = 72`. `ℓ ∝ q²` keeps `δm/M = 0.26`, as
 # in `bin/binary.jl`. The layout is `bin/binary.jl`'s (`bin/ball.jl`).
+# The orbit's plane `z = oz` lies halfway between two element faces of
+# the finest level: a support of `ℓ = 0.04` within `ℓ` of a face meets
+# the elements on both sides, and each doubles the solve's projections
+# near the particle, so `bin/binary.jl`'s `o_z = 0.0093`, chosen for
+# `ℓ = 10⁻³`, would make every step several times dearer.
 #
 # `--plane=DIR` writes a frame (`bin/plane_io.jl`) at `t = 0` and every
 # `pevery`: the total field and its rate on each grid of `--grids`, a
@@ -145,7 +150,7 @@ function inspiral_evolve(backend)
     isempty(dir) && error("--plane=DIR is needed: the path is recorded there")
     P = 3
     start = time()
-    o = OFFSET
+    o = SVector(OFFSET[1], OFFSET[2], num("oz", 1 / (2hdiv)))
     wave = ball_wave(hdiv, levels, w0; R1, hshell=hs, P, backend)
     layout = ball_layout(hdiv, levels, w0; R1, hshell=hs)
     q = sqrt(q2)
