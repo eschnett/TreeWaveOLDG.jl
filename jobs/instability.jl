@@ -19,7 +19,11 @@
 #   and twice as wide, `2.5–5`;
 # - `q1-h2-o1`, `q1-h2-o2`: the near field carried to order 1 and 2
 #   instead of 3;
-# - `q1-h2-movie`: the movie's `onset = 2π/Ω = 15.7`, at `d/2`.
+# - `q1-h2-movie`: the movie's `onset = 2π/Ω = 15.7`, at `d/2`;
+# - `lone-q1-h2`: one particle of the same charge and size on
+#   `bin/dynamic.jl`'s spring circle of radius 0.5 at `v = 0.2`, the
+#   binary's particle's, on three nested boxes at `w0 = 4` instead of the
+#   ball, from the circle's retarded field.
 #
 # A run that goes unstable stops when the solve does; its rows to there
 # are the result.
@@ -59,4 +63,6 @@ fast = "--onset=4"
         (label = "q1-h2-w8-win", cmd = "$b2 $h2 $q1 $fast --window=2.5,5"),
         (label = "q1-h2-o1", cmd = "$b3 $h2 $q1 $fast --order=1"),
         (label = "q1-h2-o2", cmd = "$b3 $h2 $q1 $fast --order=2"),
-        (label = "q1-h2-movie", cmd = "$b3 $h2 $q1")])
+        (label = "q1-h2-movie", cmd = "$b3 $h2 $q1"),
+        (label = "lone-q1-h2",
+         cmd = "bin/dynamic.jl --hdiv=2 --levels=3 --w0=4 --v=0.2 --rc=0.5 --rx1=10 --rx2=14 --onset=4 --tend=20 --every=1 $q1 --oz=0.25")])
