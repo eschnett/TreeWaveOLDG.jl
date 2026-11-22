@@ -7,7 +7,8 @@
 #         [--cfl=0.5] [--v=0.2] [--T=30] [--ramp=10] [--n=4] [--onset=2π/Ω] \
 #         [--n2=4] [--rx1=100] [--rx2=110] [--every=1] [--jevery=0.125] \
 #         [--source-tol=0.1] [--flux=FILE] [--fradii=4,6,8,12] [--prescribed] \
-#         [--ell=1e-3] [--source-addot=solved] [--window=1.25,2.5]
+#         [--ell=1e-3] [--source-addot=solved] [--window=1.25,2.5] \
+#         [--q2=0.005] [--oz=0.0093]
 #
 # Two particles of `M = 1`, `Q = ±√0.005`, `ℓ = 10⁻³`, at separation 1, each
 # at speed `v`, on `binary_circular_motion`'s circle about the centre
@@ -31,6 +32,14 @@
 # `--source-addot=predicted` writes the source with the predictor's `ä` in
 # place of the solved one (`Dynamic`'s `source_addot`), which the rows
 # still record.
+#
+# Two more serve the instability of the dynamic binary at large charge
+# (`CODE.md`, "The breathing instability" under "Measured results",
+# `jobs/instability.jl`): `--q2` sets `Q² = q²` of both particles, and
+# `--oz` the orbit's plane `z = o_z`, which for `ℓ` near `hₑ/4` is best
+# halfway between element faces, `1/(2 hdiv)`, as `bin/inspiral_movie.jl`
+# puts it, since a support that meets the elements on both sides of a
+# face doubles the solve's projections.
 #
 # Every `every` steps it prints one row per quantity, `bin/dynamic.jl`'s
 # columns:
@@ -105,8 +114,9 @@ function binary_evolve(backend)
     start = time()
     P = 3
     wave = ball_wave(hdiv, levels, w0; R1, hshell=parse(Float64, hs), P, backend)
-    o = OFFSET
-    q = sqrt(0.005)
+    o = SVector(OFFSET[1], OFFSET[2], parse(Float64, option("oz", string(OFFSET[3]))))
+    q2 = parse(Float64, option("q2", "0.005"))
+    q = sqrt(q2)
     ms = (ParticleModel(; Q=q, ℓ, M=1.0), ParticleModel(; Q=-q, ℓ, M=1.0))
     f, past = newtonian_binary(ms, d0, v; centre=o, past=T, ramp, n)
     motion = prescribed ? past :
@@ -127,6 +137,8 @@ function binary_evolve(backend)
     emit(tag..., 0.0, "Omega", Ω)
     emit(tag..., 0.0, "onset", onset)
     emit(tag..., 0.0, "ell", ℓ)
+    emit(tag..., 0.0, "q2", q2)
+    emit(tag..., 0.0, "oz", o[3])
     emit(tag..., 0.0, "windowR1", wR₁)
     emit(tag..., 0.0, "windowR2", wR₂)
     emit(tag..., 0.0, "source_addot_predicted", source_addot === :predicted ? 1 : 0)
