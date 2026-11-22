@@ -448,14 +448,17 @@ end
 
 """
     plane_values(ex::PlaneExtraction, wave::WaveProblem, u; var = 1)
-    plane_values(ex::PlaneExtraction, prob::InspiralProblem, u, t)
+    plane_values(ex::PlaneExtraction, prob::InspiralProblem, u, t;
+                 trajs = trajectories(prob, u, t))
 
 The values of variable `var` of the state `u` on the plane's grid, an
 `n × n` matrix on the host, `NaN` at the points outside the forest.
 For an inspiral, the total field `Φ` and its rate `Π = ∂ₜΦ` instead,
 `(Φ, Π)`: the remainder's two variables, plus `W Σ_k Ψ̂_k` and
 `W Σ_k 𝒟Ψ̂_k` at the points where the window is not zero, evaluated on
-the host, along the particles' trajectories of the state at `t`.
+the host, along the particles' trajectories `trajs` of the state at `t`.
+A [`Dynamic`](@ref) motion solves for them on each call, so a caller that
+reads several planes at one time passes them once.
 """
 function plane_values(ex::PlaneExtraction{T}, wave::WaveProblem, u::AbstractVector;
                       var::Integer=1) where {T}
@@ -465,10 +468,9 @@ function plane_values(ex::PlaneExtraction{T}, wave::WaveProblem, u::AbstractVect
 end
 
 function plane_values(ex::PlaneExtraction{T}, p::InspiralProblem{T,K}, u::AbstractVector,
-                      t) where {T,K}
+                      t; trajs=trajectories(p, u, t)) where {T,K}
     Φ = plane_values(ex, p.wave, u; var=1)
     Π = plane_values(ex, p.wave, u; var=2)
-    trajs = trajectories(p, u, t)
     w = p.window
     near = [j for j in eachindex(ex.points)
             if ex.inside[j] && !iszero(w(ex.points[j]))]

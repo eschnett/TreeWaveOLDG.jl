@@ -58,9 +58,10 @@ end
 
 const OFFSET = SVector(1.23, 0.71, 0.93) * 1e-2
 
-# `--grids=96:1024,8:512`, about the orbit's centre `o`, named `w96`, `w8`.
-function grids(o)
-    return map(split(option("grids", "96:1024,8:512"), ",")) do g
+# `--grids=96:1024,8:512`, about the orbit's centre `o`, named `w96`, `w8`;
+# `bin/inspiral_movie.jl` has another default.
+function grids(o, default="96:1024,8:512")
+    return map(split(option("grids", default), ",")) do g
         h, n = split(strip(g), ":")
         hw = parse(Float64, h)
         (; name="w" * (isinteger(hw) ? string(Int(hw)) : string(hw)), halfwidth=hw,

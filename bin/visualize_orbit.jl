@@ -1,13 +1,14 @@
 #!/usr/bin/env julia
 #
 # The movie of two charges on a circle ("The movie" in `CODE.md`), from
-# the frames of `bin/orbit_movie.jl` or `bin/orbit_exact.jl`:
+# the frames of `bin/orbit_movie.jl` or `bin/orbit_exact.jl`, or of the
+# binary that inspirals, from `bin/inspiral_movie.jl`'s:
 #
 #     julia --project=bin -t 4,0 bin/visualize_orbit.jl DIR [--out=FILE.mp4] \
 #         [--frame=N] [--quantity=accel|rate|total] [--ref=DIR] [--error] \
 #         [--waves=FILE] [--wradius=50] [--modes=2:2,4:4] [--rmax] \
 #         [--clim] [--zclim] [--colormap=plasma] [--fps=30] [--every=1] \
-#         [--wide=w96] [--zoom=w8] [--grid]
+#         [--wide=w96] [--zoom=w8] [--grid] [--track=T]
 #
 # Each frame shows, in the orbit's plane, `r` times a quantity, `r` the
 # distance from the orbit's centre, so that the outgoing waves keep their
@@ -27,7 +28,12 @@
 # last quarter orbit, the upper right; below it, with `--waves`, `r Re Φ_ℓm`
 # on the sphere of `wradius` against `t`, solid from the run and dashed
 # from the retarded field when the file has it, with the frame's time
-# marked. The colour scales are fixed for the whole movie: symmetric, at
+# marked. For the inspiral (`dynamic` in `meta.tsv`), the tracks run from
+# the start, the title counts the orbits by the phase of `z₁ − z₂`, and a
+# panel at the bottom right shows the separation `d` against `t`, with
+# the leading order's `d³ = d₀³ − (Δq²K/2π)(t − t₀)` from the end of the
+# hand-over `t₀` dashed. `--track=T` sets how far back in time the tracks
+# reach, by default a quarter orbit, or the whole run for the inspiral. The colour scales are fixed for the whole movie: symmetric, at
 # `--clim` (`--zclim` for the zoom), by default the 99.5th percentile of
 # `|q|` over the last frame, in `--colormap` (any of Makie's, by default
 # `plasma`; `balance` is a diverging one). `--frame=N` writes one frame (from 0) as a
@@ -66,7 +72,7 @@ function geometry(g, o)
 end
 
 # `r` times the quantity on grid `gi` of frame `i` (from 1).
-function quantity(F, i, gi, fields, xs, rs, model, which)
+function quantity(F, i, gi, fields, xs, rs, models, which)
     Φ, Π = fields[gi]
     q = similar(Φ)
     if which == "rate"
@@ -78,8 +84,8 @@ function quantity(F, i, gi, fields, xs, rs, model, which)
         Threads.@threads for j in eachindex(q)
             isnan(Φ[j]) && (q[j] = NaN32; continue)
             s = 0.0
-            for tr in trs
-                s += field_of_order(model, xs[j], tr, 0)
+            for (m, tr) in zip(models, trs)
+                s += field_of_order(m, xs[j], tr, 0)
             end
             q[j] = Φ[j] - s
         end
@@ -159,9 +165,21 @@ function main()
     F = read_frames(dirs[1])
     meta = F.meta
     o = SVector(parse.(Float64, meta["centre"])...)
-    model = ParticleModel(; Q=metanum(meta, "Q"), ℓ=metanum(meta, "ell"), M=1.0)
+    Qs = parse.(Float64, meta["Q"])
+    models = [ParticleModel(; Q=Qs[min(k, length(Qs))], ℓ=metanum(meta, "ell"), M=1.0)
+              for k in 1:F.K]
     Ω = metanum(meta, "Omega")
     period = 2π / Ω
+    dynamic = haskey(meta, "dynamic")
+    # The separation and the orbits by the unwrapped phase of `z₁ − z₂`.
+    sep = [hypot((F.zs[i][1] .- F.zs[i][2])[1:2]...) for i in eachindex(F.t)]
+    phases = let φ = [atan(reverse((F.zs[i][1] .- F.zs[i][2])[1:2])...) for i in eachindex(F.t)]
+        for i in 2:length(φ)
+            φ[i] = φ[i - 1] + rem2pi(φ[i] - φ[i - 1], RoundNearest)
+        end
+        φ .- φ[1]
+    end
+    track = parse(Float64, option("track", string(dynamic ? Inf : period / 4)))
     which = option("quantity", "accel")
     refdir = option("ref", "")
     R = isempty(refdir) ? nothing : read_frames(refdir)
@@ -181,14 +199,14 @@ function main()
 
     function frameq(i)
         fields = F.frame(i)
-        qw = quantity(F, i, wi, fields, xw, rw, model, which)
-        qz = quantity(F, i, zi, fields, xz, rz, model, which)
+        qw = quantity(F, i, wi, fields, xw, rw, models, which)
+        qz = quantity(F, i, zi, fields, xz, rz, models, which)
         if showerror
             j = findfirst(t -> abs(t - F.t[i]) < 1e-9, R.t)
             j === nothing && error("the reference has no frame at t = $(F.t[i])")
             rf = R.frame(j)
-            qw .-= quantity(R, j, wi, rf, xw, rw, model, which)
-            qz .-= quantity(R, j, zi, rf, xz, rz, model, which)
+            qw .-= quantity(R, j, wi, rf, xw, rw, models, which)
+            qz .-= quantity(R, j, zi, rf, xz, rz, models, which)
         end
         qw[reshape(rw, size(qw)) .> rmax] .= NaN32
         return qw, qz
@@ -209,12 +227,13 @@ function main()
     showerror && (label *= " − exact")
     title = Observable("")
     Label(fig[0, 1:3], title; fontsize=24, tellwidth=false)
-    axw = Axis(fig[1:2, 1]; aspect=DataAspect(), title="r ≤ $(round(Int, rmax))",
+    rows = 1 + (isempty(option("waves", "")) ? 0 : 1) + (dynamic ? 1 : 0)
+    axw = Axis(fig[1:max(rows, 2), 1]; aspect=DataAspect(), title="r ≤ $(round(Int, rmax))",
                xlabel="x", ylabel="y")
     qwo = Observable(lastw)
     hm = heatmap!(axw, axis(gw), axisy(gw), qwo; colormap=cmap,
                   colorrange=(-clim, clim), nan_color=:transparent)
-    Colorbar(fig[1:2, 2], hm; label)
+    Colorbar(fig[1:max(rows, 2), 2], hm; label)
     limits!(axw, -rmax, rmax, -rmax, rmax)
     axz = Axis(fig[1, 3]; aspect=DataAspect(), title="near zone", xlabel="x", ylabel="y")
     qzo = Observable(lastz)
@@ -251,6 +270,21 @@ function main()
         axislegend(axs; position=:lt)
         xlims!(axs, first(tw), last(tw))
     end
+    if dynamic
+        axd = Axis(fig[rows, 3]; xlabel="t", ylabel="separation d")
+        lines!(axd, F.t, sep; color=:black, label="run")
+        # The leading order from the end of the hand-over on.
+        t₀ = metanum(meta, "onset")
+        i₀ = something(findfirst(>=(t₀), F.t), 1)
+        Δq = Qs[1] - Qs[end]
+        C = Δq^2 * metanum(meta, "binding") / 2π
+        tl = [t for t in F.t if t >= F.t[i₀]]
+        dl = [cbrt(sep[i₀]^3 - C * (t - F.t[i₀])) for t in tl]
+        lines!(axd, tl, dl; color=:gray, linestyle=:dash, label="leading order")
+        vlines!(axd, cursor; color=:gray)
+        axislegend(axd; position=:lb)
+        xlims!(axd, first(F.t), last(F.t))
+    end
     colsize!(fig.layout, 1, Relative(0.55))
 
     function show!(i)
@@ -258,11 +292,13 @@ function main()
         qwo[] = qw
         qzo[] = qz
         t = F.t[i]
-        title[] = @sprintf("t = %.2f, %.2f orbits", t, t / period)
+        title[] = dynamic ?
+                  @sprintf("t = %.2f, %.2f orbits, d = %.3f", t, phases[i] / 2π, sep[i]) :
+                  @sprintf("t = %.2f, %.2f orbits", t, t / period)
         cursor[] = t
         pts(i) = [Point2f(F.zs[i][k][1] - o[1], F.zs[i][k][2] - o[2]) for k in 1:F.K]
         heads[] = pts(i)
-        back = [j for j in 1:i if F.t[i] - F.t[j] <= period / 4]
+        back = [j for j in 1:i if F.t[i] - F.t[j] <= track]
         for k in 1:F.K
             tracks[k][] = [Point2f(F.zs[j][k][1] - o[1], F.zs[j][k][2] - o[2]) for j in back]
         end
@@ -275,13 +311,16 @@ function main()
     if !isempty(frame)
         i = parse(Int, frame) + 1
         show!(i)
-        file = isempty(out) ? joinpath(@__DIR__, "output", "orbit-$(lpad(i - 1, 5, '0')).png") : out
+        file = isempty(out) ?
+               joinpath(@__DIR__, "output",
+                        (dynamic ? "inspiral-" : "orbit-") * "$(lpad(i - 1, 5, '0')).png") : out
         save(file, fig)
         println(file)
         return nothing
     end
     file = isempty(out) ? joinpath(@__DIR__, "output",
-                                   "--grid" in ARGS ? "orbit-grid.mp4" : "orbit.mp4") : out
+                                   (dynamic ? "inspiral" : "orbit") *
+                                   ("--grid" in ARGS ? "-grid.mp4" : ".mp4")) : out
     every = parse(Int, option("every", "1"))
     record(fig, file, 1:every:nf; framerate=parse(Int, option("fps", "30"))) do i
         show!(i)

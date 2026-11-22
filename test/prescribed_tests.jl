@@ -539,6 +539,10 @@ end
         Φ, Π = plane_values(ex, p, u, 0.0)
         @test !any(isnan, Φ) && !any(isnan, Π)
         trs = motion.path(0.0)
+        # The trajectories passed in are the ones the field is built on.
+        @test plane_values(ex, p, u, 0.0; trajs=trs) == (Φ, Π)
+        Φ1, _ = plane_values(ex, p, u, 0.0; trajs=(trs[1], trs[1]))
+        @test maximum(abs, filter(!isnan, Φ1 - Φ)) > 1e-3
         eΦ = eΠ = 0.0
         for (j, x) in enumerate(ex.points)
             minimum(norm(x - tr.z) for tr in trs) > 0.25 || continue
