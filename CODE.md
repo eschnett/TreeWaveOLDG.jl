@@ -160,6 +160,7 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   - [The equations of motion](#the-equations-of-motion-1)
   - [The flux](#the-flux)
   - [The binary](#the-binary)
+  - [The breathing instability](#the-breathing-instability)
 - [What carried over from TreeWave, and what did not](#what-carried-over-from-treewave-and-what-did-not)
 - [Possible extensions](#possible-extensions)
 - [Open questions](#open-questions)
@@ -2346,6 +2347,18 @@ motion by iterating on the Taylor polynomials: each pass makes one more
 derivative exact, and five give `a⃜`. The spring's jets are its
 circle's to roundoff, `Ω² = k/(γM)` (`spring_circle`). A two-body orbit's Taylor polynomial
 follows its RK4 integration to seventh order in `t`.
+
+**The predictor's `a⃛` and `a⃜` bound the charge.** The source is
+written with the solved `ä` and the predictor's `a⃛`, which do not
+agree when `ä` oscillates at a frequency the predictor's point
+particles do not have. The order-3 near field's `ä` term, `∝ r²` out to
+the window's edge, then leaves an error source over the window's ball.
+Its field acts back on both particles with a delay of the window's
+size. Above `q² ≈ 0.02` (`M = 1`, `d = 1`, the window `1.25–2.5`) that
+loop's gain exceeds one, and the binary's separation oscillates at
+`ω ≈ 8`, growing; M6b's `q² = 0.005` is a quarter of the way there
+([The breathing instability](#the-breathing-instability) under
+"Measured results").
 
 **The data and the hand-over** follow [Assumed pasts](#assumed-pasts).
 `past` is a `Prescribed` motion, whose retarded field the data take
@@ -7590,6 +7603,15 @@ is an argument, not a demonstration; the runs check it as follows.
   hand-over it grows with `σ`, `5·10⁻¹⁰` at `t < 4`, `9·10⁻⁸` at `t = 8` to 12.
   The `ä` system stays within `4·10⁻⁴` of `MγI`, its condition number
   within `6·10⁻⁴` of 1.
+- **At larger charge the binary is unstable,** not in its higher
+  derivatives but through the source's order-3 near field. The solved
+  `ä` writes into `□(WΨ̂)` a mode the predictor's `a⃛` and `a⃜` do not
+  follow, and the field it leaves acts back on both particles. The
+  separation then oscillates at `ω ≈ 8`, growing from
+  `q² ≈ 0.02` on, 1.4 per unit time at `q² = 0.2`; at `q² = 0.005` the
+  loop's gain is a quarter of what it needs, `|G(8i)| = 0.26` against
+  `Mγ = 1.02`. See [The breathing
+  instability](#the-breathing-instability).
 - **Not checked:** anything beyond `t = 32`, one orbit after the
   hand-over; `d/8`, whose step would take the run to about 28 hours,
   past `amdq`'s 24, without a checkpoint; and other speeds.
@@ -7610,6 +7632,140 @@ beyond the circle's, about 3.3 s at `d/4`, is two particles' solves and
 mesh by four and, with the second particle the first's image, halve the
 solve; it would need the transfer to fold across both faces
 **(proposed)**, for M7.
+
+### The breathing instability
+
+**The dynamic binary is unstable at large charge.** The movie's binary
+(`bin/inspiral_movie.jl`, Symmetry job 607865, study `twoldg-7cf5e7f`):
+[The binary](#the-binary)'s, at `q² = 0.2` and `ℓ = 0.04`, at `d/4`,
+with the force taking over over one orbit. Its solve failed at
+`t ≈ 16`. From `t ≈ 9` the relative acceleration along the separation,
+`a_rel·n`, is a clean sinusoid at `ω = 7.7`, and the separation follows
+it as `−a_rel/ω²`. It grows from `2.8·10⁻⁵` at `t = 9` to 0.13 at
+`t = 15.5`, 1.3 per unit time. It is the particles' relative motion
+along their separation, the breathing: at `t ≈ 16` it is 0.14 against
+`2·10⁻³` for the centre of mass's. At `q² = 0.005` the binary shows
+none to `t = 32`.
+
+`jobs/instability.jl` (Symmetry, 2026-11-22, Julia 1.13, 64 threads,
+one AMD node per run, studies `twoldg-9eb52ee`, jobs 608250 to 608266,
+and `twoldg-c5c889b`, job 608367) maps it. Each run is
+`bin/binary.jl`'s binary with `--q2` in its ball: three levels at
+`w0 = 4`, shells to `R₁ = 50`, the orbit's plane halfway between element
+faces. The force takes over over `onset = 4`, the run goes to `t = 20`,
+and every step writes a row. The growth is the slope of the log of
+`a_rel·n`'s envelope, band-passed to `ω = 5.5` to 11, from `t = 5` until
+the envelope reaches `4·10⁻³`. `ω` is the median of sine fits over
+windows of two time units. The model's column is
+`bin/breathing_loop.jl`'s fastest mode, explained below.
+
+| run | differs by | growth | `ω` | model `λ`, `ω` |
+|---|---|---|---|---|
+| `q1-h2` | `q² = 0.2`, `ℓ = 0.04`, `d/2` | 1.44 | 7.8 | 1.46, 7.74 |
+| `q1-h2-dt2` | half the step | 1.44 | 7.8 | |
+| `q1-h2-w8` | two levels at `w0 = 8` | 1.38 | 7.8 | |
+| `q1-h4` | `d/4` | 1.2 to 1.3 | 7.9 | |
+| `q1-h4-dt2` | `d/4`, half the step | 1.32 | 7.9 | |
+| 607865 | `d/4`, `onset = 15.7` | 1.3 | 7.7 | |
+| `q1-h2-movie` | `onset = 15.7` | 1.3 to 1.6 | 7.8 | |
+| `q2-h2` | `q² = 0.05`, `ℓ = 0.01` | 0.62 | 8.2 | 0.52, 7.92 |
+| `q2-h4` | the same at `d/4` | 0.46 to 0.52 | 7.9 | |
+| `q2-l04-h2` | `q² = 0.05`, `ℓ = 0.04` | 0.52 | 8.3 | |
+| `q3-h2`, `q3-h4`, `q3-l04-h2` | `q² = 0.0125` | none | | none (−0.23) |
+| `q1-h2-w8-win` | window `2.5–5`, two levels | 0.24 | 4 to 5 | 0.11 to 0.32 |
+| `q1-h2-o2` | order 2 | none | | none |
+| `q1-h2-o1` | order 1 | none | | none |
+| `lone-q1-h2` | one particle, spring circle | 0.65 to 0.73 | 8.6 | 0.77, 7.93 |
+| `q1-h2-pred` | the predictor's `ä` in the source | none | | none |
+
+The `q3` runs' envelopes fall at 0.07 to 0.12 per unit from about
+`10⁻⁵`. The two runs at orders 1 and 2 fall at 0.14 and 0.19 from
+`3·10⁻⁵`. With the predictor's `ä` in the source, the envelope
+falls at 0.22 per unit from `6·10⁻⁵` to `2·10⁻⁶` by `t = 14.7`, where
+the same run with the solved `ä` had reached 0.1 at `t = 8`. Newton
+takes at most 4 iterations, and `dmhgrid` stays below `1.8·10⁻⁵`. The two at the movie's `onset` grow from `t ≈ 9`, while the
+force is still taking over.
+
+- **Neither the grid nor the step sets it.** At `q² = 0.2`, `d/2` and
+  `d/4` agree to the fit's scatter. Half the step at `d/2` gives the
+  same envelope to two digits. Two levels at `w0 = 8`, with the
+  window's ball on the finest level, give the same growth. `ω ≈ 8` in
+  every run, at every charge, resolution and step.
+- **Nor does `ℓ`:** at `q² = 0.05`, `ℓ = 0.01` and 0.04 differ by less
+  than `d/2` and `d/4` do.
+- **The charge sets it.** The growth rises with `ln q²`: 1.4, 0.5 and
+  none at `q² = 0.2`, 0.05 and 0.0125. That is the mark of a loop whose
+  gain is `∝ q²` and whose delay is fixed.
+- **The grid's self-inertia is small,** so the guess of a grid feedback
+  `∝ q²/(M hₑ)` does not hold. `dmhgrid` after the hand-over, before
+  the mode is large, is `2.1·10⁻⁴` at `q² = 0.2`, `d/2`, `10⁻⁵` at `d/4`
+  and `7·10⁻⁷` at `q² = 0.0125`. It falls fast with `hₑ` and grows
+  later with the mode. The rest of `δm_h`, the other charge's potential
+  and the cross block, is [The binary](#the-binary)'s, `∝ q²`.
+- **The solved jets move with the mode; the predictor's do not.** In
+  the band, `ȧ ≈ 0.85 s a` and `ä ≈ 1.0` to `1.3 s² a`, near the rates
+  of `a e^{st}`, so the solved jets are about consistent. The
+  predictor's `a⃛` and `a⃜`, functions of the positions and velocities,
+  have nothing in the band.
+
+**The mechanism.** `bin/breathing_loop.jl` models the loop without a
+grid. The source `S = □(WΨ̂)` is written with `𝒟`, the derivative along
+the jets' polynomial ([The split](#the-split)). It is the field's only
+if the jets' actual rates are those `𝒟` reads. A solved `ä` that
+oscillates at a frequency the predictor's `a⃛` and `a⃜` do not have
+leaves the total field `Φ_r + WΨ̂` with an error source
+
+    □Φ = −ρ + σ,   σ = (∂ₜ² − 𝒟²)(WΨ̂) ≈ W (s⁴ ∂_äΨ̂ + s³ ∂_ȧΨ̂)·δa
+
+for a perturbation `δa e^{st}`. `σ` is spread over the window's ball,
+and its retarded field acts on both particles. The equation of motion
+`Mγ δa = −Q∇Φ` closes the loop: `G(s) = Mγ`, where `G` is the force of
+`σ`'s retarded field per unit `δa`. At `ω = 8` and `q² = 0.2`:
+
+- **The order-3 near field's `ä` term carries it.** `∂_äΨ̂` grows like
+  `r²` away from the particle, until the window cuts it off. The gain
+  comes from `R ≈ 0.5` to 2.5 about the particle:
+
+  | `R` | 0 to 0.5 | 0.5 to 1 | 1 to 1.5 | 1.5 to 2 | 2 to 2.5 | beyond |
+  |---|---|---|---|---|---|---|
+  | `ä` term | 1.97 | 11.0 | 26.1 | 21.6 | 20.1 | 2.4 |
+
+  Their phases rotate as `e^{−sR}` and sum to `|G(8i)| = 10.5` at
+  `−3°`, a positive feedback ten times the threshold. `∂_ȧΨ̂` along the
+  separation vanishes at rest, and at `v = 0.2` only the lab slice
+  gives it, `10⁻¹⁸` of the `ä` term.
+- **The two particles' terms add in the breathing mode:** own `4.95`
+  and the other's `5.55 − 0.74i`. In the centre of mass's mode they
+  subtract, to `|G| = 1.1`, which is why the breathing grows and the
+  centre of mass does not. The lone particle has the own term alone
+  and grows half as fast.
+- **The delay is the window's,** the light-crossing time of `σ`'s
+  region, so `ω` is fixed at about 8 and the growth rises as
+  `ln(q²/q²_c)`. The model's threshold is `q²_c ≈ 0.02`: `λ = 0.014`
+  at `q² = 0.02`, 0.23 at 0.03.
+- **Orders 1 and 2 have no `ä` term,** and the model has no growing
+  mode for them. With the predictor's `ä` in the source the mismatch
+  moves down a rate, `σ ≈ W (s² ∂_aΨ̂ + s³ ∂_ȧΨ̂)·δa`, and
+  `|G(iω)| ≤ 0.19`.
+- **The window's width lowers the gain but does not remove it.** At
+  `2.5–5`, `|G(8i)| = 3.2` with its phase rotating faster. Several
+  modes grow at 0.11 to 0.32, between `ω = 3` and 16, and the run grows
+  at 0.24 at `ω ≈ 4` to 5. The growth is the model's; which frequency
+  the run picks is not explained. Half the window, `0.625–1.25`, is
+  worse, 2.5 at `ω = 8.2` and 3.9 at 19.5.
+
+The model reproduces the growth to 10 to 20 % and the frequency to a
+few percent, at every charge, and the stable cases. It leaves out the
+grid; the terms of `𝒟∂_äΨ̂`, smaller by about `v/sR`; the jets'
+departure from consistency; and the physical forces on the
+perturbation, of order `q²` and `G M/d³`, far below `s²`. It also has
+slower modes, at `λ ≈ 0.7` to 1.0 near `ω = 12` to 17, which the
+fastest outgrows. In the centre of mass's mode it has a real root at
+`λ = 16`, from structure between the particles below the element width,
+which no run shows. So it identifies the loop, not every number.
+
+**The cure is not chosen** **(open)**; see [Open
+questions](#open-questions).
 
 ## What carried over from TreeWave, and what did not
 
@@ -7736,3 +7892,19 @@ TreeHydro's ([On a device](#on-a-device)).
   Neither reaches the orbit: writing the source with the predictor's
   `ä` changes neither `ä` nor the orbit ([The binary](#the-binary)
   under "Measured results").
+- How to cure the dynamic binary's breathing instability above
+  `q² ≈ 0.02`, which the movie's `q² = 0.2` needs ([The breathing
+  instability](#the-breathing-instability)). The loop runs through the
+  order-3 near field's `ä` term, which the solved `ä` writes into the
+  source and the predictor's `a⃛` and `a⃜` do not follow. Candidates,
+  none chosen **(proposed)**:
+  - the source with the predictor's `ä` (`source_addot = :predicted`),
+    so far an experiment. The model gives it a gain below 0.2, at
+    `q² = 0.2` it is stable to `t = 14.7`, and at `q² = 0.005` it changed
+    neither `ä` nor the orbit;
+  - `a⃛` and `a⃜` from the solved jets' history, which would make `σ`
+    vanish but brings back an equation of higher order in time;
+  - the near field to order 2, which is stable at `q² = 0.2` and loses
+    the order-3 terms' accuracy;
+  - a wider window, which slows the growth (0.24 per unit at `2.5–5`)
+    without removing it, at twice the step's cost.

@@ -1906,6 +1906,25 @@ patches.
   grid's part of `δm_h` alone (`dmhgrid<k>`), less the other charge's
   potential through the hand-over's blend; a `d/4` run to `t = 20` gives
   `1.7·10⁻⁷` after the hand-over, as the analysis of the old rows had.
+- 2026-11-22: the movie's dynamic binary at `q² = 0.2`, `ℓ = 0.04`
+  (job 607865) went unstable: its separation oscillated at `ω = 7.7`,
+  growing 1.3 per unit time from `t ≈ 9`, until the solve failed at
+  `t ≈ 16`. The movie's session asked for the cause before any fix. Its
+  guess, a grid feedback `∝ q²/(M hₑ)`, did not hold: the grid's part
+  of `δm_h` is `10⁻⁵` at `d/4`. `jobs/instability.jl` scanned the
+  charge, `ℓ`, `hₑ`, the step, the window and the near field's order
+  (`CODE.md`, "The breathing instability" under "Measured results").
+  `ω ≈ 8` throughout, and the growth depends only on the charge: 1.4,
+  0.5 and none at `q² = 0.2`, 0.05 and 0.0125. Orders 1 and 2 are
+  stable. The window twice as wide slows the growth to 0.24 without
+  removing it. A model without a grid, `bin/breathing_loop.jl`,
+  identified the loop and gives these numbers to 10 to 20 %. The solved
+  `ä` writes into the source an oscillation the predictor's `a⃛` and
+  `a⃜` do not follow; the order-3 near field's `ä` term leaves an error
+  source over the window's ball; and its field pushes both particles
+  in phase along their separation. The run with the predictor's `ä` in
+  the source, which the model predicts stable, is stable to `t = 14.7`
+  at `q² = 0.2`. The cure is left to the owner.
 
 ### What the plan said of its finished milestones
 

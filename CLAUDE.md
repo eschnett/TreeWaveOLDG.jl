@@ -226,6 +226,16 @@ step, `d/6` and the circle, a run each, 10 to 12 hours per binary run on
 julia --project=. -t 4,0 bin/binary.jl --hdiv=2 --levels=1 --w0=4 --R1=8 --rx1=10 --rx2=12 --tend=0.25
 ```
 
+The binary's breathing instability at large charge ("The breathing
+instability"): `bin/binary.jl --q2` and `bin/dynamic.jl --q2 --ell` set
+the charge, `jobs/instability.jl` scans it on Symmetry, and
+`bin/breathing_loop.jl`, the loop without a grid, gives the growing
+modes in seconds:
+
+```bash
+julia --project=. -t 4,0 bin/breathing_loop.jl --q2=0.2 --split
+```
+
 The flux through spheres ("Diagnostics"): `bin/prescribed.jl --flux=FILE`
 writes it beside the retarded field's, and `bin/flux.jl` gives the
 retarded flux against the dipole power at several speeds (seconds), or
@@ -533,6 +543,12 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   face, halving with `hₑ`; it is noise there, not an instability, and
   `jerkgap` measures it. Read `ä`'s trend away from the faces ("The
   binary" under "Measured results").
+- **A dynamic binary's charge is bounded at order 3:** above
+  `q² ≈ 0.02` (`M = 1`, `d = 1`, the window `1.25–2.5`) its separation
+  oscillates at `ω ≈ 8` and grows, from the solved `ä` in the source,
+  which the predictor's `a⃛` and `a⃜` do not follow. Check a new charge,
+  window or order with `bin/breathing_loop.jl` before a long run ("The
+  breathing instability").
 - **The asserted rates are measurements.** If one moves, re-measure and
   update "Measured results" rather than widen a tolerance.
 
