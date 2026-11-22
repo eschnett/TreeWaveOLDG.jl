@@ -7,7 +7,7 @@
 #         [--cfl=0.5] [--v=0.2] [--T=30] [--ramp=10] [--n=4] [--onset=2π/Ω] \
 #         [--n2=4] [--rx1=100] [--rx2=110] [--every=1] [--jevery=0.125] \
 #         [--source-tol=0.1] [--flux=FILE] [--fradii=4,6,8,12] [--prescribed] \
-#         [--ell=1e-3] [--source-addot=solved]
+#         [--ell=1e-3] [--source-addot=solved] [--window=1.25,2.5]
 #
 # Two particles of `M = 1`, `Q = ±√0.005`, `ℓ = 10⁻³`, at separation 1, each
 # at speed `v`, on `binary_circular_motion`'s circle about the centre
@@ -22,8 +22,8 @@
 # (`bin/ball.jl`): `levels` nested cubes, the finest of half-width `w0` at
 # `hₑ = 1/hdiv`, in the seven-patch ball's cube, shells of radial width
 # about `hshell` to a Sommerfeld sphere at `R1`; the window `R₁ = 1.25`,
-# `R₂ = 2.5`, about `o`. `--prescribed` runs the past's circle instead, on
-# the same grid and steps.
+# `R₂ = 2.5`, about `o` (`--window=R₁,R₂`). `--prescribed` runs the past's
+# circle instead, on the same grid and steps.
 #
 # Two options are experiments on the solved `ä`'s jumps where a support
 # straddles an element face (`CODE.md`, "The binary" under "Measured
@@ -101,6 +101,7 @@ function binary_evolve(backend)
     prescribed = "--prescribed" in ARGS
     ℓ = parse(Float64, option("ell", "1e-3"))
     source_addot = Symbol(option("source-addot", "solved"))
+    wR₁, wR₂ = parse.(Float64, split(option("window", "1.25,2.5"), ','))
     start = time()
     P = 3
     wave = ball_wave(hdiv, levels, w0; R1, hshell=parse(Float64, hs), P, backend)
@@ -111,7 +112,7 @@ function binary_evolve(backend)
     motion = prescribed ? past :
              Dynamic((NoForce(), NoForce()), past; interaction=f, onset, n2, source_tol,
                      source_addot)
-    p = InspiralProblem(wave, ms, Window(o, 1.25, 2.5; continuity=P + 1), motion; order)
+    p = InspiralProblem(wave, ms, Window(o, wR₁, wR₂; continuity=P + 1), motion; order)
     retarded = Window(o, rx1, rx2; continuity=4)
     u0 = prescribed ? inspiral_initial_state(p; retarded) :
          dynamic_initial_state(p; retarded)
@@ -126,6 +127,8 @@ function binary_evolve(backend)
     emit(tag..., 0.0, "Omega", Ω)
     emit(tag..., 0.0, "onset", onset)
     emit(tag..., 0.0, "ell", ℓ)
+    emit(tag..., 0.0, "windowR1", wR₁)
+    emit(tag..., 0.0, "windowR2", wR₂)
     emit(tag..., 0.0, "source_addot_predicted", source_addot === :predicted ? 1 : 0)
     emit(tag..., 0.0, "nodes", statelength(p.wave.fs) ÷ 2)
     emit(tag..., 0.0, "steps", integ.nsteps)
