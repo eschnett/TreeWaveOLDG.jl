@@ -1893,6 +1893,19 @@ patches.
   departure away from the faces follows it, 1.3 % to 0.55 % after the
   hand-over. That the transient is the initial data's error from the
   coarser levels is likely and was not checked.
+- 2026-11-21: the owner asked for the two left over. The likely cause
+  of the ringing was wrong: the circle with its coarse-fine faces at 8
+  instead of 4 (`jobs/ringing.jl`'s `circle-w8`) rings as before, to a
+  few percent window by window. With the window twice as wide,
+  `R₁ = 2.5`, `R₂ = 5` (`--window`, `circle-w8-win`), the ringing is 30
+  to 50 times less from `t = 0` on and the mean force the same to
+  `3·10⁻⁴`: the grid answers the source in the window's shell at its own
+  high frequencies. The wider window costs twice the step; whether the
+  binary should take it is the owner's, and why the ringing grows from
+  `t ≈ 4` and then falls stays open. `bin/binary.jl` now records the
+  grid's part of `δm_h` alone (`dmhgrid<k>`), less the other charge's
+  potential through the hand-over's blend; a `d/4` run to `t = 20` gives
+  `1.7·10⁻⁷` after the hand-over, as the analysis of the old rows had.
 
 ### What the plan said of its finished milestones
 
