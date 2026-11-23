@@ -218,7 +218,8 @@ the orbit. Its diagnostics give the separation, phase, orbital energy,
 centre of mass and eccentricity, and the energy flux through spheres,
 which on a charge's circle converges to the retarded field's. A short
 run of the binary falls inward at the leading-order rate to `O(v²)`, the
-same at two resolutions and at half the time step; the warm-up and the
+same at three resolutions and at half the time step, the finest over
+MPI on four nodes and resumed from a checkpoint; the warm-up and the
 long orbits come next ([INSPIRAL-PLAN.md](INSPIRAL-PLAN.md)'s M7). A
 coarse binary for a few steps:
 

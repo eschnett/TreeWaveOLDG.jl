@@ -5,7 +5,7 @@
 
 using LinearAlgebra: dot, norm
 using StaticArrays: SVector
-using IMEXRungeKutta: solve!
+using IMEXRungeKutta: solve!, step!
 using TreeWaveOLDG: self_force_addot, self_force_a2a, self_potential_a2, lorentz_factor,
                     near_field, field_force
 
@@ -210,4 +210,42 @@ end
     # It follows the circle, but for the percent of the acceleration that
     # is not the predictor's.
     @test norm(z1 - binary.path(2dt)[1].z) <= 0.1 * norm(trs[1].a) * (2dt)^2 / 2
+end
+
+@testset "A binary resumed from a checkpoint takes the uninterrupted run's steps" begin
+    # Guards `bin/binary.jl`'s `--checkpoint`: a run stopped after a step
+    # and resumed in a fresh motion and integrator must go on as if never
+    # stopped, to the bit. The integrator's time not recomputed as
+    # `step!` computes it, or the solve's guess or kept Jacobian not
+    # carried over, moves Newton's iterate, and so the state, in its last
+    # bits.
+    w₀, levels = 2.0, 3
+    L = 2^levels * w₀
+    forest = wave_forest(Float64, Val(3), 3, 2; roots=4, L=L,
+                         refined=nested_cubes(Val(3), w₀, levels))
+    wave = WaveProblem(forest, Element(Float64, 3))
+    c = SVector(L / 2, L / 2, L / 2)
+    ms = (ParticleModel(; Q=0.1, ℓ=0.01, M=1.0), ParticleModel(; Q=-0.1, ℓ=0.01, M=1.0))
+    f, binary = newtonian_binary(ms, 0.5, 0.3; centre=c, phase=0.3)
+    problem() = InspiralProblem(wave, ms, Window(c, 1.0, 1.75; continuity=4),
+                                Dynamic((NoForce(), NoForce()), binary; interaction=f,
+                                        onset=0.05))
+    p = problem()
+    u0 = inspiral_initial_state(p; retarded=Window(c, 1.5, 1.9; continuity=4))
+    dt = oldg_timestep(p.wave; cfl=1 // 2)
+    whole = solve!(inspiral_integrator(p, u0, 0.0, 3dt; dt=dt))
+    q = problem()
+    part = inspiral_integrator(q, u0, 0.0, 3dt; dt=dt)
+    step!(part)
+    checkpoint = deepcopy((; u=part.u, nstep=part.nstep, solve=solve_state(q.motion)))
+    r = problem()
+    resumed = inspiral_integrator(r, u0, 0.0, 3dt; dt=dt)
+    resume_integrator!(resumed, checkpoint.u, checkpoint.nstep)
+    solve_state!(r.motion, checkpoint.solve)
+    @test resumed.t == part.t
+    solve!(resumed)
+    @test resumed.t == whole.t
+    @test resumed.u == whole.u
+    @test r.motion.scratch.last.trajs == p.motion.scratch.last.trajs
+    @test_throws ArgumentError resume_integrator!(resumed, checkpoint.u, 3)
 end

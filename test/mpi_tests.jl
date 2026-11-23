@@ -21,7 +21,11 @@
 #   * a refusal found in one rank's blocks alone, which leaves the others
 #     waiting;
 #   * a rank with no blocks, on which a reduction or a launch reads a
-#     block that is not there.
+#     block that is not there;
+#   * a sphere's point read in another rank's block, or not gathered;
+#   * a dynamic particle's solve whose course differs between ranks: a
+#     rank that takes another Newton step calls the pairing's collectives
+#     a different number of times, and the run hangs.
 
 isdefined(@__MODULE__, :take_mpi_job!) || include("mpi_jobs.jl")
 
@@ -41,7 +45,7 @@ mpi_agree(a, b) = isapprox(a, b; rtol=1e-12, atol=1e-14)
     files = finish_mpi_workload(take_mpi_job!())
     serial = files[0]
     # Every case reached its end, and the adaptive run regridded.
-    @test length(serial) == 16
+    @test length(serial) == 19
     @test !occursin("regrids=0", only(filter(startswith("adaptive "), serial)))
     # At three ranks the particles' source is averaged across faces that
     # two ranks share, which is what the case is for.

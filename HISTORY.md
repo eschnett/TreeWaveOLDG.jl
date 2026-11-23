@@ -1906,6 +1906,52 @@ patches.
   grid's part of `δm_h` alone (`dmhgrid<k>`), less the other charge's
   potential through the hand-over's blend; a `d/4` run to `t = 20` gives
   `1.7·10⁻⁷` after the hand-over, as the analysis of the old rows had.
+- 2026-11-21: `d/8`, which would have taken about 28 hours on one node,
+  made to run (`CODE.md`, "Running distributed", "Initial data" and "The
+  binary" under "Measured results"). Erik Schnetter preferred several
+  nodes over MPI to a checkpoint, with a checkpoint as the fallback or
+  both; both were done. A profile on one node (job 607832) split a step
+  at `d/8` into 4.6 s of field and source and 4.3 s of the jets' solve,
+  half of that `LΠ`, the part that grows with the mesh; the projections
+  and residuals, about 1 s each, do not. `bin/binary.jl` now records
+  those parts every step (`solve_seconds`).
+  - **Over MPI** three things stood in the way. `Dynamic`'s solve had
+    never run on a distributed forest; it needed nothing but its Newton
+    step agreed, since LAPACK's `J \ r` may differ in its last bits
+    between `amdq`'s EPYC 7532 and 7543 nodes and the ranks would then
+    take different numbers of the residual's collective gathers:
+    `rank_agree` takes rank 0's. The spheres refused a distributed
+    forest; each rank now stencils its own points and the values are
+    gathered in the serial order. The drivers' output came from every
+    rank. The MPI test gained the binary's two steps and the spheres,
+    bit for bit on three ranks (job 607833, 12 minutes alone). At `d/4`
+    on one node two ranks of 32 threads gave the one-rank run's records
+    bit for bit, at 5.7 s a step against one rank's 3.7, and four of 16
+    at 9.9: every rank repeats the solve, on fewer threads. So the run
+    takes one rank per node.
+  - **The checkpoint**, every two hours and before the job's time,
+    writes each rank's state, step, solve state and records with
+    `Serialization`, and a later job resumes from the newest one every
+    rank has, through SimLaunch's restart chain. A resumed run, on one
+    rank and on two, gave the uninterrupted run's records bit for bit
+    (job 607849); `test/dynamic_tests.jl` checks it in process.
+  - The suite on the first snapshot failed two tests three ways: the
+    plane's extraction shares the spheres' `stencil_values` and has no
+    gather; fixed, it passed three ways (job 607886, 10517 passing, the
+    one known broken).
+- 2026-11-22: `d/8` ran to `t = 32` on four nodes (`CODE.md`, "The
+  binary" under "Measured results"), at 5.9 s a step. The first job
+  failed at step 7090 after 11.7 hours, when UCX could not register
+  memory for InfiniBand on one node, and hung until its time ran out,
+  so the restart chain did not continue it; it was resubmitted from the
+  checkpoint at step 6025 and finished in 3 h 49 min, its records over
+  the steps both jobs ran the first's to the bit. The orbit is `d/6`'s:
+  `ḋ` to `6·10⁻⁶` of itself, the eccentricity and the mean forces to the
+  digits shown, the centre of mass's drift seven times smaller. The
+  solved `ä`'s jump at a face falls threefold from `d/6`, and the 1 %
+  away from the faces, which had fallen little from `d/4` to `d/6`,
+  halves: the force's ringing falls by 2.3 while its frequency grows by
+  only 1.2.
 - 2026-11-22: the owner had the binary run with the wider window
   (`jobs/binary.jl`'s `binary-w8-win`, job 608223). It took more than
   the estimate said: the departure away from the faces fell 10 to 20

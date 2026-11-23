@@ -1,0 +1,21 @@
+# Where a step of `bin/binary.jl` goes, before choosing how to run `d/8`
+# (`CODE.md`, "The binary" under "Measured results"): the binary of
+# `jobs/binary.jl` for a few steps from the start, at `d/4` (32 steps) and
+# at `d/8` (16 steps), on one node, 64 threads pinned. The rows
+# `step_seconds`, `solve_seconds`, `laplacian_seconds`,
+# `projection_seconds`, `residual_seconds` and `jacobian_seconds` split
+# each step into the field's right-hand side and the jets' solve.
+name = "binary_profile"
+description = "TreeWaveOLDG M6b: where a step of the binary goes, d/4 and d/8"
+pin = true
+
+[site.symmetry]
+time = "1:00:00"
+
+[[run]]
+label = "h4"
+cmd = "bin/binary.jl --levels=3 --w0=4 --R1=50 --hshell=1 --every=1 --hdiv=4 --tend=0.25"
+
+[[run]]
+label = "h8"
+cmd = "bin/binary.jl --levels=3 --w0=4 --R1=50 --hshell=1 --every=1 --hdiv=8 --tend=0.0625"

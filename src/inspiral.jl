@@ -473,6 +473,27 @@ function inspiral_integrator(p::InspiralProblem, u0, t0, t1; dt, alg=RK4(),
 end
 
 """
+    resume_integrator!(integ, u, nstep)
+
+Put the integrator `integ`, built for the whole run from its start, at
+step `nstep` with the state `u`, as a checkpoint taken after that step
+left it: `t = t0 + nstep·dt`, as `step!` computes it, so the steps that
+follow are the uninterrupted run's to the bit. A [`Dynamic`](@ref)
+motion also needs its [`solve_state!`](@ref). Returns `integ`.
+"""
+function resume_integrator!(integ, u, nstep::Integer)
+    0 <= nstep < integ.nsteps || throw(ArgumentError(
+        "a checkpoint at step $nstep of a run of $(integ.nsteps) steps"))
+    length(u) == length(integ.u) || throw(DimensionMismatch(
+        "a checkpoint's state of $(length(u)) entries for an integrator's of " *
+        "$(length(integ.u)): another layout or rank count"))
+    copyto!(integ.u, u)
+    integ.nstep = nstep
+    integ.t = integ.t0 + nstep * integ.dt
+    return integ
+end
+
+"""
     particle_forces(p::InspiralProblem, u, t)
 
 The remainder's force on each particle, a tuple of 3-vectors: the part
