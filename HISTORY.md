@@ -1906,6 +1906,16 @@ patches.
   grid's part of `δm_h` alone (`dmhgrid<k>`), less the other charge's
   potential through the hand-over's blend; a `d/4` run to `t = 20` gives
   `1.7·10⁻⁷` after the hand-over, as the analysis of the old rows had.
+- 2026-11-22: the owner had the binary run with the wider window
+  (`jobs/binary.jl`'s `binary-w8-win`, job 608223). It took more than
+  the estimate said: the departure away from the faces fell 10 to 20
+  times, to about 0.1 %, not to a few hundredths of a percent, but the
+  jump at a face crossing fell 28 times too, to 2 % rms. That jump had
+  been put down to the particle's size alone, from its `ℓ⁻²` scaling;
+  the scaling stands, but the field's jump it multiplies is mostly the
+  ringing's. The orbit is the same to `2·10⁻⁴` in `ḋ`. The finest cube
+  has to be twice as wide to hold the window's ball, so the step costs
+  twice as much.
 
 ### What the plan said of its finished milestones
 

@@ -7426,7 +7426,9 @@ is an argument, not a demonstration; the runs check it as follows.
   `d/4` and 1.4 % and 6.5 % at `d/6` with no trend. It does not reach
   the orbit, which `ä` enters only through the source's jets. Away
   from the faces it is 1 to 2 %, the less the farther from a face, and
-  less at `d/6`; see the next item **(open)**.
+  less at `d/6`; see the next item. Both are mostly the ringing that
+  the window's source excites, which the window twice as wide removes
+  (see "In the binary the wider window" below).
 - **Two experiments on `ä`** (`jobs/addot.jl`, Symmetry, 2026-11-21,
   `d/4`): particles of `ℓ = 2·10⁻³` to `t = 16` (job 607661, 2 h 29 min),
   and the source written with the predictor's `ä` in place of the solved
@@ -7544,9 +7546,38 @@ is an argument, not a demonstration; the runs check it as follows.
     Why it grows from `t ≈ 4` and then falls is not understood
     **(open)**. The wider window costs twice the step, 4.45 s against
     2.29 s on 64 threads, the source being projected over eight times
-    the volume. Its effect on the binary's `ä` is not measured; by the
-    force's band it would take the departure away from the faces from
-    1–2 % to a few hundredths of a percent **(proposed)**.
+    the volume.
+  - **In the binary the wider window takes both the jump at the faces
+    and the departure away from them** (`jobs/binary.jl`'s
+    `binary-w8-win`, Symmetry, 2026-11-22, job 608223, 10.7 h on one
+    AMD node). The binary at `d/4` to `t = 32` on `circle-w8-win`'s
+    levels and window, against the `d/4` and `d/6` runs above. `ä`'s
+    departure as in the experiments' table, from `t = 4` to 16:
+
+    | distance | `d/4` | `d/6` | `d/4`, window 2.5–5 |
+    |---|---|---|---|
+    | below `2ℓ` | 0.52 (3.7) | 0.18 (1.6) | 0.018 (0.13) |
+    | `2·10⁻³` to `5·10⁻³` | 0.021 | 0.018 | 0.0010 |
+    | `5·10⁻³` to `10⁻²` | 0.019 | 0.016 | 0.0010 |
+    | `10⁻²` to `2·10⁻²` | 0.018 | 0.016 | 0.0012 |
+    | `2·10⁻²` to `4·10⁻²` | 0.014 | 0.010 | 0.0010 |
+    | beyond | 0.011 | 0.006 | 0.0009 |
+
+    and beyond `2ℓ` after the hand-over, 0.22 %, 0.11 %, 0.03 % and
+    0.15 % over `t = 16` to 20, 20 to 24, 24 to 28 and 28 to 32,
+    against `d/4`'s 1.33 % to 0.55 % in the table above. The force's
+    band `ω∈[20,60)` is 25 to 125 times less than `d/4`'s window by
+    window, `F_t` `3·10⁻¹⁰` to `4·10⁻⁹`. So the jump at a face is
+    mostly the ringing's too: the pairing reads the field's jump across
+    the face times `ℓ⁻²`, and that jump is mostly the ringing's. What
+    is left, 2 % at the faces (at most 15 %) and 0.1 % away from them,
+    is not analysed **(open)**. `jerkgap`'s median falls from 0.46 to
+    0.013 and its largest from `8·10²` to 34; Newton takes at most 4
+    iterations instead of 7. The orbit is the `d/4` run's: `ḋ` to
+    `2·10⁻⁴` of itself, the separation to `3·10⁻⁷`, the centre of mass
+    `7·10⁻⁸` against `4·10⁻⁷`; `dmhgrid` is `1.6·10⁻⁷`. The levels
+    needed to keep the window's ball on the finest level hold `8.8·10⁷`
+    nodes against `2.0·10⁷`, and the step costs 9.4 s against 4.6.
   - **The source's `ä` does not feed back:** with the predictor's `ä` in
     the source, the solved `ä` is the same as with its own, in every row.
   - **Nor does it move the orbit:** over the orbit after the hand-over,
@@ -7601,6 +7632,7 @@ is an argument, not a demonstration; the runs check it as follows.
 | binary `d/4`, quadrature serial (EPYC 7532) | `2.0·10⁷` | 4 096 | 9.2 |
 | binary `d/4`, `Δt/2`, threaded (EPYC 7532) | `2.0·10⁷` | 8 192 | 4.6 |
 | binary `d/6`, threaded (EPYC 7532) | `5.1·10⁷` | 6 144 | 6.8 |
+| binary `d/4`, window 2.5–5, threaded (EPYC 7543) | `8.8·10⁷` | 4 096 | 9.4 |
 | circle `d/4` (EPYC 7543) | `2.0·10⁷` | 4 096 | 1.3 |
 
 Threading the support's quadrature halved the binary's step; what is left
@@ -7727,12 +7759,13 @@ TreeHydro's ([On a device](#on-a-device)).
 - Whether the binary should take a wider window. The source between
   `R₁ = 1.25` and `R₂ = 2.5` rings the grid's field at `ω hₑ ≈ 8` to 9;
   the force carries it at about 1 % of `F_RR`, and the binary's solved
-  `ä` reads it times `ω²`, 1 to 2 % of `ä` away from the faces. Twice
-  the window removes it from the circle's force at twice the step's
-  cost; why it grows from `t ≈ 4` and then falls is not understood.
-  Should `ä`'s jump at a face crossing, up to three times `ä` at `d/4`
-  and scaling as `ℓ⁻²`, be smoothed, as the averaging smooths the
-  force's?
+  `ä` reads it times `ω²`, 1 to 2 % of `ä` away from the faces and up
+  to three times `ä` at a face crossing. Twice the window takes both
+  down 10 to 30 times and leaves the orbit as it was, but needs a
+  finest cube twice as wide, four times the nodes and twice the step;
+  why the ringing grows from `t ≈ 4` and then falls is not understood.
+  Whether `ä`'s remaining jump at a face, 2 % rms and at most 15 %,
+  should be smoothed, as the averaging smooths the force's.
   Neither reaches the orbit: writing the source with the predictor's
   `ä` changes neither `ä` nor the orbit ([The binary](#the-binary)
   under "Measured results").
