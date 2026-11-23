@@ -1923,8 +1923,8 @@ patches.
   `a⃜` do not follow; the order-3 near field's `ä` term leaves an error
   source over the window's ball; and its field pushes both particles
   in phase along their separation. The run with the predictor's `ä` in
-  the source, which the model predicts stable, is stable to `t = 14.7`
-  at `q² = 0.2`. The cure is left to the owner.
+  the source, which the model predicts stable, is stable to `t = 20` at
+  `q² = 0.2`. The cure is left to the owner.
 
 ### What the plan said of its finished milestones
 

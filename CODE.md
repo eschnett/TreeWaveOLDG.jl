@@ -7681,9 +7681,9 @@ windows of two time units. The model's column is
 The `q3` runs' envelopes fall at 0.07 to 0.12 per unit from about
 `10⁻⁵`. The two runs at orders 1 and 2 fall at 0.14 and 0.19 from
 `3·10⁻⁵`. With the predictor's `ä` in the source, the envelope
-falls at 0.22 per unit from `6·10⁻⁵` to `2·10⁻⁶` by `t = 14.7`, where
+falls at 0.17 per unit from `6·10⁻⁵` to `5·10⁻⁶` at `t = 20`, where
 the same run with the solved `ä` had reached 0.1 at `t = 8`. Newton
-takes at most 4 iterations, and `dmhgrid` stays below `1.8·10⁻⁵`. The two at the movie's `onset` grow from `t ≈ 9`, while the
+takes at most 5 iterations, and `dmhgrid` stays below `1.8·10⁻⁵`. The two at the movie's `onset` grow from `t ≈ 9`, while the
 force is still taking over.
 
 - **Neither the grid nor the step sets it.** At `q² = 0.2`, `d/2` and
@@ -7900,7 +7900,7 @@ TreeHydro's ([On a device](#on-a-device)).
   none chosen **(proposed)**:
   - the source with the predictor's `ä` (`source_addot = :predicted`),
     so far an experiment. The model gives it a gain below 0.2, at
-    `q² = 0.2` it is stable to `t = 14.7`, and at `q² = 0.005` it changed
+    `q² = 0.2` it is stable to `t = 20`, and at `q² = 0.005` it changed
     neither `ä` nor the orbit;
   - `a⃛` and `a⃜` from the solved jets' history, which would make `σ`
     vanish but brings back an equation of higher order in time;
