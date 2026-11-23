@@ -58,6 +58,10 @@
 #   and `jerkgap<k>`, `|(ä(t) − ä(t − Δt))/Δt − (a⃛(t) + a⃛(t − Δt))/2|`
 #   over `|a⃛(t)|`, the solved `ä`'s rate against the predictor's `a⃛`
 #   across the step;
+# - per particle, the position and velocity (`z<k>x`, …, `v<k>x`, …) and
+#   the predictor's `ä` blended as `a⃛` is (`addp<k>x`, …), which the source
+#   takes with `--source-addot=predicted`, for `bin/addot_error.jl`'s
+#   estimate of what that choice costs;
 # - what the step's last solve did: `iterations`, `projections`,
 #   `residual`, and `dmh<k>`, `‖J_ää − MγI‖/M` of particle `k` with the
 #   Jacobian it used, which may have been kept; every `jevery` in time the
@@ -187,6 +191,16 @@ function binary_evolve(backend)
             end
         end
         previous[] = (t, jets)
+        for k in 1:2, (name, x) in (("z", zs[k]), ("v", vs[k]))
+            for (i, xyz) in enumerate("xyz")
+                emit(tag..., t, "$name$k$xyz", x[i])
+            end
+        end
+        if !prescribed && motion.scratch.last !== nothing
+            for k in 1:2, (i, xyz) in enumerate("xyz")
+                emit(tag..., t, "addp$k$xyz", motion.scratch.last.addot_predicted[k][i])
+            end
+        end
         if !prescribed && motion.scratch.last !== nothing
             l = motion.scratch.last
             emit(tag..., t, "iterations", l.iterations)

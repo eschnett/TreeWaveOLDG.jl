@@ -112,6 +112,7 @@ end
     pred = predicted_jets((m,), (ConstantForce(F),), (zv[1],), (zv[2],))[1]
     @test trp.ä ≈ smoothstep(4, t / onset) * pred.ä atol = 1e-12
     @test dyp.scratch.last.trajs[1].ä ≈ S(2) * F / m.M rtol = 1e-4
+    @test dyp.scratch.last.addot_predicted[1] == trp.ä
     @test trp.a ≈ S(0) * F / m.M rtol = 1e-4
     @test_throws ArgumentError Dynamic((ConstantForce(F),), past; source_addot=:smoothed)
     # The Jacobian found during the ramp is the blend's, and the chord

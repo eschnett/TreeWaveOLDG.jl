@@ -223,9 +223,12 @@ up to 9% from the guess (`CODE.md`, "The equations of motion").
 `source_addot = :predicted` writes the source, and projects it in the
 solve, with the predictor's `ä` (blended with the past's as `a⃛` is) in
 place of the solved one, which the solve still finds and
-`m.scratch.last.trajs` records: an experiment on what the solved `ä`'s
-jumps at element faces do to the run (`CODE.md`, "The binary" under
-"Measured results"), not a scheme.
+`m.scratch.last.trajs` records. The blended predictor's `ä` is in
+`m.scratch.last.addot_predicted` with either choice. It began as an
+experiment on what the solved `ä`'s jumps at element faces do to the run
+(`CODE.md`, "The binary" under "Measured results"), and is the candidate
+cure of the binary's breathing instability ("The breathing
+instability").
 """
 struct Dynamic{X<:Tuple,I,P<:Prescribed,T}
     external::X
@@ -523,7 +526,7 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     reach = hₑ / max(maximum(v -> norm(v), vs), eps(T))
     push!(moves, norm(x - xp) / norm(x))
     sc.last = (; t=T(t), iterations, projections, residual=norm(r), jacobian=J, σ=σJ,
-               fresh, trajs, reach=min(reach, T(Inf)), moves)
+               fresh, trajs, reach=min(reach, T(Inf)), moves, addot_predicted=mix(:ä))
     m.source_addot === :solved && return trajs
     S = sourced(X)
     return ntuple(k -> Trajectory(; z=zs[k], v=vs[k], a=S[k][1], ȧ=S[k][2], ä=S[k][3],
