@@ -1928,7 +1928,9 @@ waiting in their next collective.
   their pairings gathers its blocks in a collective of its own, about
   twenty per residual. Gathering a solve's blocks once, and spreading
   the support's quadrature over the ranks, would cut both
-  **(proposed)**. Whether one rank computing the forces and
+  **(proposed)**. The first four-node run failed after 11.7 hours in
+  UCX's memory registration, the cause not traced **(open)**. Whether
+  one rank computing the forces and
   broadcasting them costs less at many ranks is not measured
   **(open)**.
 
@@ -3639,7 +3641,9 @@ record into a fresh `Dynamic`, so the resumed run takes the
 uninterrupted run's steps to the bit (tested, serially, in
 `test/dynamic_tests.jl`). A resumed run needs the same options and rank
 count, which it checks, skips the initial data, and writes its rows and
-flux from the step after the checkpoint on.
+flux from the step after the checkpoint on. `d/8` on four nodes resumed
+so, and its records over the steps both jobs ran are the first job's to
+the bit ([The binary](#the-binary) under "Measured results").
 
 ### Diagnostics
 
@@ -7418,23 +7422,31 @@ error, relative, with the orders between successive resolutions:
 pinned, one AMD node per run: `d/4` (job 607090, `cn085`, EPYC 7532),
 `d/4` at half the step (`--cfl=0.25`, 607121, `cn087`, EPYC 7532),
 `d/6` (607122, `cn091`, EPYC 7532), and the past's circle at `d/4`
-(`--prescribed`, 607096, `cn093`, EPYC 7543). The binary of [Initial
+(`--prescribed`, 607096, `cn093`, EPYC 7543); and `d/8` over MPI
+(`jobs/binary_mpi.jl`, 2026-11-21 and 22), four ranks on four AMD nodes,
+one of 64 threads each: job 607847 (`cn093`, `cn098`, `cn099`, `cn110`)
+to step 7090 of 8192, where it failed (below), and job 608520 (`cn106`
+to `cn109`) from its checkpoint at step 6025, whose records over the
+1065 steps both ran are the first job's to the bit. The binary of [Initial
 data](#initial-data): `M = 1`, `Q = ±√0.005`, `ℓ = 10⁻³`, `d₀ = 1`,
 `v = 0.2`, `G = 0.08204`, `K = 0.08164`, from the retarded field of the
 spun-up past, the force taking over over `t = 0` to `15.71` (one orbit),
 to `t = 32`. The first `d/4` run predates the threaded quadrature, which
 gives the same numbers.
 
-**The orbit is the same in all three runs.** Over the orbit after the
+**The orbit is the same in all four runs.** Over the orbit after the
 hand-over, `t = 15.71` to `31.42`, and to `t = 32` for the drifts:
 
-| | `d/4` | `d/4`, `Δt/2` | `d/6` |
-|---|---|---|---|
-| `ḋ`, the orbit's mean | `−8.0845·10⁻⁵` | `−8.0842·10⁻⁵` | `−8.0855·10⁻⁵` |
-| `ΔE` per unit time | `−3.2883·10⁻⁶` | `−3.2877·10⁻⁶` | `−3.2881·10⁻⁶` |
-| eccentricity | `1.95·10⁻⁴` | `1.96·10⁻⁴` | `1.95·10⁻⁴` |
-| centre of mass from `o`, largest | `4.2·10⁻⁷` | `4.7·10⁻⁷` | `1.2·10⁻⁷` |
-| momentum, largest | `1.0·10⁻⁷` | `9.4·10⁻⁸` | `2.2·10⁻⁸` |
+| | `d/4` | `d/4`, `Δt/2` | `d/6` | `d/8` |
+|---|---|---|---|---|
+| `ḋ`, the orbit's mean | `−8.0845·10⁻⁵` | `−8.0842·10⁻⁵` | `−8.0855·10⁻⁵` | `−8.0855·10⁻⁵` |
+| `ΔE` per unit time | `−3.2883·10⁻⁶` | `−3.2877·10⁻⁶` | `−3.2881·10⁻⁶` | `−3.2881·10⁻⁶` |
+| eccentricity | `1.95·10⁻⁴` | `1.96·10⁻⁴` | `1.95·10⁻⁴` | `1.95·10⁻⁴` |
+| centre of mass from `o`, largest | `4.2·10⁻⁷` | `4.7·10⁻⁷` | `1.2·10⁻⁷` | `1.6·10⁻⁸` |
+| momentum, largest | `1.0·10⁻⁷` | `9.4·10⁻⁸` | `2.2·10⁻⁸` | `5.5·10⁻⁹` |
+
+`ḋ` at `d/6` and `d/8` agree to `6·10⁻⁶` of it, `ΔE` per unit time to
+`2·10⁻⁵`.
 
 - **The inspiral is at the leading order to `O(v²)`:** `ḋ` is 0.931 of
   `dipole_ddot` at the orbit's mean separation (`−8.68·10⁻⁵`). The flux
@@ -7443,7 +7455,8 @@ hand-over, `t = 15.71` to `31.42`, and to `t = 32` for the drifts:
   `O(v²)` terms too; not taken further, the flux balance being M7's.
 - **The energy and the flux:** the orbit loses `3.288·10⁻⁶` per unit
   time; the grid's flux through the sphere at 4, averaged from
-  `t = 19.7` to 32, short of an orbit, is `3.285·10⁻⁶`, and the past's
+  `t = 19.7` to 32, short of an orbit, is `3.285·10⁻⁶` at `d/4` and
+  `3.284·10⁻⁶` at `d/6` and `d/8`, and the past's
   circle radiates `3.273·10⁻⁶`. The orbit's energy counts no field
   energy, so this is a check of size, not a balance.
 - **The eccentricity** is the fit of `c₀ + c₁t + A cos ωt + B sin ωt` at
@@ -7451,18 +7464,21 @@ hand-over, `t = 15.71` to `31.42`, and to `t = 32` for the drifts:
   `1.4·10⁻⁶`; from `t = 8` it is `2.0·10⁻⁴`. The hand-over leaves it, the
   same at every resolution and step.
 - **The centre of mass drifts as the grid's error,** at about third order
-  from `d/4` to `d/6` and not with the step; the circle's stays at
-  `2·10⁻¹⁵`.
+  from `d/4` to `d/6`, falling seven-fold from `d/6` to `d/8`, and not
+  with the step; the circle's stays at `2·10⁻¹⁵`.
 
 **The forces after the hand-over** are the circle's. Per particle, the
 remainder's force along the velocity, the inward radius and their
 normal, mean and scatter over `t = 15.71` to 32:
 
-| | `d/4` | `d/4`, `Δt/2` | `d/6` | circle, `d/4` |
-|---|---|---|---|---|
-| `F_t` | `−7.88·10⁻⁶`, `7·10⁻⁸` | `−7.88·10⁻⁶`, `5·10⁻⁸` | `−7.88·10⁻⁶`, `2.3·10⁻⁸` | `−7.85·10⁻⁶`, `5·10⁻⁸` |
-| `F_r` | `−3.8·10⁻⁷`, `9·10⁻⁸` | `−3.7·10⁻⁷`, `6·10⁻⁸` | `−3.7·10⁻⁷`, `3.3·10⁻⁸` | `−3.7·10⁻⁷`, `5·10⁻⁸` |
-| largest `|F_n|` | `1.0·10⁻⁷` | `1.0·10⁻⁷` | `4.9·10⁻⁸` | `9.9·10⁻⁸` |
+| | `d/4` | `d/4`, `Δt/2` | `d/6` | `d/8` | circle, `d/4` |
+|---|---|---|---|---|---|
+| `F_t` | `−7.88·10⁻⁶`, `7·10⁻⁸` | `−7.88·10⁻⁶`, `5·10⁻⁸` | `−7.88·10⁻⁶`, `2.3·10⁻⁸` | `−7.88·10⁻⁶`, `1.2·10⁻⁸` | `−7.85·10⁻⁶`, `5·10⁻⁸` |
+| `F_r` | `−3.8·10⁻⁷`, `9·10⁻⁸` | `−3.7·10⁻⁷`, `6·10⁻⁸` | `−3.7·10⁻⁷`, `3.3·10⁻⁸` | `−3.7·10⁻⁷`, `1.2·10⁻⁸` | `−3.7·10⁻⁷`, `5·10⁻⁸` |
+| largest `|F_n|` | `1.0·10⁻⁷` | `1.0·10⁻⁷` | `4.9·10⁻⁸` | `1.8·10⁻⁸` | `9.9·10⁻⁸` |
+
+The scatter halves from `d/6` to `d/8`; the means are the same to the
+digits shown.
 
 The tangential force opposes the motion at 1.86 times a single charge's
 `F_RR = 4.24·10⁻⁶` on the same circle, the other charge's field adding
@@ -7483,26 +7499,29 @@ is an argument, not a demonstration; the runs check it as follows.
 - **The solved `ä` jumps where the particle's support straddles an
   element face.** Its departure from the circle's `−ω²a`, rms over `|ä|`,
   by the distance of the particle's centre from the nearest face of the
-  finest level, from `t = 4` to 32:
+  finest level, from `t = 4` to 32, particle 1's:
 
-  | distance | steps | `d/4` | `d/4`, `Δt/2` | `d/6` |
-  |---|---|---|---|---|
-  | below `2ℓ` | 4 % | 0.41 (3.1) | 0.39 (3.1) | 0.19 (1.7) |
-  | `2ℓ` to `5ℓ` | 7 % | 0.015 | 0.015 | 0.015 |
-  | `5ℓ` to `10ℓ` | 14 % | 0.015 | 0.015 | 0.013 |
-  | `10ℓ` to `20ℓ` | 21 % | 0.013 | 0.013 | 0.014 |
-  | beyond | 54 % | 0.010 | 0.010 | 0.007 |
+  | distance | steps at `d/4` | `d/4` | `d/4`, `Δt/2` | `d/6` | `d/8` |
+  |---|---|---|---|---|---|
+  | below `2ℓ` | 4 % | 0.41 (3.1) | 0.39 (3.1) | 0.19 (1.7) | 0.065 (0.64) |
+  | `2ℓ` to `5ℓ` | 7 % | 0.015 | 0.015 | 0.015 | 0.007 |
+  | `5ℓ` to `10ℓ` | 14 % | 0.015 | 0.015 | 0.013 | 0.007 |
+  | `10ℓ` to `20ℓ` | 21 % | 0.013 | 0.013 | 0.014 | 0.006 |
+  | beyond | 54 % | 0.010 | 0.010 | 0.007 | 0.004 |
 
-  with the largest in parentheses. A face crossing lasts `2ℓ/v`, about a
+  with the largest in parentheses. The finer the elements, the more
+  steps lie near a face: at `d/8` the rows hold 7, 10, 19, 30 and
+  34 %. A face crossing lasts `2ℓ/v`, about a
   step; the pairing reads the field's jump there (as the force's
   impulses of [The averaging](#the-averaging) do), and `Ë` its second
   derivative in time, so `ä` takes the impulse at its largest. It halves
-  from `d/4` to `d/6`, is the same at half the step, and does not grow:
-  per window of four time units its rms moves between 0.9 % and 16 % at
-  `d/4` and 1.4 % and 6.5 % at `d/6` with no trend. It does not reach
+  from `d/4` to `d/6` and falls threefold to `d/8`, is the same at half
+  the step, and does not grow: per window of four time units its rms
+  moves between 0.9 % and 16 % at `d/4`, 1.4 % and 6.5 % at `d/6`, and
+  0.7 % and 3 % at `d/8`, with no trend. It does not reach
   the orbit, which `ä` enters only through the source's jets. Away
-  from the faces it is 1 to 2 %, the less the farther from a face, and
-  less at `d/6`; see the next item **(open)**.
+  from the faces it is 1 to 2 %, the less the farther from a face, less
+  at `d/6`, and half of that at `d/8`; see the next item **(open)**.
 - **Two experiments on `ä`** (`jobs/addot.jl`, Symmetry, 2026-11-21,
   `d/4`): particles of `ℓ = 2·10⁻³` to `t = 16` (job 607661, 2 h 29 min),
   and the source written with the predictor's `ä` in place of the solved
@@ -7551,7 +7570,13 @@ is an argument, not a demonstration; the runs check it as follows.
     force's part falls by 2.4 from `d/4` to `d/6`, but `ω²` grows by
     2.25, so `ä`'s part falls little: the inward part not at all (rms
     0.74 % and 0.77 %), the tangential from 0.78 % to 0.56 %, the
-    normal from 0.51 % to 0.28 %. Whether it is the grid's own
+    normal from 0.51 % to 0.28 %. At `d/8` the band lies at `ω ≈ 50`
+    to 100, centred at 69, `ω hₑ ≈ 8.6`, and the force's part falls by
+    2.3 from `d/6`, `F_t` `7.1·10⁻⁹` and `F_r` `1.0·10⁻⁸`, while the
+    band's `ω` grows by only 1.2. So `ä`'s part falls by about two from
+    `d/6` to `d/8` in each direction, the inward by 2.1, the tangential
+    and the normal by 1.75, with a lag-one autocorrelation of 0.94 as
+    before. Whether it is the grid's own
     high-frequency modes, rung by the face crossings' impulses, or the
     moving source's projection beating against the elements, is not
     traced **(open)**.
@@ -7568,12 +7593,13 @@ is an argument, not a demonstration; the runs check it as follows.
   median of 0.5 and a largest of `10³` (`3·10³` at half the step): the
   `ä` above divided by a step. It measures the noise, not `a⃛`.
 - **Newton's solve:** at most 7 iterations, 2.9 on average, at most two
-  projections of the source, a residual below `4.5·10⁻¹⁴`, in every run
-  and throughout.
+  projections of the source, a residual below `4.6·10⁻¹⁴`, in every run
+  and throughout; at `d/8` at most 4 iterations and one projection.
 - **`δm_h/M` from a fresh Jacobian** is `γ − 1 = 2.06·10⁻²` while the
   blend holds the past (the blend's Jacobian), and after the hand-over
-  `3.89` to `3.91·10⁻⁴` in every run, at `d/4`, `d/6` and half the step,
-  with the other particle's `ä` block at `2.57·10⁻⁴`, against M6a's
+  `3.89` to `3.91·10⁻⁴` in every run, at `d/4`, `d/6`, `d/8` and half
+  the step, with the other particle's `ä` block at `2.57·10⁻⁴`, against
+  M6a's
   `7·10⁻¹⁰` for one particle. **It is the other charge's potential, not
   the grid:** the equation's mass is `m = M₀ + QΦ̄ₑ` ([The equations of
   motion](#the-equations-of-motion)), and `QΦ̄ₑ` holds `other_force`'s
@@ -7592,8 +7618,7 @@ is an argument, not a demonstration; the runs check it as follows.
   `‖∂Ë/∂ä − (M + QΦ̄ₑ)γI‖` would **(proposed)**. The `ä` system stays
   within `4·10⁻⁴` of `MγI`, its condition number within `6·10⁻⁴` of 1.
 - **Not checked:** anything beyond `t = 32`, one orbit after the
-  hand-over; `d/8`, whose step would take the run to about 28 hours,
-  past `amdq`'s 24, without a checkpoint; and other speeds.
+  hand-over; and other speeds.
 
 **Cost**, seconds per step on 64 threads, from the runs' wall clock:
 
@@ -7603,10 +7628,32 @@ is an argument, not a demonstration; the runs check it as follows.
 | binary `d/4`, `Δt/2`, threaded (EPYC 7532) | `2.0·10⁷` | 8 192 | 4.6 |
 | binary `d/6`, threaded (EPYC 7532) | `5.1·10⁷` | 6 144 | 6.8 |
 | circle `d/4` (EPYC 7543) | `2.0·10⁷` | 4 096 | 1.3 |
+| binary `d/8`, four ranks on four nodes | `1.0·10⁸` | 8 192 | 5.9 |
 
 Threading the support's quadrature halved the binary's step; what is left
 beyond the circle's, about 3.3 s at `d/4`, is two particles' solves and
-`LΠ`. The quarter ball the owner suggested (2026-11-20), the half-spaces
+`LΠ`. The runs record a step's parts (`solve_seconds`). On one node
+(`jobs/binary_profile.toml`, job 607832, the first steps) a step takes
+3.7 s at `d/4`, 2.4 of it the solve, and 9.0 s at `d/8`: 4.6 the field
+and the source, 4.3 the solve, of which `LΠ` 2.3, the projections 1.0
+and the residuals 1.0. Over four nodes `d/8` takes 5.9 s, 6.2 in the
+resumed job: the field and `LΠ` split, to about 2.1 and 0.6 s, the
+projections stay at 0.95, and the residuals rise to 2.3, their pairings'
+gathers collective ([Running distributed](#running-distributed)). Its
+setup takes 3 minutes against 6 on one node, and the whole run would
+have taken 13.5 hours.
+
+**The first `d/8` job failed after 11.7 hours** in the MPI library, not
+the run: on `cn099`, UCX could not register memory for InfiniBand
+(`ibv_reg_mr … Cannot allocate memory`), Open MPI's daemon lost a node,
+and `mpiexec` then hung until the job's time ran out, so SimLaunch's
+restart chain, which continues a job that exits for its time, did not
+start the next. The step's time shows no growth before it, about 6 s
+throughout. Whether memory grows with the residuals' many gathers of
+fresh buffers, which UCX registers and caches, is not traced
+**(open)**; the resumed job ran its 2 167 steps without it.
+
+The quarter ball the owner suggested (2026-11-20), the half-spaces
 `x ≥ 0` and `z ≥ 0` with a reflection and a half-turn, would cut the
 mesh by four and, with the second particle the first's image, halve the
 solve; it would need the transfer to fold across both faces
