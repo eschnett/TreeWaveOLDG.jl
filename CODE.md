@@ -7821,6 +7821,69 @@ orbital energy lost against `∫P dt`:
   plausible but unchecked. To be useful, the estimator would need the
   jets low-passed to what the grid carries.
 
+**Two cures side by side.** `jobs/cures.jl` (Symmetry, 2026-11-24, study
+`twoldg-76d6e08`, jobs 610103 to 610110) runs the same binary two more
+ways, at `q² = 0.2` and 0.01, at `d/2` and `d/4`:
+- `win`: the window twice as wide, `2.5–5`, with the predictor's `ä`
+  in the source, on two levels at `w0 = 8` so that the window's ball
+  stays on the finest level;
+- `o2`: the near field to order 2, with the solved jets.
+
+Measured as above, with `δä` the rms of `|ä − ä_pred|/|ä|` from
+`t = 4.5` on and the cost against the order-3 run with the standard
+window at the same charge and resolution:
+
+| `q²` | run | `hₑ` | growth | `F_t`/dip | `F_r`/dip | `ΔE/∫P` | `d(20)` | `δä` | cost |
+|---|---|---|---|---|---|---|---|---|---|
+| 0.01 | `win` | `d/2` | none | 0.9261 | 0.0462 | 0.9670 | 0.997558 | | 1.2 |
+| 0.01 | `win` | `d/4` | none | 0.9261 | 0.0467 | 0.9670 | 0.997558 | 0.004 | 2.1 |
+| 0.01 | `o2` | `d/2` | none | 0.9248 | −0.080 | 0.9664 | 0.997503 | | 0.8 |
+| 0.01 | `o2` | `d/4` | none | 0.9254 | −0.121 | 0.9663 | 0.997557 | 0.12 | 0.8 |
+| 0.2 | `win` | `d/2` | none | 0.9496 | 0.0998 | 1.0317 | 0.949340 | 0.04 | 1.0 |
+| 0.2 | `win` | `d/4` | none | 0.9497 | 0.1004 | 1.0316 | 0.949336 | 0.025 | 1.5 |
+| 0.2 | `o2` | `d/2` | none | 0.9238 | −0.041 | 1.0125 | 0.947312 | 2.0 | 0.7 |
+| 0.2 | `o2` | `d/4` | none | 0.9227 | −0.130 | 1.0074 | 0.950128 | 0.8 | 0.7 |
+
+At order 3 with the standard window, the solved `ä`'s `δä` is 0.12 at
+`q² = 0.01`, `d/4`. The predicted `ä`'s is 1.6 to 2.4 at `q² = 0.2`,
+`d/2`, and 0.6 to 0.7 at `d/4`.
+
+- **Both hold the binary at `q² = 0.2`.** The breathing mode's envelope
+  stays at `10⁻⁷` to `10⁻⁶` with the wide window and the predicted `ä`,
+  10 to 60 times below the standard window's predicted run at `d/2`.
+  Order 2 is at `10⁻⁵` falling at `d/2`, and at `10⁻⁶` at `d/4`.
+- **The wide window quiets the solved jets.** The solved `ä` stays within
+  2.5 to 4 % of the predictor's at `q² = 0.2`, and within 0.4 % at 0.01.
+  With the standard window the ringing and the face crossings put it at
+  60 to 240 % and 12 %. So the source with the predictor's `ä` departs
+  little from the solved one there.
+- **With the wide window the answer stops depending on the resolution
+  and on the choice of `ä`.** `d/2` and `d/4` agree to `10⁻⁴` in
+  `F_t`/dip, to 1 % in `F_r`, and to `4·10⁻⁶` in `d(20)`, at both
+  charges. At `q² = 0.01` it agrees with order 3 and the standard window
+  at `d/4` to `6·10⁻⁴` in `F_t` and `ΔE`, and to 6 % in `F_r`. At
+  `q² = 0.2`, `jobs/instability.jl`'s `q1-h2-w8-win`, the wide window
+  with the solved `ä`, grows only 0.24 per unit. Its `d(19)` is
+  0.947532 against the predicted run's 0.947455. So there the predicted
+  `ä` moves the orbit by `8·10⁻⁵` of a shrinking of 0.05.
+- **At `q² = 0.2` the window decides the inspiral by about 1 %.** The
+  wide window gives `F_t`/dip 0.950 and `ΔE/∫P` 1.032. The standard
+  window with the predicted `ä` gives 0.928 and 1.008, and order 2 gives
+  0.923 and 1.007 to 1.013. Each is the same at `d/2` and `d/4`. `d(20)`
+  is 0.94934 against 0.95001 and 0.95013 at `d/4`, so the wide window
+  inspirals 1.3 % further. With consistent jets the split is exact for
+  any window, so a difference that is the same at both resolutions is
+  the error source `σ`. It comes from the jets that ring, which the
+  standard window and order 2 have and the wide window has not. The
+  wide window is then the right one, likely but unproven **(open)**.
+  A wide-window run at `q² = 0.05`, at the predicted or the solved `ä`,
+  against the standard window would settle it.
+- **Order 2 loses the radial force.** At `q² = 0.01` its `F_r`/dip is
+  −0.08 at `d/2` and −0.12 at `d/4`, against order 3's 0.044 to 0.047,
+  the wrong sign and not converging. `F_t` and the orbit agree with
+  order 3 to `10⁻³`. It is the cheapest, at 0.7 to 0.8 of order 3's
+  cost, and its solved jets ring as order 3's do.
+
 **The cure is not chosen** **(open)**; see [Open
 questions](#open-questions).
 
@@ -7964,7 +8027,13 @@ TreeHydro's ([On a device](#on-a-device)).
     breathing instability's "What the predictor's `ä` costs");
   - `a⃛` and `a⃜` from the solved jets' history, which would make `σ`
     vanish but brings back an equation of higher order in time;
-  - the near field to order 2, which is stable at `q² = 0.2` and loses
-    the order-3 terms' accuracy;
-  - a wider window, which slows the growth (0.24 per unit at `2.5–5`)
-    without removing it, at twice the step's cost.
+  - the near field to order 2, which is stable at `q² = 0.2`. Its
+    radial force has the wrong sign and does not converge, and its
+    inspiral at 0.2 is the standard window's (the breathing instability's
+    "Two cures side by side");
+  - a wider window, which alone slows the growth (0.24 per unit at
+    `2.5–5`) without removing it. With the predictor's `ä` it is stable
+    at `q² = 0.2`, quiets the solved jets to within 4 % of the
+    predictor's, and agrees between `d/2` and `d/4` to `10⁻⁴`, at 1.0
+    to 2.1 times the cost. It inspirals 1.3 % further than the standard
+    window at 0.2, which is likely the standard window's error.

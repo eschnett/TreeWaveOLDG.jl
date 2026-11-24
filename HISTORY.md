@@ -1942,6 +1942,22 @@ patches.
   continuum's retarded field counts the result in full (`CODE.md`,
   "The breathing instability"). It stays as a starting point, with that
   caveat.
+- 2026-11-24: the owner asked to try two cures at once: the wider window
+  with the predicted `ä`, and the near field to order 2. `jobs/cures.jl`
+  ran both at `q² = 0.2` and 0.01, at `d/2` and `d/4`. Both are stable at
+  0.2.
+  - The wide window brings the solved `ä` to within 4 % of the
+    predictor's, against 60 to 240 % with the standard window.
+  - With the wide window, `d/2` and `d/4` agree to `10⁻⁴`, and at 0.01
+    it agrees with order 3 and the standard window.
+  - At 0.2 it inspirals 1.3 % further than the standard window and
+    order 2 do, at every resolution. That is likely the error source of
+    the ringing jets, which only the wide window removes.
+  - Order 2 gets the radial force's sign wrong, and its value does not
+    converge.
+
+  `CODE.md`, "Two cures side by side" under "The breathing instability".
+  The choice is left to the owner.
 
 ### What the plan said of its finished milestones
 
