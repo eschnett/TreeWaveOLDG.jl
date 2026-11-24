@@ -7764,6 +7764,63 @@ fastest outgrows. In the centre of mass's mode it has a real root at
 `λ = 16`, from structure between the particles below the element width,
 which no run shows. So it identifies the loop, not every number.
 
+**What the predictor's `ä` costs.** `jobs/addot_error.jl` (Symmetry,
+2026-11-23, study `twoldg-1d156bd`, jobs 609515 to 609528, the layout
+above) runs the binary with the solved and the predicted `ä` side by
+side at `q² = 0.005` and 0.01, where both are stable, at `d/2` and
+`d/4`, and with the predicted `ä` at `q² = 0.2`. Over `t = 4.5` to 20,
+about an orbit after the hand-over, the two particles' mean forces are
+measured against the dipole's, `P/2v` with `P = q²d²ω⁴/12π`, and the
+orbital energy lost against `∫P dt`:
+
+| `q²` | `hₑ` | `ä` | `F_t`/dipole | `F_r`/dipole | `ΔE/∫P` | `d(20)` |
+|---|---|---|---|---|---|---|
+| 0.005 | `d/2` | solved | 0.9254 | 0.088 | 0.9656 | 0.998754 |
+| 0.005 | `d/2` | predicted | 0.9251 | 0.085 | 0.9653 | 0.998756 |
+| 0.005 | `d/4` | solved | 0.9251 | 0.0439 | 0.9647 | 0.998779 |
+| 0.005 | `d/4` | predicted | 0.9257 | 0.0439 | 0.9653 | 0.998779 |
+| 0.01 | `d/2` | solved | 0.9245 | 0.091 | 0.9659 | 0.997508 |
+| 0.01 | `d/2` | predicted | 0.9252 | 0.085 | 0.9666 | 0.997513 |
+| 0.01 | `d/4` | solved | 0.9257 | 0.0441 | 0.9664 | 0.997558 |
+| 0.01 | `d/4` | predicted | 0.9257 | 0.0437 | 0.9664 | 0.997557 |
+| 0.2 | `d/2` | predicted | 0.9281 | 0.085 | 1.0081 | 0.949891 |
+| 0.2 | `d/4` | predicted | 0.9287 | 0.035 | 1.0085 | 0.950013 |
+
+- **Below the threshold the choice does not show.** In each pair,
+  solved and predicted agree in `F_t` and `ΔE` to `7·10⁻⁴` or better,
+  within the scatter of the means, with signs that change from pair to
+  pair. `d(20)` agrees to `5·10⁻⁶` at `d/2` and `7·10⁻⁷` at `d/4`.
+  `F_r` differs by 4 to 7 % at `d/2`, where it is twice `d/4`'s, and by
+  under 1 % at `d/4`; that difference is the grid's, not the choice's. So
+  the predicted `ä`'s error there is below `10⁻³` of the radiation
+  reaction, below what the runs resolve.
+- **At `q² = 0.2` there is no solved run to compare,** since the solved
+  run is unstable. `F_t`/dipole is 0.928 at `d/2` and 0.929 at `d/4`,
+  0.3 % above the small charges', and `ΔE/∫P` is 1.008 against 0.966,
+  each the same at both resolutions. The shifts hold the orbit's own
+  `O(q²)` changes along with whatever the predicted `ä` costs. Unless
+  the two cancel, it costs at most `3·10⁻³` of `F_t`.
+- **The solved and the predictor's `ä` differ most at face crossings.**
+  Below the threshold `|δä|/|ä|` is 10 to 30 % rms, with peaks of 2 to
+  8 at the face crossings. It is alike in the solved and predicted
+  runs, does not grow with `q²`, and falls by up to half from `d/2` to
+  `d/4`: the face crossings' jump of [The binary](#the-binary). At
+  `q² = 0.2` the ringing brings it to about 50 %.
+- **`bin/addot_error.jl` does not reproduce this** **(open)**. It
+  estimates the error from a run's rows: `F_σ`, the force of the
+  retarded field of `σ = W(∂ₜ² − 𝒟²)Ψ̂` with the jets' rates taken by
+  differences across rows, and `ΔF`, the own and the other particle's
+  forces with the solved `ä` less with the source's. Below the
+  threshold it gives `F_σ` of 10² to 10³ times `F_t` in the solved runs
+  and 10 to 50 % in the predicted ones, against the `10⁻³` measured.
+  The cause is in the solved jets, which jump from step to step:
+  differenced across rows, the jumps make a source at frequencies the
+  grid does not carry, and the continuum's retarded field counts it in
+  full. At `q² = 0.2` it gives `F_σ ≈ 1 %` and `ΔF` a few percent of
+  `F_t`, with signs that change with resolution. Those numbers are
+  plausible but unchecked. To be useful, the estimator would need the
+  jets low-passed to what the grid carries.
+
 **The cure is not chosen** **(open)**; see [Open
 questions](#open-questions).
 
@@ -7899,9 +7956,12 @@ TreeHydro's ([On a device](#on-a-device)).
   source and the predictor's `a⃛` and `a⃜` do not follow. Candidates,
   none chosen **(proposed)**:
   - the source with the predictor's `ä` (`source_addot = :predicted`),
-    so far an experiment. The model gives it a gain below 0.2, at
-    `q² = 0.2` it is stable to `t = 20`, and at `q² = 0.005` it changed
-    neither `ä` nor the orbit;
+    so far an experiment. The model gives it a gain below 0.2, and at
+    `q² = 0.2` it is stable to `t = 20` at `d/2` and `d/4`. At
+    `q² = 0.005` and 0.01 it changes neither the forces nor the orbit by
+    more than `10⁻³` of the radiation reaction. At 0.2 the tangential
+    force against the dipole's is 0.3 % above the small charges' (the
+    breathing instability's "What the predictor's `ä` costs");
   - `a⃛` and `a⃜` from the solved jets' history, which would make `σ`
     vanish but brings back an equation of higher order in time;
   - the near field to order 2, which is stable at `q² = 0.2` and loses

@@ -40,6 +40,13 @@
 # takes the positions from the orbit's `d`, `phase`, `ddot` and `omega`
 # with the centre of mass at `o`, and the predictor's `ä` from
 # `predicted_jets`, from `onset` on only.
+#
+# Not validated: below the threshold it overestimates the measured
+# difference between the solved and the predicted `ä` by orders of
+# magnitude. There the solved jets jump from step to step at face
+# crossings. Their differences across rows make a source at frequencies
+# the grid does not carry, and the continuum's retarded field counts it
+# in full (`CODE.md`, "What the predictor's `ä` costs").
 
 using TreeWaveOLDG, StaticArrays, ForwardDiff, LinearAlgebra
 using TreeWaveOLDG: own_force, other_force, SupportRule, gauss_nodes_weights,
@@ -88,7 +95,7 @@ function addot_error()
     w = Window(o, R₁, R₂; continuity=4)
     rule = SupportRule(Float64)
     ts = sort!([t for (t, r) in rows if haskey(r, "a1x")])
-    recorded = haskey(rows[ts[end]], "addp1x")
+    recorded = haskey(rows[ts[end]], "z1x")
     # The jets at each row: position, velocity, the solved `a`, `ȧ`, `ä`,
     # the predictor's `ä` (blended), and the `a⃛`, `a⃜` the source took.
     n = length(ts)
@@ -114,11 +121,12 @@ function addot_error()
             A[k][i], Ȧ[k][i], Ä[k][i] = vec3(r, "a$k"), vec3(r, "ad$k"), vec3(r, "add$k")
             A3[k][i], A4[k][i] = vec3(r, "a3$k"), vec3(r, "a4$k")
         end
-        if recorded
+        if haskey(r, "addp1x")
             for k in 1:2
                 Äp[k][i] = vec3(r, "addp$k")
             end
         else
+            # The first row has no solve before it, so no record.
             pj = predicted_jets(ms, (NoForce(), NoForce()), (Z[1][i], Z[2][i]),
                                 (V[1][i], V[2][i]); interaction=f)
             for k in 1:2

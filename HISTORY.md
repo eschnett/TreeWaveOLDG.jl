@@ -1925,6 +1925,23 @@ patches.
   in phase along their separation. The run with the predictor's `ä` in
   the source, which the model predicts stable, is stable to `t = 20` at
   `q² = 0.2`. The cure is left to the owner.
+- 2026-11-23: the owner preferred the source with the predictor's `ä`
+  and asked what error it introduces. `Dynamic` now keeps the blended
+  predictor's `ä` in its solve record, and `bin/binary.jl` writes it per
+  row with the positions and velocities. `jobs/addot_error.jl` ran the
+  binary with the solved and the predicted `ä` side by side at
+  `q² = 0.005` and 0.01, at `d/2` and `d/4`. They agree in the
+  tangential force and the energy loss to `7·10⁻⁴` or better, with no
+  difference that persists at `d/4`. At `q² = 0.2` the predicted `ä`
+  is stable at both resolutions, and its force against the dipole's
+  is 0.3 % above the small charges'. A second way, `bin/addot_error.jl`,
+  estimates the error from one run's rows through the retarded field of
+  the source's mismatch. It failed the check below the threshold,
+  overestimating the measured effect by orders of magnitude: it
+  differences the solved jets' step-to-step jumps across rows, and the
+  continuum's retarded field counts the result in full (`CODE.md`,
+  "The breathing instability"). It stays as a starting point, with that
+  caveat.
 
 ### What the plan said of its finished milestones
 
