@@ -3,7 +3,7 @@
 # the solve of the particles' jets from the state. See "The equations of
 # motion" in `CODE.md`.
 
-using LinearAlgebra: dot, norm
+using LinearAlgebra: cross, dot, norm
 using StaticArrays: SVector
 using IMEXRungeKutta: solve!
 using TreeWaveOLDG: self_force_addot, self_force_a2a, self_potential_a2, lorentz_factor,
@@ -167,6 +167,34 @@ end
     @test m.M * lorentz_factor(tc.v) * across(tr.a - tc.a) ≈ across(Fg + Fo) rtol = 1e-2
     @test tr.ȧ ≈ tc.ȧ rtol = 1e-2
     @test tr.ä ≈ tc.ä rtol = 1e-2
+    # With `source_addot = :corrected` the source takes the predictor's
+    # `ä` plus the running mean of its bias, which starts at zero, follows
+    # the fit of each solve later in time by `1 - exp(-Δt/τ)`, and stands
+    # still at a solve at the same time; the fit spans the solved `ä`'s
+    # departure along the predictor's `ä` and `ȧ`, which on the circle
+    # holds all of it but the remainder's push out of the plane. A mean
+    # that moved within a step's stages at one time, or a source that took
+    # the mean after the solve, breaks it.
+    τc = 0.5
+    dyc = Dynamic((F,), circle; source_addot=:corrected, source_tau=τc)
+    pc = InspiralProblem(wave, (m,), w, dyc)
+    pred = predicted_jets((m,), (F,), (tc.z,), (tc.v,))[1]
+    trc = TreeWaveOLDG.trajectories(dyc, pc, u, 0.0)[1]
+    @test trc.ä == pred.ä
+    @test all(iszero, dyc.scratch.bias[1])
+    fit = dyc.scratch.last.fit[1]
+    δ = dyc.scratch.last.trajs[1].ä - pred.ä
+    b2 = norm(pred.ä) / norm(pred.ȧ) * pred.ȧ
+    nrm = cross(pred.ä, pred.ȧ) / norm(cross(pred.ä, pred.ȧ))
+    @test fit[1] * pred.ä + fit[2] * b2 ≈ δ - dot(δ, nrm) * nrm rtol = 1e-8
+    TreeWaveOLDG.trajectories(dyc, pc, u, 0.25)
+    @test dyc.scratch.bias[1] ≈ -expm1(-0.25 / τc) * dyc.scratch.last.fit[1] rtol = 1e-12
+    μ = dyc.scratch.bias[1]
+    trc = TreeWaveOLDG.trajectories(dyc, pc, u, 0.25)[1]
+    @test dyc.scratch.bias[1] == μ
+    @test trc.ä ≈ pred.ä + μ[1] * pred.ä + μ[2] * b2 rtol = 1e-12
+    @test dyc.scratch.last.addot_source[1] == trc.ä
+    @test_throws ArgumentError Dynamic((F,), circle; source_addot=:corrected, source_tau=0)
 end
 
 @testset "The binary's solved jets keep its symmetry, and its centre of mass stays" begin

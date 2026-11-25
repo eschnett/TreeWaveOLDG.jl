@@ -171,6 +171,8 @@ mutable struct DynamicScratch
     dw::Any
     last::Any                           # what the last solve did
     renew::Bool                         # find the next solve's Jacobian afresh
+    bias::Any                           # the running mean of the predictor's `ä`'s bias
+    bias_t::Any                         # when it was last brought forward
 end
 
 """
@@ -188,7 +190,7 @@ renew_jacobian!(m) = (m.scratch.renew = true; m)
 """
     Dynamic(external, past; interaction = NoInteraction(), onset = 0, n2 = 4,
             rule = SupportRule(T), tol = 1e-10, source_tol = 0.1,
-            source_addot = :solved)
+            source_addot = :solved, source_tau = 2)
 
 A motion in which each particle moves under its forces (INSPIRAL.md,
 "Equations of motion"): `a`, `ȧ` and `ä` of every particle are solved
@@ -226,9 +228,22 @@ place of the solved one, which the solve still finds and
 `m.scratch.last.trajs` records. The blended predictor's `ä` is in
 `m.scratch.last.addot_predicted` with either choice. It began as an
 experiment on what the solved `ä`'s jumps at element faces do to the run
-(`CODE.md`, "The binary" under "Measured results"), and is the candidate
+(`CODE.md`, "The binary" under "Measured results"), and is a candidate
 cure of the binary's breathing instability ("The breathing
-instability").
+instability"), but the predictor's `ä` is low by about `0.07q²` of
+itself ("Which window is right").
+
+`source_addot = :corrected` writes it with the predictor's `ä` plus a
+running mean of that bias: each solve fits the solved `ä`'s departure
+from the predictor's as `α ä_p + β (|ä_p|/|ȧ_p|) ȧ_p`, with `ä_p` and
+`ȧ_p` the blended predictor's, which on a circle is constant, and the
+mean of `(α, β)` follows it as `dμ/dt = (fit − μ)/τ`, `τ = source_tau`,
+brought forward at each solve later in time than the last, as the
+stages of a step are. The source takes `μ` as it stood before the solve.
+A `τ` long beside the breathing's period, `2π/8`, keeps the loop open
+(`bin/breathing_loop.jl --source-addot=corrected`). The mean is in
+`m.scratch.bias` with any choice, and the source's `ä` in
+`m.scratch.last.addot_source`.
 """
 struct Dynamic{X<:Tuple,I,P<:Prescribed,T}
     external::X
@@ -240,15 +255,18 @@ struct Dynamic{X<:Tuple,I,P<:Prescribed,T}
     tol::T
     source_tol::T
     source_addot::Symbol
+    source_tau::T
     scratch::DynamicScratch
 end
 
 function Dynamic(external::Tuple, past::Prescribed; interaction=NoInteraction(),
                  onset::Real=0, n2::Integer=4, rule=nothing, tol::Real=1e-10,
-                 source_tol::Real=0.1, source_addot::Symbol=:solved)
+                 source_tol::Real=0.1, source_addot::Symbol=:solved,
+                 source_tau::Real=2)
     T = eltype(first(past.path(0.0)).z)
-    source_addot in (:solved, :predicted) || throw(ArgumentError(
-        "source_addot must be :solved or :predicted, got :$source_addot"))
+    source_addot in (:solved, :predicted, :corrected) || throw(ArgumentError(
+        "source_addot must be :solved, :predicted or :corrected, got :$source_addot"))
+    source_tau > 0 || throw(ArgumentError("source_tau must be positive, got $source_tau"))
     onset >= 0 || throw(ArgumentError("the onset must not be negative, got $onset"))
     length(external) == length(past.path(zero(T))) || throw(ArgumentError(
         "$(length(external)) external forces for $(length(past.path(zero(T)))) particles"))
@@ -256,8 +274,9 @@ function Dynamic(external::Tuple, past::Prescribed; interaction=NoInteraction(),
     isbits(interaction) || throw(ArgumentError(
         "the interaction must be isbits, got a $(typeof(interaction))"))
     return Dynamic(external, interaction, past, T(onset), Int(n2), rule, T(tol),
-                   T(source_tol), source_addot,
-                   DynamicScratch(nothing, nothing, nothing, nothing, false))
+                   T(source_tol), source_addot, T(source_tau),
+                   DynamicScratch(nothing, nothing, nothing, nothing, false, nothing,
+                                  nothing))
 end
 
 retarded_path(m::Dynamic) = m.past.path
@@ -417,15 +436,29 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     σ = handover(m, T(t))
     mix(f) = ntuple(k -> (1 - σ) * getfield(past[k], f) + σ * getfield(pred[k], f), Val(K))
     higher = ntuple(k -> (mix(:a⃛)[k], mix(:a⃜)[k]), Val(K))
+    sc = m.scratch
+    if sc.bias === nothing
+        sc.bias = ntuple(k -> SVector{2,T}(0, 0), Val(K))
+        sc.bias_t = T(t)
+    end
+    # The basis of the predictor's bias, `ä_p` and `ȧ_p` scaled to its size.
+    basis = ntuple(Val(K)) do k
+        äp, ȧp = mix(:ä)[k], mix(:ȧ)[k]
+        nȧ = norm(ȧp)
+        (äp, nȧ > 0 ? (norm(äp) / nȧ) * ȧp : zero(ȧp))
+    end
+    correction(k) = sc.bias[k][1] * basis[k][1] + sc.bias[k][2] * basis[k][2]
     # The jets the source is written with: the solved ones, or with
-    # `source_addot = :predicted` the predictor's `ä` in their place.
+    # `source_addot = :predicted` the predictor's `ä` in their place, with
+    # `:corrected` that plus the mean of its bias.
+    addot_source = ntuple(k -> m.source_addot === :corrected ? mix(:ä)[k] + correction(k) :
+                               mix(:ä)[k], Val(K))
     sourced(X) = m.source_addot === :solved ? X :
-                 ntuple(k -> (X[k][1], X[k][2], mix(:ä)[k]), Val(K))
+                 ntuple(k -> (X[k][1], X[k][2], addot_source[k]), Val(K))
     LΠ = rate_laplacian(m.scratch, p, fu, T(t))
     pack(X) = reduce(vcat, (vcat(x...) for x in X))
     unpack(x) = ntuple(k -> ntuple(j -> SVector{3,T}(x[9(k - 1) + 3(j - 1) .+ (1:3)]), 3),
                        Val(K))
-    sc = m.scratch
     # The first guess: the last solve's jets, advanced to `t` along their
     # Taylor polynomials, if it was near in time; the blend otherwise.
     near = sc.last !== nothing && length(sc.last.trajs) == K &&
@@ -525,8 +558,26 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     hₑ = frame_hₑ(p.wave.fs.forest, p.frame, order(p.wave.element) + 1)
     reach = hₑ / max(maximum(v -> norm(v), vs), eps(T))
     push!(moves, norm(x - xp) / norm(x))
+    # The solved `ä`'s departure from the predictor's, fitted on the basis
+    # by least squares, and the mean brought forward to `t`.
+    fit = ntuple(Val(K)) do k
+        b1, b2 = basis[k]
+        δ = X[k][3] - mix(:ä)[k]
+        G = SMatrix{2,2,T}(dot(b1, b1), dot(b2, b1), dot(b1, b2), dot(b2, b2))
+        g = SVector{2,T}(dot(b1, δ), dot(b2, δ))
+        # Where the predictor's `ä` or `ȧ` vanishes, as from rest under a
+        # constant force, there is no bias to fit along it.
+        iszero(G[1, 1]) ? zero(SVector{2,T}) :
+        iszero(G[2, 2]) ? SVector{2,T}(g[1] / G[1, 1], 0) : G \ g
+    end
+    if T(t) > sc.bias_t
+        w = -expm1(-(T(t) - sc.bias_t) / m.source_tau)
+        sc.bias = ntuple(k -> sc.bias[k] + w * (fit[k] - sc.bias[k]), Val(K))
+        sc.bias_t = T(t)
+    end
     sc.last = (; t=T(t), iterations, projections, residual=norm(r), jacobian=J, σ=σJ,
-               fresh, trajs, reach=min(reach, T(Inf)), moves, addot_predicted=mix(:ä))
+               fresh, trajs, reach=min(reach, T(Inf)), moves, addot_predicted=mix(:ä),
+               addot_source, fit)
     m.source_addot === :solved && return trajs
     S = sourced(X)
     return ntuple(k -> Trajectory(; z=zs[k], v=vs[k], a=S[k][1], ȧ=S[k][2], ä=S[k][3],

@@ -7,7 +7,7 @@
 #         [--cfl=0.5] [--v=0.2] [--T=30] [--ramp=10] [--n=4] [--onset=2π/Ω] \
 #         [--n2=4] [--rx1=100] [--rx2=110] [--every=1] [--jevery=0.125] \
 #         [--source-tol=0.1] [--flux=FILE] [--fradii=4,6,8,12] [--prescribed] \
-#         [--ell=1e-3] [--source-addot=solved] [--window=1.25,2.5] \
+#         [--ell=1e-3] [--source-addot=solved] [--tau=2] [--window=1.25,2.5] \
 #         [--q2=0.005] [--oz=0.0093]
 #
 # Two particles of `M = 1`, `Q = ±√0.005`, `ℓ = 10⁻³`, at separation 1, each
@@ -31,7 +31,8 @@
 # results"): `--ell` sets the particles' size `ℓ`, and
 # `--source-addot=predicted` writes the source with the predictor's `ä` in
 # place of the solved one (`Dynamic`'s `source_addot`), which the rows
-# still record.
+# still record. `--source-addot=corrected` adds to it the running mean over
+# `--tau` of its bias against the solved `ä` (`source_tau`).
 #
 # Two more serve the instability of the dynamic binary at large charge
 # (`CODE.md`, "The breathing instability" under "Measured results",
@@ -61,7 +62,10 @@
 # - per particle, the position and velocity (`z<k>x`, …, `v<k>x`, …) and
 #   the predictor's `ä` blended as `a⃛` is (`addp<k>x`, …), which the source
 #   takes with `--source-addot=predicted`, for `bin/addot_error.jl`'s
-#   estimate of what that choice costs;
+#   estimate of what that choice costs; and the bias of the predictor's
+#   `ä` as the step's last solve fitted it (`alpha<k>`, `beta<k>`, along
+#   the predictor's `ä` and `ȧ`) and its running mean (`malpha<k>`,
+#   `mbeta<k>`), which `--source-addot=corrected` adds;
 # - what the step's last solve did: `iterations`, `projections`,
 #   `residual`, and `dmh<k>`, `‖J_ää − MγI‖/M` of particle `k` with the
 #   Jacobian it used, which may have been kept; every `jevery` in time the
@@ -114,6 +118,7 @@ function binary_evolve(backend)
     prescribed = "--prescribed" in ARGS
     ℓ = parse(Float64, option("ell", "1e-3"))
     source_addot = Symbol(option("source-addot", "solved"))
+    source_tau = parse(Float64, option("tau", "2"))
     wR₁, wR₂ = parse.(Float64, split(option("window", "1.25,2.5"), ','))
     start = time()
     P = 3
@@ -125,7 +130,7 @@ function binary_evolve(backend)
     f, past = newtonian_binary(ms, d0, v; centre=o, past=T, ramp, n)
     motion = prescribed ? past :
              Dynamic((NoForce(), NoForce()), past; interaction=f, onset, n2, source_tol,
-                     source_addot)
+                     source_addot, source_tau)
     p = InspiralProblem(wave, ms, Window(o, wR₁, wR₂; continuity=P + 1), motion; order)
     retarded = Window(o, rx1, rx2; continuity=4)
     u0 = prescribed ? inspiral_initial_state(p; retarded) :
@@ -146,6 +151,8 @@ function binary_evolve(backend)
     emit(tag..., 0.0, "windowR1", wR₁)
     emit(tag..., 0.0, "windowR2", wR₂)
     emit(tag..., 0.0, "source_addot_predicted", source_addot === :predicted ? 1 : 0)
+    emit(tag..., 0.0, "source_addot_corrected", source_addot === :corrected ? 1 : 0)
+    emit(tag..., 0.0, "source_tau", source_tau)
     emit(tag..., 0.0, "nodes", statelength(p.wave.fs) ÷ 2)
     emit(tag..., 0.0, "steps", integ.nsteps)
     emit(tag..., 0.0, "dt", integ.dt)
@@ -199,6 +206,12 @@ function binary_evolve(backend)
         if !prescribed && motion.scratch.last !== nothing
             for k in 1:2, (i, xyz) in enumerate("xyz")
                 emit(tag..., t, "addp$k$xyz", motion.scratch.last.addot_predicted[k][i])
+            end
+            for k in 1:2
+                emit(tag..., t, "alpha$k", motion.scratch.last.fit[k][1])
+                emit(tag..., t, "beta$k", motion.scratch.last.fit[k][2])
+                emit(tag..., t, "malpha$k", motion.scratch.bias[k][1])
+                emit(tag..., t, "mbeta$k", motion.scratch.bias[k][2])
             end
         end
         if !prescribed && motion.scratch.last !== nothing

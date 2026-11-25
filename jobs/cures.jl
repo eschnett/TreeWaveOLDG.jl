@@ -19,7 +19,13 @@
 #   mode decaying at 0.05 per unit), and the standard window
 #   with the predicted `ä` (`std-q2-h<n>-pred`), beside
 #   `jobs/instability.jl`'s `q2-h<n>`, the standard window with the solved
-#   `ä`, until its breathing mode grows.
+#   `ä`, until its breathing mode grows;
+# - the predictor's `ä` plus the running mean over `τ = 2` of its bias
+#   against the solved one (`--source-addot=corrected`), which the model
+#   holds at `q² = 0.2` with either window (slowest modes −0.25 and
+#   −0.34), at `q² = 0.05` and 0.2, with the standard window (`cor-q<k>-std-h<n>`)
+#   and the wide one (`cor-q<k>-win-h<n>`), beside the wide window's
+#   solved `ä` at 0.05, which has no bias.
 #
 # The rest is `jobs/addot_error.jl`'s: shells to `R₁ = 50`, the orbit's
 # plane halfway between element faces, `ℓ = q²/5`, the force taking over
@@ -39,12 +45,14 @@ q = Dict("q01" => "--q2=0.01 --ell=0.002", "q2" => "--q2=0.05 --ell=0.01",
          "q1" => "--q2=0.2 --ell=0.04")
 
 (name = "cures",
- description = "TreeWaveOLDG: the breathing instability's cures, a wider window with the predicted ä, and order 2",
+ description = "TreeWaveOLDG: the breathing instability's cures, a wider window with the predicted ä, order 2, and the bias-corrected ä",
  pin = true,
  site = (symmetry = (time = "24:00:00",),),
  after = (cmd = raw"for d in $SIMLAUNCH_JOBDIRS; do echo \"== $d\"; tail -n 20 \"$d/output.log\"; done",),
  run = [(label = "smoke",
          cmd = "bin/binary.jl --hdiv=2 --levels=1 --w0=4 --R1=8 --hshell=1 --rx1=10 --rx2=12 --tend=0.125 --jevery=0.0625 --oz=0.25 $(q["q1"]) --onset=0.0625 --order=2");
+        (label = "smoke-cor",
+         cmd = "bin/binary.jl --hdiv=2 --levels=1 --w0=4 --R1=8 --hshell=1 --rx1=10 --rx2=12 --tend=0.125 --jevery=0.0625 --oz=0.25 $(q["q1"]) --onset=0.0625 --source-addot=corrected --tau=2");
         [(label = "win-$qk-h$n",
           cmd = "$b2 $(h[n]) $(q[qk]) --window=2.5,5 --source-addot=predicted")
          for qk in ("q1", "q01") for n in (2, 4)];
@@ -54,4 +62,7 @@ q = Dict("q01" => "--q2=0.01 --ell=0.002", "q2" => "--q2=0.05 --ell=0.01",
           cmd = "$b2 $(h[n]) $(q["q2"]) --window=2.5,5 --source-addot=$s")
          for n in (2, 4) for s in ("predicted", "solved")];
         [(label = "std-q2-h$n-pred", cmd = "$b3 $(h[n]) $(q["q2"]) --source-addot=predicted")
-         for n in (2, 4)]])
+         for n in (2, 4)];
+        [(label = "cor-$qk-$wk-h$n",
+          cmd = "$(wk == "std" ? b3 : "$b2 --window=2.5,5") $(h[n]) $(q[qk]) --source-addot=corrected --tau=2")
+         for qk in ("q2", "q1") for wk in ("std", "win") for n in (2, 4)]])

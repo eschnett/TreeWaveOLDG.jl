@@ -4,7 +4,7 @@
 #
 #     julia -t N,0 --project=. bin/breathing_loop.jl [--q2=0.2] [--ell=0.04] \
 #         [--window=1.25,2.5] [--order=3] [--v=0.2] [--mode=breathing] \
-#         [--source-addot=solved] [--split]
+#         [--source-addot=solved] [--tau=1] [--split]
 #
 # `Dynamic` solves `a`, `ȧ` and `ä` at each stage and takes `a⃛` and `a⃜`
 # from the predictor's point particles. The source `□(WΨ̂)` it writes is
@@ -21,7 +21,12 @@
 # the terms of `𝒟∂_äΨ̂`, smaller by about `v/sR`. With
 # `--source-addot=predicted` (`Dynamic`'s `source_addot`) the source
 # holds the predictor's `ä`, and the mismatch moves down a rate:
-# `σ = W (s² ∂_aΨ̂ + s³ ∂_ȧΨ̂)·δa`. Its retarded
+# `σ = W (s² ∂_aΨ̂ + s³ ∂_ȧΨ̂)·δa`. With `--source-addot=corrected` it
+# holds the predictor's `ä` plus a running mean over `--tau` of the
+# solved `ä`'s departure from it, `1/(1 + sτ)` of it at `s`, and since `σ`
+# is linear in the source's `ä`, `G = G_pred + (G_solved − G_pred)/(1 + sτ)`.
+# The breathing's `δa` lies along the separation, which the correction's
+# basis of the predictor's `ä` and `ȧ` takes whole. Its retarded
 # field `∫ σ e^{−sR}/4πR` exerts `F = −Q∇Φ` on particle 1, the sign
 # `field_force` gives (checked below). The script integrates it in
 # spherical coordinates about particle 1, over the window's ball, for the
@@ -58,7 +63,9 @@ function breathing_loop()
     order = parse(Int, arg("order", "3"))
     v = parse(Float64, arg("v", "0.2"))
     addot = arg("source-addot", "solved")
-    addot in ("solved", "predicted") || error("--source-addot is solved or predicted")
+    addot in ("solved", "predicted", "corrected") ||
+        error("--source-addot is solved, predicted or corrected")
+    τ = parse(Float64, arg("tau", "1"))
     q = sqrt(q2)
     ms = (ParticleModel(; Q=q, ℓ, M=1.0), ParticleModel(; Q=-q, ℓ, M=1.0))
     o = SVector(0.0, 0.0, 0.0)
@@ -114,12 +121,14 @@ function breathing_loop()
     mode = arg("mode", "breathing")
     mode in ("breathing", "com", "lone") || error("--mode is breathing, com or lone")
     other = mode == "breathing" ? 1 : mode == "com" ? -1 : 0
-    G(s) = addot == "solved" ?
-           part(s, 1, 3) + part(s, 2, 4) + other * (part(s, 3, 3) + part(s, 4, 4)) :
-           part(s, 5, 2) + part(s, 1, 3) + other * (part(s, 6, 2) + part(s, 3, 3))
+    Gs(s) = part(s, 1, 3) + part(s, 2, 4) + other * (part(s, 3, 3) + part(s, 4, 4))
+    Gp(s) = part(s, 5, 2) + part(s, 1, 3) + other * (part(s, 6, 2) + part(s, 3, 3))
+    G(s) = addot == "solved" ? Gs(s) : addot == "predicted" ? Gp(s) :
+           Gp(s) + (Gs(s) - Gp(s)) / (1 + s * τ)
     γ = 1 / sqrt(1 - v^2)
     println("q² = $q2, ℓ = $ℓ, window $(R₁)–$(R₂), order $order, the $mode mode, ",
-            "the $addot ä in the source, Mγ = ", round(γ, digits=4))
+            "the $addot ä in the source", addot == "corrected" ? " (τ = $τ)" : "",
+            ", Mγ = ", round(γ, digits=4))
     println("the gain on the imaginary axis, |G(iω)| and its phase:")
     for ω in 1:16
         g = G(im * ω)
