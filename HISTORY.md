@@ -2016,6 +2016,14 @@ patches.
   owner asked for the documents to be corrected and the inertia to be
   fixed. `CODE.md`, "The release" and "The corrected `ä`" under "The
   breathing instability".
+- 2026-11-25: the predictor's inertia takes the other particles'
+  potential, `(M + QΦ_C)γ`, the point form of the equation of motion's
+  `m = M₀ + QΦ̄ₑ`; `INSPIRAL.md`'s point form had `M` alone. `G` of
+  `newtonian_binary` follows, from 0.08204 to 0.08207 at M6b's
+  `q² = 0.005` and from 0.097244 to 0.098543 at 0.2, so M6b's measured
+  runs are of the predictor before. `jobs/inertia.jl` measures the bias
+  and the release with it. `CODE.md`, "The equations of motion" and
+  "The release".
 
 ### What the plan said of its finished milestones
 

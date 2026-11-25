@@ -2342,7 +2342,13 @@ the jets moved from each (`moves`) and the Jacobian.
 
 **The predictor** (`predicted_jets`) is the instantaneous acceleration
 under `F_ext`, the interaction and the other particles' `Φ_C` in point
-form, with the physical masses. It is differentiated along its own
+form, with the inertia `(M + QΦ_C)γ`: the physical mass and the other
+particles' potential, the point form of the equation of motion's
+`m = M₀ + QΦ̄ₑ`, which `other_force`'s potential equals in uniform motion.
+`INSPIRAL.md`'s point form has `M` alone; for a binary that leaves the
+predicted acceleration short by about `q²/4πdM` of itself, an orbit
+held on the predictor's circle eccentric, and its `ä` biased ([The
+breathing instability](#the-breathing-instability), "The release"). It is differentiated along its own
 motion by iterating on the Taylor polynomials: each pass makes one more
 derivative exact, and five give `a⃜`. The spring's jets are its
 circle's to roundoff, `Ω² = k/(γM)` (`spring_circle`). A two-body orbit's Taylor polynomial
@@ -3567,9 +3573,12 @@ acceleration, Newton's attraction with the other particle's boosted
 static field, is the circle's `v²/r`. That acceleration is affine in `G`,
 so two evaluations give `G` exactly, and the orbit's half-turn symmetry
 gives both particles the same. `INSPIRAL.md` fixes `G = 0.0804` and finds
-`Ω`; here `v = 0.2` is fixed, `Ω = 0.4` at `d₀ = 1`, and `G = 0.08204`,
+`Ω`; here `v = 0.2` is fixed, `Ω = 0.4` at `d₀ = 1`, and `G = 0.08207`,
 so that M8's grids and its measured pasts carry over (`HISTORY.md`,
-2026-11-20). The masses must be equal, since `binary_circular_motion`
+2026-11-20). M6b's runs had `G = 0.08204`, from the predictor's inertia
+`M` alone; at the breathing instability's larger charges `G` is
+0.082494, 0.085873 and 0.098543 at `q² = 0.01`, 0.05 and 0.2, where the
+runs before had 0.082429, 0.085548 and 0.097244. The masses must be equal, since `binary_circular_motion`
 has one radius, so `Σ γMv = 0` and the centre of mass is `centre`; a
 pair of charges that alone attract more than the circle needs is
 refused.
@@ -7921,8 +7930,8 @@ does not hold ("The release" below). What stands:
 force holds the past's circle, but the predictor's inertia is `Mγ`,
 while the equation of motion's is `(M₀ + QΦ̄)γ` with the other charge's
 potential in `QΦ̄`, about `q²/4πd` (`other_force` gives `0.0765q²` at
-`d = 1`). So the released binary's acceleration is short of the
-circle's by about `0.076q²`, and the orbit is eccentric: `d` first
+`d = 1`). So the released binary's acceleration was short of the
+circle's by about `0.076q²`, and the orbit eccentric: `d` first
 rises, to 1.0030 at `t ≈ 7.4` at `q² = 0.05` and 1.012 at 0.2, then
 falls, to 0.98696 and 0.948 near `t = 18`. Evaluating `predicted_jets`
 with the inertia `M + QΦ̄` and `G` scaled to keep the forces gives `ä`
@@ -7931,7 +7940,11 @@ shifts along itself of `6.7·10⁻⁴`, `3.3·10⁻³` and `1.23·10⁻²` at
 `a⃛` and `a⃜` by about `0.5q²` and `1.5q²` of themselves; it gives no
 tangential part, so the bias's tangential part, `−0.035q²`, is
 something else. The other particle's acceleration field, of the same
-order, is not in that estimate **(open)**. Measured from `t = 8`, past
+order, is not in that estimate **(open)**. The predictor now takes the
+other particles' potential into its inertia ([The equations of
+motion](#the-equations-of-motion)); whether that removes the bias and
+the eccentricity, `jobs/inertia.jl` measures **(open)**. The runs
+below are from before. Measured from `t = 8`, past
 the departure, `ΔE/∫P` of the runs above, of `jobs/addot_error.jl`'s,
 of the corrected `ä` below and of order 2, at `d/4` (the wide window's
 corrected runs to `t = 20` at `d/2`, since those at `d/4` had not
