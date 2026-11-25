@@ -1991,6 +1991,31 @@ patches.
   withdrawn. At `d/2` the standard window's mean takes up the face
   crossings' noise. `CODE.md`, "The corrected `ä`" under "The breathing
   instability". The wide window's runs at `d/4` were still running.
+- 2026-11-25: an independent review of the cure, at e9e72af, by the
+  session writing the scalar particles' paper, which the owner asked
+  for. It confirmed the loop's diagnosis and found four things, each
+  checked here against the runs' logs and the loop model:
+  - The comparisons from `t = 4.5` measured the release's transient.
+    From `t = 8` the wide window's two `ä` agree to 0.06 % at
+    `q² = 0.05`, so the morning's "outlier" and its bias explanation are
+    withdrawn. The windows still differ, by 0.2 % at 0.05 and 2 % at
+    0.2, with either `ä`.
+  - The predictor's inertia leaves out the other charge's potential,
+    which accounts for 85 to 95 % of the bias of its `ä` and for an
+    eccentricity of about `0.076q²` of the released orbit.
+  - The corrected `ä` is no more accurate than the predicted one, its
+    `d(20)` agreement with order 2 is a crossing, and its margin
+    shrinks as `q²/τ`.
+  - With the predicted or corrected `ä` the forces still read the solved
+    `ä`, which the loop model leaves out; and the model's real root at
+    `λ = 16` is the other particle's `ä` term acting directly, not
+    structure below the element width.
+
+  The review proposed the standard window with the predicted `ä`, after
+  the predictor's inertia takes in the other charge's potential. The
+  owner asked for the documents to be corrected and the inertia to be
+  fixed. `CODE.md`, "The release" and "The corrected `ä`" under "The
+  breathing instability".
 
 ### What the plan said of its finished milestones
 

@@ -7763,8 +7763,12 @@ departure from consistency; and the physical forces on the
 perturbation, of order `q²` and `G M/d³`, far below `s²`. It also has
 slower modes, at `λ ≈ 0.7` to 1.0 near `ω = 12` to 17, which the
 fastest outgrows. In the centre of mass's mode it has a real root at
-`λ = 16`, from structure between the particles below the element width,
-which no run shows. So it identifies the loop, not every number.
+`λ = 16`, which no run shows **(open)**. It is the other particle's
+order-3 `ä` term acting on the particle directly: the solved source's
+gain grows as `0.0043ω²` at phase 0 out to `ω = 80`, and `other_force`
+gives `∂F₁/∂ä₂ = 0.0042` for an `ä₂` along the separation at
+`q² = 0.2`, about `q²d/16π`, so that `√(Mγ/0.0042) ≈ 15.5`. No window
+removes that part. So the model identifies the loop, not every number.
 
 **What the predictor's `ä` costs.** `jobs/addot_error.jl` (Symmetry,
 2026-11-23, study `twoldg-1d156bd`, jobs 609515 to 609528, the layout
@@ -7799,7 +7803,9 @@ orbital energy lost against `∫P dt`:
 - **At `q² = 0.2` there is no solved run to compare,** since the solved
   run is unstable. `F_t`/dipole is 0.928 at `d/2` and 0.929 at `d/4`,
   0.3 % above the small charges', and `ΔE/∫P` is 1.008 against 0.966,
-  each the same at both resolutions. The shifts hold the orbit's own
+  each the same at both resolutions. Averages from `t = 4.5` hold the
+  release's transient ("The release" below): from `t = 8` the same run
+  gives `ΔE/∫P` 1.032. The shifts hold the orbit's own
   `O(q²)` changes along with whatever the predicted `ä` costs. Unless
   the two cancel, it costs at most `3·10⁻³` of `F_t`.
 - **The solved and the predictor's `ä` differ most at face crossings.**
@@ -7863,15 +7869,13 @@ At order 3 with the standard window, the solved `ä`'s `δä` is 0.12 at
   `d/2` and `d/4` agree to `10⁻⁴` in `F_t`/dip, to 1 % in `F_r`, and to
   `4·10⁻⁶` in `d(20)`, at both charges. At `q² = 0.01` it agrees with
   order 3 and the standard window at `d/4` to `6·10⁻⁴` in `F_t` and
-  `ΔE`, and to 6 % in `F_r`. It does depend on the choice of `ä`, by
-  more than the standard window does ("Which window is right" below).
+  `ΔE`, and to 6 % in `F_r`.
 - **At `q² = 0.2` the wide window inspirals 1.3 % further.** It gives
   `F_t`/dip 0.950 and `ΔE/∫P` 1.032. The standard window with the
   predicted `ä` gives 0.928 and 1.008, and order 2 gives 0.923 and 1.007
   to 1.013. Each is the same at `d/2` and `d/4`. `d(20)` is 0.94934
-  against 0.95001 and 0.95013 at `d/4`. The difference is the wide
-  window's with the predicted `ä`, not the standard window's ("Which
-  window is right" below).
+  against 0.95001 and 0.95013 at `d/4`. From `t = 8` it is 2 % in
+  `ΔE/∫P`, and it is the window's, not the `ä`'s ("The release" below).
 - **Order 2 loses the radial force.** At `q² = 0.01` its `F_r`/dip is
   −0.08 at `d/2` and −0.12 at `d/4`, against order 3's 0.044 to 0.047,
   the wrong sign and not converging. `F_t` and the orbit agree with
@@ -7900,35 +7904,64 @@ and `ΔE/∫P` also to 12, where `q2-h4`'s envelope is still below
 | wide | predicted | `d/2` | none | 0.9295 | 0.058 | 0.9789 | 0.9790 | 0.987711 |
 | wide | predicted | `d/4` | none | 0.9295 | 0.058 | 0.9788 | 0.9792 | 0.987710 |
 
-- **With the solved `ä` the window does not decide.** To `t = 12` the
-  two windows' `ΔE/∫P` at `d/4` differ by 0.24 %, while the standard
-  window's mode grows. To 20 the wide window with the solved `ä` and the
-  standard window with the predicted one differ by 0.08 % in `ΔE/∫P`,
-  0.1 % in `F_t`, and `10⁻⁵` in `d(20)`.
-- **The wide window with the predicted `ä` is the outlier.** Its
-  `ΔE/∫P` and `F_t`/dip are 0.45 % above the solved run's to `t = 20`,
-  and 0.8 % to 12, the same at `d/2` and `d/4`. The excess over a
-  consistent run grows like `q²` or a little faster: `6·10⁻⁴` at `q² = 0.01` (against the
-  standard window with the solved `ä`), `4.4·10⁻³` at 0.05, and
-  `2.4·10⁻²` at 0.2 (against the standard window with the predicted
-  `ä`). So the 1.3 % of the inspiral at `q² = 0.2` is this excess, and
-  the movie's run with the wide window would lose its energy about
-  2 % too fast.
-- **The predictor's `ä` is low by about `0.07q²` of itself.** That bias
-  is not what loses the energy ("The corrected `ä`" below). The mean
+These averages start at `t = 4.5`, inside the release's transient,
+and the reading of them first given here, that the wide window with the
+predicted `ä` lost its energy 0.45 % too fast from a bias of that `ä`,
+does not hold ("The release" below). What stands:
+
+- **The predictor's `ä` is low by about `0.07q²` of itself.** The mean
   of `(ä − ä_pred)·ä_pred/|ä_pred|²` from `t = 4.5` on is `7·10⁻⁴` at
   `q² = 0.01`, `3.7·10⁻³` at 0.05 and `1.45·10⁻²` at 0.2, the same at
-  `d/2` and `d/4` and with either `ä` in the source. The predictor's
-  force has the other particle's boosted static field and the external
-  force, and no self force and no retardation, which are of order `q²`.
-  The rms of `δä` that the face crossings add averages out of the
-  forces; this mean does not.
-- **The standard window weighs that bias ten to thirty times less.** With
-  it the two `ä` differ by `2·10⁻⁵` in `ΔE/∫P` at `q² = 0.01` and
-  `6·10⁻⁴` at 0.05 (to `t = 12`), against the wide window's `6·10⁻⁴`
-  and `8·10⁻³`. The near field's `ä` term grows like `r²`, so a window
-  twice as far out sees a wrong `ä` four times as strongly, and more
-  with the transition's gradients.
+  `d/2` and `d/4` and with either `ä` in the source. Its likely cause is
+  the predictor's inertia ("The release" below).
+- **The bias does not set the energy.** Removing it from the source
+  changes nothing measurable ("The corrected `ä`" below).
+
+**The release.** `newtonian_binary` tunes `G` so that the predictor's
+force holds the past's circle, but the predictor's inertia is `Mγ`,
+while the equation of motion's is `(M₀ + QΦ̄)γ` with the other charge's
+potential in `QΦ̄`, about `q²/4πd` (`other_force` gives `0.0765q²` at
+`d = 1`). So the released binary's acceleration is short of the
+circle's by about `0.076q²`, and the orbit is eccentric: `d` first
+rises, to 1.0030 at `t ≈ 7.4` at `q² = 0.05` and 1.012 at 0.2, then
+falls, to 0.98696 and 0.948 near `t = 18`. Evaluating `predicted_jets`
+with the inertia `M + QΦ̄` and `G` scaled to keep the forces gives `ä`
+shifts along itself of `6.7·10⁻⁴`, `3.3·10⁻³` and `1.23·10⁻²` at
+`q² = 0.01`, 0.05 and 0.2, 85 to 95 % of the measured bias, and shifts
+`a⃛` and `a⃜` by about `0.5q²` and `1.5q²` of themselves; it gives no
+tangential part, so the bias's tangential part, `−0.035q²`, is
+something else. The other particle's acceleration field, of the same
+order, is not in that estimate **(open)**. Measured from `t = 8`, past
+the departure, `ΔE/∫P` of the runs above, of `jobs/addot_error.jl`'s,
+of the corrected `ä` below and of order 2, at `d/4` (the wide window's
+corrected runs to `t = 20` at `d/2`, since those at `d/4` had not
+finished; at `q² = 0.05` the standard window's solved run, whose mode
+grows, to `t = 12`, beside the others to 12):
+
+| `q²` | standard, solved | standard, predicted | standard, corrected | wide, solved | wide, predicted | wide, corrected | order 2 |
+|---|---|---|---|---|---|---|---|
+| 0.01 | 0.9676 | 0.9676 | | | 0.9681 | | 0.9676 |
+| 0.05, to 12 | 0.9913 | 0.9908 | 0.9899 | 0.9953 | 0.9943 | 0.9948 | |
+| 0.05 | grows | 0.9815 | 0.9804 | 0.9829 | 0.9835 | 0.9833 | |
+| 0.2 | grows | 1.0317 | 1.0283 | grows | 1.0516 | 1.0522 | 1.0302 |
+
+- **The choice of `ä` does not show.** At `q² = 0.05` the wide window's
+  solved and predicted runs agree to 0.06 % from `t = 8` to 20, and the
+  standard window's to 0.06 % to 12. In successive windows of four
+  units the sign of the difference changes. The `0.45 %` of the table
+  above was the transient between `t = 4` and 6, where the energies
+  depart and then run parallel.
+- **The window does, and more with the charge.** The wide window's
+  `ΔE/∫P` is above the standard window's by 0.05 % at `q² = 0.01`,
+  0.2 % at 0.05 and 2 % at 0.2, with either `ä`; at 0.2 by 0.6, 2.1
+  and 3.2 % in the windows `8–12`, `12–16` and `16–20`. Why is not known
+  **(open)**.
+- **The standard window's three stable schemes agree at `q² = 0.2`** to
+  0.35 %: the predicted `ä` 1.0317, the corrected 1.0283, order 2
+  1.0302.
+- **`ΔE/∫P` swings from window to window** between 0.95 and 1.12 at
+  `q² = 0.2`, with the eccentricity, so a comparison takes the same
+  window in every run.
 
 **The corrected `ä`.** `Dynamic(…; source_addot = :corrected,
 source_tau = τ)` writes the source with the predictor's `ä` plus
@@ -7967,20 +8000,26 @@ their row is still to come:
   from `9·10⁻⁶` to `10⁻⁶`. The standard window with the predictor's `ä`
   alone (`q1-h2-pred`) also decays at 0.2, so the onset, through which
   the source takes it, is safe.
-- **With the standard window at `d/4` it agrees with order 2 and with
-  the wide window's solved `ä`.** At `q² = 0.2` its `d(20)` is
-  0.950183 against order 2's 0.950128, and its `ΔE/∫P` 1.006 against
-  1.007, while the wide window gives 0.949336 and 1.032. At 0.05 its
-  `ΔE/∫P` is the wide window's with the solved `ä`, 0.9744, where the
-  standard window with the predicted `ä` gave 0.9752. It costs 4.7 hours
-  on a node at 0.2, against about 9 for the wide window.
+- **It is no more accurate than the predicted `ä`.** From `t = 8`
+  ("The release") the standard window gives `ΔE/∫P` 1.0283 at
+  `q² = 0.2` against the predicted `ä`'s 1.0317 and order 2's 1.0302,
+  and 0.9804 at 0.05 against 0.9815. Its `d(20)`, 0.950183 against order
+  2's 0.950128, is a crossing: the difference is `−2.2·10⁻⁴` at
+  `t = 12` and `−0.9·10⁻⁴` at 16, and order 2's own `d(20)` moves by
+  `2.8·10⁻³` from `d/2` to `d/4`. It costs 4.7 hours on a node at 0.2,
+  as the predicted `ä` does, against about 9 for the wide window.
 - **With the wide window it changes nothing.** `μ` comes out where the
   bias's mean is: at `q² = 0.05` `μ₁ = 0.0039` and `μ₂ = −0.0019` on
   average from `t = 4.5` on, at 0.2 0.016 and −0.009. Yet `ΔE/∫P` stays
-  at the predicted run's 0.9789, against 0.9744 with the solved `ä`, and
-  at 0.2 at 1.033. So the bias of the predictor's `ä` is not what makes
-  the wide window lose its energy too fast; what does is not known
-  **(open)**.
+  at the predicted run's. So the bias does not set the energy.
+- **Its margin shrinks as `q²/τ`.** In the model, with the standard
+  window, the slowest mode at `q² = 0.2` decays at 0.54 per unit with
+  `τ = 4` and 0.25 with `τ = 2`, and grows at 0.08 with `τ = 1`; with
+  `τ = 2` it grows at 0.03 at `q² = 0.35` (`ℓ = 0.05`), where the
+  predicted `ä`'s decays at 0.99.
+- **Its mean is state outside the state vector,** in `Dynamic`'s
+  scratch and advanced by the solve, so a checkpoint would have to carry
+  it.
 - **At `d/2` the standard window's mean is noise.** The face crossings'
   solved `ä` is not zero on average, the fits scatter by 0.35 to 1.2 per
   solve, and `μ₁` wanders to 0.5 at `q² = 0.05` and 1.2 at 0.2.
@@ -8140,17 +8179,22 @@ TreeHydro's ([On a device](#on-a-device)).
     `2.5–5`) without removing it. With the predictor's `ä` it is stable
     at `q² = 0.2`, quiets the solved jets to within 4 % of the
     predictor's, and agrees between `d/2` and `d/4` to `10⁻⁴`, at 1.0
-    to 2.1 times the cost. With the predictor's `ä` it loses its energy
-    too fast, by 0.06 % at `q² = 0.01`, 0.45 % at 0.05 and 2.4 % at 0.2,
-    for a reason not known, since removing the predictor's bias of
-    about `0.07q²` does not change it. With the solved `ä` it is right,
-    but grows
-    at 0.2 (the breathing instability's "Which window is right");
+    to 2.1 times the cost. Its `ΔE/∫P` is above the standard window's
+    by 0.2 % at `q² = 0.05` and 2 % at 0.2, with either `ä`, for a
+    reason not known (the breathing instability's "The release");
   - the source with the predictor's `ä` plus a running mean of the solved
-    `ä`'s departure from it (`source_addot = :corrected`). With the
-    standard window at `d/4` it holds `q² = 0.2` and agrees with order 2
-    to `5·10⁻⁵` in the separation at `t = 20`, at half the wide
-    window's cost; at `d/2` its mean is noise. With the wide window it
-    changes nothing, so the wide window's energy loss is not the
-    predictor's bias (the breathing instability's "The corrected
-    `ä`").
+    `ä`'s departure from it (`source_addot = :corrected`), an
+    experiment. It holds `q² = 0.2`, is no more accurate than the
+    predictor's `ä`, has a margin that shrinks as `q²/τ`, keeps state
+    outside the state vector, and at `d/2` takes up the face crossings'
+    noise (the breathing instability's "The corrected `ä`").
+
+  The standard window with the predictor's `ä`, once the predictor's
+  inertia holds the other charge's potential, is the candidate
+  **(proposed)**. With the predicted or corrected `ä` the forces still
+  read the solved `ä` (`dynamic_residual` builds the forces' jets from
+  the unknowns, the source's from `sourced`), so the particle feels a
+  field other than `Φ_r + WΨ̂` of the source's jets, by
+  `∂F₁/∂ä₂ · (ä − ä_source)`, about `0.3 δä/ä` of the radiation
+  reaction at `d = 1`. The loop model leaves that term out; whether it
+  matters in a run is not measured **(open)**.

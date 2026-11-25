@@ -230,8 +230,9 @@ place of the solved one, which the solve still finds and
 experiment on what the solved `ä`'s jumps at element faces do to the run
 (`CODE.md`, "The binary" under "Measured results"), and is a candidate
 cure of the binary's breathing instability ("The breathing
-instability"), but the predictor's `ä` is low by about `0.07q²` of
-itself ("Which window is right").
+instability"). The predictor's `ä` is low by about `0.07q²` of itself,
+likely from its inertia, which leaves out the other charge's potential
+("The release").
 
 `source_addot = :corrected` writes it with the predictor's `ä` plus a
 running mean of that bias: each solve fits the solved `ä`'s departure
@@ -242,7 +243,9 @@ brought forward at each solve later in time than the last, as the
 stages of a step are, once the force has taken over: during the onset the
 solved jets follow the blend with the past, many times the bias at a
 short onset, and the mean is held at zero. The source takes `μ` as it
-stood before the solve.
+stood before the solve. It is an experiment: no more accurate than
+`:predicted`, with a margin that shrinks as `q²/τ`, and its mean is
+state outside the state vector ("The corrected `ä`").
 A `τ` long beside the breathing's period, `2π/8`, keeps the loop open
 (`bin/breathing_loop.jl --source-addot=corrected`). The mean is in
 `m.scratch.bias` with any choice, and the source's `ä` in
