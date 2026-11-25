@@ -3832,7 +3832,9 @@ higher derivatives that other self-force schemes have reported (owner,
   Symmetry AMD node, `jobs/binary_smoke.toml` a few steps first.
   `--ell` and `--source-addot=predicted` are experiments on the solved
   `ä` ([The binary](#the-binary) under "Measured results"), which
-  `jobs/addot.jl` runs; `--window` sets the window's radii;
+  `jobs/addot.jl` runs; `--source-addot=corrected --tau=τ` is the
+  bias-corrected `ä` (the breathing instability's "The corrected
+  `ä`"); `--window` sets the window's radii;
   `jobs/ringing.jl` runs the circle at lower speeds, with a wider finest
   cube and with a wider window.
 - `bin/flux.jl`: without files, the retarded flux of a charge on a
@@ -7912,7 +7914,8 @@ and `ΔE/∫P` also to 12, where `q2-h4`'s envelope is still below
   `ä`). So the 1.3 % of the inspiral at `q² = 0.2` is this excess, and
   the movie's run with the wide window would lose its energy about
   2 % too fast.
-- **The predictor's `ä` is low by about `0.07q²` of itself.** The mean
+- **The predictor's `ä` is low by about `0.07q²` of itself.** That bias
+  is not what loses the energy ("The corrected `ä`" below). The mean
   of `(ä − ä_pred)·ä_pred/|ä_pred|²` from `t = 4.5` on is `7·10⁻⁴` at
   `q² = 0.01`, `3.7·10⁻³` at 0.05 and `1.45·10⁻²` at 0.2, the same at
   `d/2` and `d/4` and with either `ä` in the source. The predictor's
@@ -7927,10 +7930,64 @@ and `ΔE/∫P` also to 12, where `q2-h4`'s envelope is still below
   twice as far out sees a wrong `ä` four times as strongly, and more
   with the transition's gradients.
 
-No run at `q² = 0.2` is both stable and free of the bias. A source `ä`
-that is the predictor's plus a running mean of the solved `ä`'s
-departure from it would remove the bias. If the mean is slow beside the
-breathing period, it would keep the loop open at `ω ≈ 8` **(proposed)**.
+**The corrected `ä`.** `Dynamic(…; source_addot = :corrected,
+source_tau = τ)` writes the source with the predictor's `ä` plus
+`μ₁ ä_p + μ₂ (|ä_p|/|ȧ_p|) ȧ_p`, in the basis of the predictor's `ä_p`
+and `ȧ_p`. `μ` is a running mean over `τ` of each solve's least-squares
+fit of the solved `ä`'s departure from `ä_p` in that basis. It moves
+only at a solve later in time than the last, so that a step's stages
+weigh as their spacing, and only once the force has taken over
+(`handover = 1`): during the onset the fits reach 20 and more, and a mean
+that took them in drove the smoke run's Newton solve to NaN by
+`t = 0.03`. Through the onset the source is the predictor's `ä`. In
+`bin/breathing_loop.jl` (`--source-addot=corrected`) its gain is
+`G_pred + (G_solved − G_pred)/(1 + sτ)`. With `τ = 2` that holds
+`q² = 0.2` with either window, its slowest modes decaying at 0.25 and
+0.34 per unit.
+
+`jobs/cures.jl`'s `cor-q<k>-<window>-h<n>` (Symmetry, 2026-11-25, study
+`twoldg-c9b9501`, jobs 611197 to 611204) run it with `τ = 2` at
+`q² = 0.05` and 0.2, with both windows, at `d/2` and `d/4`. They are
+measured as above from `t = 4.5` to 20, `μ₁` and `μ₂` at the end. The
+wide window's runs at `d/4` had reached `t = 15.7` and 12.8 when this
+was written, and agree with `d/2` to `2·10⁻⁴` in `ΔE/∫P` to `t = 12`;
+their row is still to come:
+
+| `q²` | window | `hₑ` | growth | `F_t`/dip | `F_r`/dip | `ΔE/∫P` | `d(20)` | `μ₁` | `μ₂` |
+|---|---|---|---|---|---|---|---|---|---|
+| 0.05 | standard | `d/2` | −0.17 | 0.9279 | 0.116 | 0.9779 | 0.987407 | 0.04 | −0.06 |
+| 0.05 | standard | `d/4` | −0.07 | 0.9254 | 0.044 | 0.9744 | 0.987743 | 0.0035 | −0.0040 |
+| 0.05 | wide | `d/2` | −0.02 | 0.9296 | 0.062 | 0.9789 | 0.987713 | 0.0033 | −0.0021 |
+| 0.2 | standard | `d/2` | −0.15 | 0.9412 | 0.168 | 1.0229 | 0.947693 | 0.39 | −0.13 |
+| 0.2 | standard | `d/4` | −0.14 | 0.9266 | 0.041 | 1.0060 | 0.950183 | 0.028 | −0.008 |
+| 0.2 | wide | `d/2` | −0.02 | 0.9511 | 0.118 | 1.0329 | 0.949337 | 0.015 | −0.009 |
+
+- **It holds the binary everywhere.** The breathing mode's envelope
+  decays in every run: at `q² = 0.2`, `d/4`, with the standard window
+  from `9·10⁻⁶` to `10⁻⁶`. The standard window with the predictor's `ä`
+  alone (`q1-h2-pred`) also decays at 0.2, so the onset, through which
+  the source takes it, is safe.
+- **With the standard window at `d/4` it agrees with order 2 and with
+  the wide window's solved `ä`.** At `q² = 0.2` its `d(20)` is
+  0.950183 against order 2's 0.950128, and its `ΔE/∫P` 1.006 against
+  1.007, while the wide window gives 0.949336 and 1.032. At 0.05 its
+  `ΔE/∫P` is the wide window's with the solved `ä`, 0.9744, where the
+  standard window with the predicted `ä` gave 0.9752. It costs 4.7 hours
+  on a node at 0.2, against about 9 for the wide window.
+- **With the wide window it changes nothing.** `μ` comes out where the
+  bias's mean is: at `q² = 0.05` `μ₁ = 0.0039` and `μ₂ = −0.0019` on
+  average from `t = 4.5` on, at 0.2 0.016 and −0.009. Yet `ΔE/∫P` stays
+  at the predicted run's 0.9789, against 0.9744 with the solved `ä`, and
+  at 0.2 at 1.033. So the bias of the predictor's `ä` is not what makes
+  the wide window lose its energy too fast; what does is not known
+  **(open)**.
+- **At `d/2` the standard window's mean is noise.** The face crossings'
+  solved `ä` is not zero on average, the fits scatter by 0.35 to 1.2 per
+  solve, and `μ₁` wanders to 0.5 at `q² = 0.05` and 1.2 at 0.2.
+  The run stays stable, but `F_t`/dip scatters by 2 to 6 %. At `d/4`
+  the scatter is 0.12 to 0.44 and `μ` stays within about 0.04. Between `d/4`
+  and `d/2` it is not measured; an inspiral at `hₑ = 1/4` from `d = 1`
+  to 0.7 ends at `d/2.8` **(open)**.
 
 **The cure is not chosen** **(open)**; see [Open
 questions](#open-questions).
@@ -8085,9 +8142,15 @@ TreeHydro's ([On a device](#on-a-device)).
     predictor's, and agrees between `d/2` and `d/4` to `10⁻⁴`, at 1.0
     to 2.1 times the cost. With the predictor's `ä` it loses its energy
     too fast, by 0.06 % at `q² = 0.01`, 0.45 % at 0.05 and 2.4 % at 0.2,
-    from the predictor's `ä` being low by about `0.07q²`. With the solved `ä` it is right, but grows
+    for a reason not known, since removing the predictor's bias of
+    about `0.07q²` does not change it. With the solved `ä` it is right,
+    but grows
     at 0.2 (the breathing instability's "Which window is right");
   - the source with the predictor's `ä` plus a running mean of the solved
-    `ä`'s departure from it, which would remove that bias, and would
-    keep the loop open if the mean is slow beside the breathing
-    period.
+    `ä`'s departure from it (`source_addot = :corrected`). With the
+    standard window at `d/4` it holds `q² = 0.2` and agrees with order 2
+    to `5·10⁻⁵` in the separation at `t = 20`, at half the wide
+    window's cost; at `d/2` its mean is noise. With the wide window it
+    changes nothing, so the wide window's energy loss is not the
+    predictor's bias (the breathing instability's "The corrected
+    `ä`").

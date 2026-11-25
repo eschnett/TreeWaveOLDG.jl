@@ -546,10 +546,12 @@ Each is the rule; the `CODE.md` section named after it has the reason.
 - **A dynamic binary's charge is bounded at order 3:** above
   `q² ≈ 0.02` (`M = 1`, `d = 1`, the window `1.25–2.5`) its separation
   oscillates at `ω ≈ 8` and grows, from the solved `ä` in the source,
-  which the predictor's `a⃛` and `a⃜` do not follow. The window
-  `2.5–5` with `--source-addot=predicted` holds `q² = 0.2`, but loses
-  energy about 2 % too fast there, since the predictor's `ä` is low by
-  about `0.07q²`. Check a new charge, window or order with
+  which the predictor's `a⃛` and `a⃜` do not follow.
+  `--source-addot=corrected` holds `q² = 0.2` with the standard window
+  at `d/4`, but its mean takes up the face crossings' noise at `d/2`;
+  the window `2.5–5` with the predicted or corrected `ä` holds it too,
+  but loses energy about 2 % too fast there. Check a new charge, window
+  or order with
   `bin/breathing_loop.jl` before a long run ("The breathing
   instability").
 - **The asserted rates are measurements.** If one moves, re-measure and

@@ -1972,6 +1972,25 @@ patches.
   "Which window is right" under "The breathing instability". A source
   `ä` corrected by a slow running mean of the bias is proposed, not
   tried.
+- 2026-11-25: the owner asked to try that source. `Dynamic`'s
+  `source_addot = :corrected` adds to the predictor's `ä` a running mean
+  over `τ` of a fit of the solved `ä`'s departure along the predictor's
+  `ä` and `ȧ`. The first runs (study `twoldg-2a5c44f`) let the onset's
+  fits into the mean, and the smoke run's solve went to NaN; they were
+  cancelled, and the mean now waits for the force to take over
+  (`twoldg-c9b9501`). The smoke run still fails, at `t ≈ 0.03` with the
+  mean zero throughout, so with the predictor's `ä` alone: the smoke's
+  order 3 at `q² = 0.2` with an onset of `1/16` on one level, not the
+  correction.
+
+  With `τ = 2` every run is stable. With the standard window at `d/4` it
+  agrees at `q² = 0.2` with order 2 to `5·10⁻⁵` in `d(20)`, and at 0.05
+  with the wide window's solved `ä`. With the wide window it changes
+  nothing, although its mean is the bias: so the bias was not the cause
+  of the wide window's energy loss, and the reading of the morning is
+  withdrawn. At `d/2` the standard window's mean takes up the face
+  crossings' noise. `CODE.md`, "The corrected `ä`" under "The breathing
+  instability". The wide window's runs at `d/4` were still running.
 
 ### What the plan said of its finished milestones
 
