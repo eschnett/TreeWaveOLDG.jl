@@ -7958,7 +7958,7 @@ grows, to `t = 12`, beside the others to 12):
 | 0.01 | 0.9676 | 0.9676 | | | 0.9681 | | 0.9676 |
 | 0.05, to 12 | 0.9913 | 0.9908 | 0.9899 | 0.9953 | 0.9943 | 0.9948 | |
 | 0.05 | grows | 0.9815 | 0.9804 | 0.9829 | 0.9835 | 0.9833 | |
-| 0.2 | grows | 1.0317 | 1.0283 | grows | 1.0516 | 1.0522 | 1.0302 |
+| 0.2 | grows | 1.0317 | 1.0283 | grows | 1.0516 | 1.0517 | 1.0302 |
 
 - **The choice of `ä` does not show.** At `q² = 0.05` the wide window's
   solved and predicted runs agree to 0.06 % from `t = 8` to 20, and the
@@ -7997,24 +7997,26 @@ that took them in drove the smoke run's Newton solve to NaN by
 `twoldg-c9b9501`, jobs 611197 to 611204) run it with `τ = 2` at
 `q² = 0.05` and 0.2, with both windows, at `d/2` and `d/4`. They are
 measured as above from `t = 4.5` to 20, `μ₁` and `μ₂` at the end. The
-wide window's runs at `d/4` had reached `t = 15.7` and 12.8 when this
-was written, and agree with `d/2` to `2·10⁻⁴` in `ΔE/∫P` to `t = 12`;
-their row is still to come:
+wide window's runs at `d/4` agree with `d/2` to `5·10⁻⁴` in `ΔE/∫P`:
 
 | `q²` | window | `hₑ` | growth | `F_t`/dip | `F_r`/dip | `ΔE/∫P` | `d(20)` | `μ₁` | `μ₂` |
 |---|---|---|---|---|---|---|---|---|---|
 | 0.05 | standard | `d/2` | −0.17 | 0.9279 | 0.116 | 0.9779 | 0.987407 | 0.04 | −0.06 |
 | 0.05 | standard | `d/4` | −0.07 | 0.9254 | 0.044 | 0.9744 | 0.987743 | 0.0035 | −0.0040 |
 | 0.05 | wide | `d/2` | −0.02 | 0.9296 | 0.062 | 0.9789 | 0.987713 | 0.0033 | −0.0021 |
+| 0.05 | wide | `d/4` | −0.02 | 0.9296 | 0.062 | 0.9788 | 0.987713 | 0.0036 | −0.0019 |
 | 0.2 | standard | `d/2` | −0.15 | 0.9412 | 0.168 | 1.0229 | 0.947693 | 0.39 | −0.13 |
 | 0.2 | standard | `d/4` | −0.14 | 0.9266 | 0.041 | 1.0060 | 0.950183 | 0.028 | −0.008 |
 | 0.2 | wide | `d/2` | −0.02 | 0.9511 | 0.118 | 1.0329 | 0.949337 | 0.015 | −0.009 |
+| 0.2 | wide | `d/4` | floor | 0.9507 | 0.118 | 1.0323 | 0.949367 | 0.015 | −0.008 |
 
 - **It holds the binary everywhere.** The breathing mode's envelope
-  decays in every run: at `q² = 0.2`, `d/4`, with the standard window
-  from `9·10⁻⁶` to `10⁻⁶`. The standard window with the predictor's `ä`
-  alone (`q1-h2-pred`) also decays at 0.2, so the onset, through which
-  the source takes it, is safe.
+  decays in every run, or stays at the floor: at `q² = 0.2`, `d/4`,
+  with the standard window from `9·10⁻⁶` to `10⁻⁶`, and with the wide
+  window at 3 to `7·10⁻⁷` from `t = 6` on, where a fit gives +0.03 per
+  unit from the floor's scatter alone. The standard window with the
+  predictor's `ä` alone (`q1-h2-pred`) also decays at 0.2, so the onset,
+  through which the source takes it, is safe.
 - **It is no more accurate than the predicted `ä`.** From `t = 8`
   ("The release") the standard window gives `ΔE/∫P` 1.0283 at
   `q² = 0.2` against the predicted `ä`'s 1.0317 and order 2's 1.0302,

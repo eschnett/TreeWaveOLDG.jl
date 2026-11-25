@@ -1990,7 +1990,8 @@ patches.
   of the wide window's energy loss, and the reading of the morning is
   withdrawn. At `d/2` the standard window's mean takes up the face
   crossings' noise. `CODE.md`, "The corrected `ä`" under "The breathing
-  instability". The wide window's runs at `d/4` were still running.
+  instability". The wide window's runs at `d/4`, finished later that
+  day, agree with `d/2` to `5·10⁻⁴` in `ΔE/∫P`.
 - 2026-11-25: an independent review of the cure, at e9e72af, by the
   session writing the scalar particles' paper, which the owner asked
   for. It confirmed the loop's diagnosis and found four things, each
