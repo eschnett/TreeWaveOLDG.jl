@@ -115,6 +115,15 @@ end
     @test dyp.scratch.last.addot_predicted[1] == trp.ä
     @test trp.a ≈ S(0) * F / m.M rtol = 1e-4
     @test_throws ArgumentError Dynamic((ConstantForce(F),), past; source_addot=:smoothed)
+    # With `:corrected` the bias's mean is held while the force takes
+    # over: the solved `ä` follows the blend there, not the predictor's
+    # bias, and a mean that took it would write the source with it.
+    dyc = Dynamic((ConstantForce(F),), past; onset, source_addot=:corrected)
+    pc = InspiralProblem(wave, (m,), Window(c, 1.0, 1.75; continuity=P + 1), dyc)
+    TreeWaveOLDG.trajectories(dyc, pc, u, t / 2)
+    trc = TreeWaveOLDG.trajectories(dyc, pc, u, t)[1]
+    @test all(iszero, dyc.scratch.bias[1]) && dyc.scratch.bias_t == t
+    @test trc.ä == trp.ä
     # The Jacobian found during the ramp is the blend's, and the chord
     # iteration converges with it after the take-over too, so without
     # finding it again there the solve would keep it for good, and

@@ -239,7 +239,10 @@ from the predictor's as `α ä_p + β (|ä_p|/|ȧ_p|) ȧ_p`, with `ä_p` and
 `ȧ_p` the blended predictor's, which on a circle is constant, and the
 mean of `(α, β)` follows it as `dμ/dt = (fit − μ)/τ`, `τ = source_tau`,
 brought forward at each solve later in time than the last, as the
-stages of a step are. The source takes `μ` as it stood before the solve.
+stages of a step are, once the force has taken over: during the onset the
+solved jets follow the blend with the past, many times the bias at a
+short onset, and the mean is held at zero. The source takes `μ` as it
+stood before the solve.
 A `τ` long beside the breathing's period, `2π/8`, keeps the loop open
 (`bin/breathing_loop.jl --source-addot=corrected`). The mean is in
 `m.scratch.bias` with any choice, and the source's `ä` in
@@ -570,9 +573,13 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
         iszero(G[1, 1]) ? zero(SVector{2,T}) :
         iszero(G[2, 2]) ? SVector{2,T}(g[1] / G[1, 1], 0) : G \ g
     end
+    # While the force takes over, the solved jets follow the blend with
+    # the past, not the predictor's bias, and the mean is held.
     if T(t) > sc.bias_t
-        w = -expm1(-(T(t) - sc.bias_t) / m.source_tau)
-        sc.bias = ntuple(k -> sc.bias[k] + w * (fit[k] - sc.bias[k]), Val(K))
+        if σ == 1
+            w = -expm1(-(T(t) - sc.bias_t) / m.source_tau)
+            sc.bias = ntuple(k -> sc.bias[k] + w * (fit[k] - sc.bias[k]), Val(K))
+        end
         sc.bias_t = T(t)
     end
     sc.last = (; t=T(t), iterations, projections, residual=norm(r), jacobian=J, σ=σJ,
