@@ -1958,6 +1958,20 @@ patches.
 
   `CODE.md`, "Two cures side by side" under "The breathing instability".
   The choice is left to the owner.
+- 2026-11-25: the owner asked for the check at `q² = 0.05`. It reversed
+  the reading of 2026-11-24: there the wide window holds the binary
+  with either `ä`, and with the solved `ä` the two windows agree to
+  0.1–0.24 %. The wide window with the predicted `ä` loses its energy
+  0.45 % too fast, at both resolutions. So the 1.3 % at 0.2 was the wide
+  window's error, not the standard window's.
+
+  The cause is a bias of the predictor's `ä`, low by about `0.07q²` of
+  itself whichever `ä` the source takes, since the predictor has
+  neither the self force nor retardation. The wide window weighs a wrong
+  `ä` ten to thirty times more than the standard window. `CODE.md`,
+  "Which window is right" under "The breathing instability". A source
+  `ä` corrected by a slow running mean of the bias is proposed, not
+  tried.
 
 ### What the plan said of its finished milestones
 

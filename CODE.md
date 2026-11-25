@@ -7857,32 +7857,80 @@ At order 3 with the standard window, the solved `ä`'s `δä` is 0.12 at
   With the standard window the ringing and the face crossings put it at
   60 to 240 % and 12 %. So the source with the predictor's `ä` departs
   little from the solved one there.
-- **With the wide window the answer stops depending on the resolution
-  and on the choice of `ä`.** `d/2` and `d/4` agree to `10⁻⁴` in
-  `F_t`/dip, to 1 % in `F_r`, and to `4·10⁻⁶` in `d(20)`, at both
-  charges. At `q² = 0.01` it agrees with order 3 and the standard window
-  at `d/4` to `6·10⁻⁴` in `F_t` and `ΔE`, and to 6 % in `F_r`. At
-  `q² = 0.2`, `jobs/instability.jl`'s `q1-h2-w8-win`, the wide window
-  with the solved `ä`, grows only 0.24 per unit. Its `d(19)` is
-  0.947532 against the predicted run's 0.947455. So there the predicted
-  `ä` moves the orbit by `8·10⁻⁵` of a shrinking of 0.05.
-- **At `q² = 0.2` the window decides the inspiral by about 1 %.** The
-  wide window gives `F_t`/dip 0.950 and `ΔE/∫P` 1.032. The standard
-  window with the predicted `ä` gives 0.928 and 1.008, and order 2 gives
-  0.923 and 1.007 to 1.013. Each is the same at `d/2` and `d/4`. `d(20)`
-  is 0.94934 against 0.95001 and 0.95013 at `d/4`, so the wide window
-  inspirals 1.3 % further. With consistent jets the split is exact for
-  any window, so a difference that is the same at both resolutions is
-  the error source `σ`. It comes from the jets that ring, which the
-  standard window and order 2 have and the wide window has not. The
-  wide window is then the right one, likely but unproven **(open)**.
-  A wide-window run at `q² = 0.05`, at the predicted or the solved `ä`,
-  against the standard window would settle it.
+- **With the wide window the answer stops depending on the resolution.**
+  `d/2` and `d/4` agree to `10⁻⁴` in `F_t`/dip, to 1 % in `F_r`, and to
+  `4·10⁻⁶` in `d(20)`, at both charges. At `q² = 0.01` it agrees with
+  order 3 and the standard window at `d/4` to `6·10⁻⁴` in `F_t` and
+  `ΔE`, and to 6 % in `F_r`. It does depend on the choice of `ä`, by
+  more than the standard window does ("Which window is right" below).
+- **At `q² = 0.2` the wide window inspirals 1.3 % further.** It gives
+  `F_t`/dip 0.950 and `ΔE/∫P` 1.032. The standard window with the
+  predicted `ä` gives 0.928 and 1.008, and order 2 gives 0.923 and 1.007
+  to 1.013. Each is the same at `d/2` and `d/4`. `d(20)` is 0.94934
+  against 0.95001 and 0.95013 at `d/4`. The difference is the wide
+  window's with the predicted `ä`, not the standard window's ("Which
+  window is right" below).
 - **Order 2 loses the radial force.** At `q² = 0.01` its `F_r`/dip is
   −0.08 at `d/2` and −0.12 at `d/4`, against order 3's 0.044 to 0.047,
   the wrong sign and not converging. `F_t` and the orbit agree with
   order 3 to `10⁻³`. It is the cheapest, at 0.7 to 0.8 of order 3's
   cost, and its solved jets ring as order 3's do.
+
+**Which window is right.** `jobs/cures.jl` (Symmetry, 2026-11-25, study
+`twoldg-51a42e7`, jobs 610699 to 610704) runs the binary at
+`q² = 0.05`, `ℓ = 0.01`, where the wide window holds it with either
+`ä` (the model's gain is 0.81, its slowest mode decaying at 0.05 per
+unit): the wide window with the predicted and with the solved `ä`, and
+the standard window with the predicted `ä`, at `d/2` and `d/4`.
+`jobs/instability.jl`'s `q2-h<n>` is the standard window with the
+solved `ä`, whose mode grows. Measured as above from `t = 4.5` to 20,
+and `ΔE/∫P` also to 12, where `q2-h4`'s envelope is still below
+`5·10⁻⁵`:
+
+| window | `ä` | `hₑ` | growth | `F_t`/dip | `F_r`/dip | `ΔE/∫P` | `ΔE/∫P` to 12 | `d(20)` |
+|---|---|---|---|---|---|---|---|---|
+| standard | solved | `d/2` | 0.62 | | | | | |
+| standard | solved | `d/4` | 0.52 | | | | 0.9738 | |
+| standard | predicted | `d/2` | none | 0.9252 | 0.079 | 0.9751 | 0.9660 | 0.987574 |
+| standard | predicted | `d/4` | none | 0.9262 | 0.042 | 0.9752 | 0.9732 | 0.987729 |
+| wide | solved | `d/2` | none | 0.9251 | 0.061 | 0.9744 | 0.9713 | 0.987718 |
+| wide | solved | `d/4` | none | 0.9253 | 0.062 | 0.9744 | 0.9714 | 0.987719 |
+| wide | predicted | `d/2` | none | 0.9295 | 0.058 | 0.9789 | 0.9790 | 0.987711 |
+| wide | predicted | `d/4` | none | 0.9295 | 0.058 | 0.9788 | 0.9792 | 0.987710 |
+
+- **With the solved `ä` the window does not decide.** To `t = 12` the
+  two windows' `ΔE/∫P` at `d/4` differ by 0.24 %, while the standard
+  window's mode grows. To 20 the wide window with the solved `ä` and the
+  standard window with the predicted one differ by 0.08 % in `ΔE/∫P`,
+  0.1 % in `F_t`, and `10⁻⁵` in `d(20)`.
+- **The wide window with the predicted `ä` is the outlier.** Its
+  `ΔE/∫P` and `F_t`/dip are 0.45 % above the solved run's to `t = 20`,
+  and 0.8 % to 12, the same at `d/2` and `d/4`. The excess over a
+  consistent run grows like `q²` or a little faster: `6·10⁻⁴` at `q² = 0.01` (against the
+  standard window with the solved `ä`), `4.4·10⁻³` at 0.05, and
+  `2.4·10⁻²` at 0.2 (against the standard window with the predicted
+  `ä`). So the 1.3 % of the inspiral at `q² = 0.2` is this excess, and
+  the movie's run with the wide window would lose its energy about
+  2 % too fast.
+- **The predictor's `ä` is low by about `0.07q²` of itself.** The mean
+  of `(ä − ä_pred)·ä_pred/|ä_pred|²` from `t = 4.5` on is `7·10⁻⁴` at
+  `q² = 0.01`, `3.7·10⁻³` at 0.05 and `1.45·10⁻²` at 0.2, the same at
+  `d/2` and `d/4` and with either `ä` in the source. The predictor's
+  force has the other particle's boosted static field and the external
+  force, and no self force and no retardation, which are of order `q²`.
+  The rms of `δä` that the face crossings add averages out of the
+  forces; this mean does not.
+- **The standard window weighs that bias ten to thirty times less.** With
+  it the two `ä` differ by `2·10⁻⁵` in `ΔE/∫P` at `q² = 0.01` and
+  `6·10⁻⁴` at 0.05 (to `t = 12`), against the wide window's `6·10⁻⁴`
+  and `8·10⁻³`. The near field's `ä` term grows like `r²`, so a window
+  twice as far out sees a wrong `ä` four times as strongly, and more
+  with the transition's gradients.
+
+No run at `q² = 0.2` is both stable and free of the bias. A source `ä`
+that is the predictor's plus a running mean of the solved `ä`'s
+departure from it would remove the bias. If the mean is slow beside the
+breathing period, it would keep the loop open at `ω ≈ 8` **(proposed)**.
 
 **The cure is not chosen** **(open)**; see [Open
 questions](#open-questions).
@@ -8035,5 +8083,11 @@ TreeHydro's ([On a device](#on-a-device)).
     `2.5–5`) without removing it. With the predictor's `ä` it is stable
     at `q² = 0.2`, quiets the solved jets to within 4 % of the
     predictor's, and agrees between `d/2` and `d/4` to `10⁻⁴`, at 1.0
-    to 2.1 times the cost. It inspirals 1.3 % further than the standard
-    window at 0.2, which is likely the standard window's error.
+    to 2.1 times the cost. With the predictor's `ä` it loses its energy
+    too fast, by 0.06 % at `q² = 0.01`, 0.45 % at 0.05 and 2.4 % at 0.2,
+    from the predictor's `ä` being low by about `0.07q²`. With the solved `ä` it is right, but grows
+    at 0.2 (the breathing instability's "Which window is right");
+  - the source with the predictor's `ä` plus a running mean of the solved
+    `ä`'s departure from it, which would remove that bias, and would
+    keep the loop open if the mean is slow beside the breathing
+    period.
