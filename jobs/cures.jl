@@ -11,7 +11,15 @@
 #   `w0 = 8`, so that the window's ball stays on the finest level;
 # - `o2-q<k>-h<n>`: the near field carried to order 2 instead of 3, with
 #   the solved jets, which has no `ä` term to close the loop
-#   (`q1-h2-o2`).
+#   (`q1-h2-o2`);
+# - at `q² = 0.05` (`q2`), where the two windows' inspirals should differ
+#   by less than at 0.2, which of them is right: the wide window with the
+#   predicted and with the solved `ä` (`win-q2-h<n>-<s>`), which the
+#   model leaves stable there, just (gain 0.81, its slowest
+#   mode decaying at 0.05 per unit), and the standard window
+#   with the predicted `ä` (`std-q2-h<n>-pred`), beside
+#   `jobs/instability.jl`'s `q2-h<n>`, the standard window with the solved
+#   `ä`, until its breathing mode grows.
 #
 # The rest is `jobs/addot_error.jl`'s: shells to `R₁ = 50`, the orbit's
 # plane halfway between element faces, `ℓ = q²/5`, the force taking over
@@ -27,7 +35,8 @@ bb = "bin/binary.jl --R1=50 --hshell=1 --every=1 --jevery=0.125 --tend=20 --onse
 b3 = "$bb --levels=3 --w0=4"
 b2 = "$bb --levels=2 --w0=8"
 h = Dict(2 => "--hdiv=2 --oz=0.25", 4 => "--hdiv=4 --oz=0.125")
-q = Dict("q01" => "--q2=0.01 --ell=0.002", "q1" => "--q2=0.2 --ell=0.04")
+q = Dict("q01" => "--q2=0.01 --ell=0.002", "q2" => "--q2=0.05 --ell=0.01",
+         "q1" => "--q2=0.2 --ell=0.04")
 
 (name = "cures",
  description = "TreeWaveOLDG: the breathing instability's cures, a wider window with the predicted ä, and order 2",
@@ -40,4 +49,9 @@ q = Dict("q01" => "--q2=0.01 --ell=0.002", "q1" => "--q2=0.2 --ell=0.04")
           cmd = "$b2 $(h[n]) $(q[qk]) --window=2.5,5 --source-addot=predicted")
          for qk in ("q1", "q01") for n in (2, 4)];
         [(label = "o2-$qk-h$n", cmd = "$b3 $(h[n]) $(q[qk]) --order=2")
-         for qk in ("q1", "q01") for n in (2, 4)]])
+         for qk in ("q1", "q01") for n in (2, 4)];
+        [(label = "win-q2-h$n-$s",
+          cmd = "$b2 $(h[n]) $(q["q2"]) --window=2.5,5 --source-addot=$s")
+         for n in (2, 4) for s in ("predicted", "solved")];
+        [(label = "std-q2-h$n-pred", cmd = "$b3 $(h[n]) $(q["q2"]) --source-addot=predicted")
+         for n in (2, 4)]])
