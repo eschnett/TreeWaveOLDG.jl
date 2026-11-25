@@ -4210,7 +4210,9 @@ one thread on CI, is otherwise silent until its summary.
   zero; the Taylor polynomial of a two-body orbit's predicted jets, two
   opposite charges in `BigFloat`, follows its RK4 integration to seventh
   order in `t`, with and without Newton's force; Newton's force is equal
-  and opposite and enters as an external force does; `newtonian_binary`'s
+  and opposite and enters as an external force does; the predictor's
+  inertia is `(M + QΦ_C)γ`, its potential `other_force`'s to `10⁻¹²` in
+  uniform motion at `q² = 0.2`; `newtonian_binary`'s
   `G` makes the predictor's acceleration the circle's to roundoff for
   both particles, with `Σ γMv = 0`; and unequal masses and charges that
   alone bind too strongly are refused.
