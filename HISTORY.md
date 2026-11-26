@@ -2038,6 +2038,14 @@ patches.
   the eccentricity. So the sharp edge now says to compare energies from
   `t ≥ 16`. `CODE.md`, "The predictor with the potential" under "The
   breathing instability".
+- 2026-11-26: the two wide-window runs (`twoldg-fd16d96`) bore the
+  estimate out for the bias too: along the predictor's `ä` it falls
+  from about `0.074q²` to 0.004 and `0.007q²`, and the standard window's
+  smaller fall was its face crossings' noise. The part toward `ȧ`,
+  `−0.035q²`, stays. The windows' difference in `ΔE/∫P` at `q² = 0.2`
+  stays too, at 2.8 % from `t = 16`, but with the wide window now below
+  the standard one where it was 2 % above, so the eccentricity did not
+  make it.
 
 ### What the plan said of its finished milestones
 

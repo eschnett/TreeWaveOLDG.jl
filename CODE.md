@@ -7924,8 +7924,8 @@ does not hold ("The release" below). What stands:
   of `(ä − ä_pred)·ä_pred/|ä_pred|²` from `t = 4.5` on is `7·10⁻⁴` at
   `q² = 0.01`, `3.7·10⁻³` at 0.05 and `1.45·10⁻²` at 0.2, the same at
   `d/2` and `d/4` and with either `ä` in the source. The predictor's
-  inertia was part of it, about half in the standard window's runs ("The
-  predictor with the potential" below).
+  inertia was 90 to 95 % of it; the departure toward `ȧ`, about
+  `−0.035q²`, remains ("The predictor with the potential" below).
 - **The bias does not set the energy.** Removing it from the source
   changes nothing measurable ("The corrected `ä`" below).
 
@@ -7984,12 +7984,15 @@ grows, to `t = 12`, beside the others to 12):
 2026-11-25, study `twoldg-6cbfa89`, job 611495) reruns five of the runs
 above with the predictor's inertia `(M + QΦ_C)γ`: the standard window
 with the predictor's `ä` at `q² = 0.05` and 0.2, `d/2` and `d/4`, and
-the solved `ä` at 0.01, `d/4`. The eccentricity `e` is fitted to the
+the solved `ä` at 0.01, `d/4`; and the wide window with the
+predictor's `ä` at 0.05 and 0.2, `d/2` (study `twoldg-fd16d96`, job
+613433). The eccentricity `e` is fitted to the
 radial velocity, `ḋ = c₀ + c₁t + A cos φ + B sin φ` with `φ = ∫ω dt`
 from `t = 4.5` to 20, about one orbit, as `√(A² + B²)/(ω̄ d̄)`
 (`eccentricity_fit` on `d` needs two orbits). `α` is the median from
 `t = 8` of the fit of the solved `ä`'s departure along the predictor's,
-over both particles; at `d/2` it scatters too much to read. Before → now:
+over both particles; in the standard window at `d/2` it scatters too
+much to read. Before → now:
 
 | `q²` | `hₑ` | `e` | `α` | `ΔE/∫P` from 8 | 8–12 | 12–16 | 16–20 | `d(20)` |
 |---|---|---|---|---|---|---|---|---|
@@ -7998,6 +8001,8 @@ over both particles; at `d/2` it scatters too much to read. Before → now:
 | 0.05 | `d/4` | 0.00399 → 0.00195 | `6.6·10⁻³` → `3.9·10⁻³` | 0.9815 → 0.9718 | 0.9862 | 0.9686 | 0.9609 | 0.986337 |
 | 0.2 | `d/2` | 0.0159 → 0.0084 | | 1.0370 → 0.9919 | 1.0423 | 0.9829 | 0.9603 | 0.943125 |
 | 0.2 | `d/4` | 0.0157 → 0.0075 | `2.8·10⁻²` → `1.8·10⁻²` | 1.0317 → 0.9970 | 1.0521 | 0.9839 | 0.9600 | 0.942078 |
+| 0.05 | `d/2`, wide | 0.00400 → 0.00194 | `3.6·10⁻³` → `1.9·10⁻⁴` | 0.9834 → 0.9671 | 0.9830 | 0.9657 | 0.9577 | 0.986408 |
+| 0.2 | `d/2`, wide | 0.0157 → 0.0075 | `1.5·10⁻²` → `1.4·10⁻³` | 1.0515 → 0.9717 | 1.0323 | 0.9602 | 0.9327 | 0.943483 |
 
 - **The inertia's part of the eccentricity is gone, and another
   remains.** `e` falls from `0.080q²` to `0.039q²` at every charge and
@@ -8006,13 +8011,23 @@ over both particles; at `d/2` it scatters too much to read. Before → now:
   remains, which it partly hid before. `d` now falls from the release
   on. What the rest is, perhaps the other particle's acceleration field,
   is not known **(open)**.
-- **The bias of the predictor's `ä` falls by 35 to 60 %,** not by the
-  estimate's 85 to 95 %. In the standard window the fits scatter by 0.04
-  to 0.4 per solve and the medians before were twice the wide window's
-  means; the wide window, whose fits scatter by 0.004, reads it
-  (`jobs/inertia.jl`'s `win-q<k>-h2`) **(open)**.
-- **From `t = 16` the three charges lose energy alike,** `ΔE/∫P` 0.963,
-  0.961 and 0.960 at `d/4`, where before they gave 0.963, 0.958 and
+- **The bias of the predictor's `ä` along itself is 90 to 95 % gone,**
+  as estimated: in the wide window, whose fits scatter by 0.01 to 0.03
+  per solve, `α` falls from `0.073q²` to `0.004q²` at `q² = 0.05` and from
+  `0.075q²` to `0.007q²` at 0.2. Its part toward `ȧ` stays, `−0.036q²` and
+  `−0.033q²` (`−0.039q²` and `−0.046q²` before), which the estimate
+  left out **(open)**. In the standard window the fits scatter by 0.04
+  to 0.4 per solve, from the face crossings, and its medians, which fall
+  by only 35 to 60 %, measure those.
+- **The windows still differ at 0.2, now the other way.** From `t = 16`
+  the wide window's `ΔE/∫P` is 0.933 against the standard window's
+  0.960, 2.8 % below, where before it was 2 % above; at 0.05 0.958
+  against 0.961. Its `F_t`/dip from `t = 8` is 0.898 against 0.922 at
+  0.2. So the window, not the eccentricity, makes that difference; which
+  window is right is not known **(open)**. Its eccentricity is the
+  standard window's.
+- **From `t = 16` the three charges lose energy alike** in the standard
+  window, `ΔE/∫P` 0.963, 0.961 and 0.960 at `d/4`, where before they gave 0.963, 0.958 and
   0.950. At `d/2` it is 1.2 % higher at 0.05, 0.973, as the runs before
   at `d/2` were at 0.01 and 0.05 (0.972 and 0.969), and within
   `3·10⁻⁴` of `d/4` at 0.2. Earlier `ΔE/∫P` is higher the
@@ -8023,10 +8038,12 @@ over both particles; at `d/2` it scatters too much to read. Before → now:
 - **The resolutions agree less in `d(20)` at 0.2,** to `10⁻³` against
   `1.2·10⁻⁴` before; at 0.05 to `1.3·10⁻⁴`. Order 2's `d(20)` moved by
   `2.8·10⁻³` between them before.
-- **The breathing mode decays or sits at the floor in all five:** at
+- **The breathing mode decays or sits at the floor in all seven:** at
   0.2 from `4·10⁻⁶` to `7·10⁻⁷` at `d/4` and at −0.14 per unit at `d/2`,
   at 0.05 at the floor, `10⁻⁷` to `5·10⁻⁷`, at `d/4` and at −0.12 at
-  `d/2`. The run at 0.2, `d/4` took 4.1 hours on a node.
+  `d/2`, and with the wide window at the floor at both charges. The run
+  at 0.2, `d/4` took 4.1 hours on a node, the wide window's at `d/2`
+  2.6.
 
 **The corrected `ä`.** `Dynamic(…; source_addot = :corrected,
 source_tau = τ)` writes the source with the predictor's `ä` plus
@@ -8260,7 +8277,8 @@ TreeHydro's ([On a device](#on-a-device)).
   other charge's potential, is the candidate **(proposed)**: it is
   stable at `q² = 0.2`, and from `t = 16` its `ΔE/∫P` is the low
   charge's ("The predictor with the potential"). An eccentricity of
-  `0.039q²` remains, from a cause not known. With the predicted or corrected `ä` the forces still
+  `0.039q²` remains, from a cause not known, and the wide window's
+  `ΔE/∫P` is 2.8 % below it at 0.2 from `t = 16`. With the predicted or corrected `ä` the forces still
   read the solved `ä` (`dynamic_residual` builds the forces' jets from
   the unknowns, the source's from `sourced`), so the particle feels a
   field other than `Φ_r + WΨ̂` of the source's jets, by
