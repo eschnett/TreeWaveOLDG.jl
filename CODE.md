@@ -7923,8 +7923,9 @@ does not hold ("The release" below). What stands:
 - **The predictor's `ä` is low by about `0.07q²` of itself.** The mean
   of `(ä − ä_pred)·ä_pred/|ä_pred|²` from `t = 4.5` on is `7·10⁻⁴` at
   `q² = 0.01`, `3.7·10⁻³` at 0.05 and `1.45·10⁻²` at 0.2, the same at
-  `d/2` and `d/4` and with either `ä` in the source. Its likely cause is
-  the predictor's inertia ("The release" below).
+  `d/2` and `d/4` and with either `ä` in the source. The predictor's
+  inertia was part of it, about half in the standard window's runs ("The
+  predictor with the potential" below).
 - **The bias does not set the energy.** Removing it from the source
   changes nothing measurable ("The corrected `ä`" below).
 
@@ -7944,9 +7945,10 @@ tangential part, so the bias's tangential part, `−0.035q²`, is
 something else. The other particle's acceleration field, of the same
 order, is not in that estimate **(open)**. The predictor now takes the
 other particles' potential into its inertia ([The equations of
-motion](#the-equations-of-motion)); whether that removes the bias and
-the eccentricity, `jobs/inertia.jl` measures **(open)**. The runs
-below are from before. Measured from `t = 8`, past
+motion](#the-equations-of-motion)), which removes that part of the
+eccentricity and leaves another of half its size ("The predictor with
+the potential" below). The runs below are of the predictor before.
+Measured from `t = 8`, past
 the departure, `ΔE/∫P` of the runs above, of `jobs/addot_error.jl`'s,
 of the corrected `ä` below and of order 2, at `d/4` (the wide window's
 corrected runs to `t = 20` at `d/2`, since those at `d/4` had not
@@ -7977,6 +7979,54 @@ grows, to `t = 12`, beside the others to 12):
 - **`ΔE/∫P` swings from window to window** between 0.95 and 1.12 at
   `q² = 0.2`, with the eccentricity, so a comparison takes the same
   window in every run.
+
+**The predictor with the potential.** `jobs/inertia.jl` (Symmetry,
+2026-11-25, study `twoldg-6cbfa89`, job 611495) reruns five of the runs
+above with the predictor's inertia `(M + QΦ_C)γ`: the standard window
+with the predictor's `ä` at `q² = 0.05` and 0.2, `d/2` and `d/4`, and
+the solved `ä` at 0.01, `d/4`. The eccentricity `e` is fitted to the
+radial velocity, `ḋ = c₀ + c₁t + A cos φ + B sin φ` with `φ = ∫ω dt`
+from `t = 4.5` to 20, about one orbit, as `√(A² + B²)/(ω̄ d̄)`
+(`eccentricity_fit` on `d` needs two orbits). `α` is the median from
+`t = 8` of the fit of the solved `ä`'s departure along the predictor's,
+over both particles; at `d/2` it scatters too much to read. Before → now:
+
+| `q²` | `hₑ` | `e` | `α` | `ΔE/∫P` from 8 | 8–12 | 12–16 | 16–20 | `d(20)` |
+|---|---|---|---|---|---|---|---|---|
+| 0.01 | `d/4` | 0.00080 → 0.00039 | `1.1·10⁻³` → `4.1·10⁻⁴` | 0.9676 → 0.9656 | 0.9687 | 0.9651 | 0.9631 | 0.997305 |
+| 0.05 | `d/2` | 0.00403 → 0.00187 | | 0.9877 → 0.9779 | 0.9908 | 0.9757 | 0.9729 | 0.986209 |
+| 0.05 | `d/4` | 0.00399 → 0.00195 | `6.6·10⁻³` → `3.9·10⁻³` | 0.9815 → 0.9718 | 0.9862 | 0.9686 | 0.9609 | 0.986337 |
+| 0.2 | `d/2` | 0.0159 → 0.0084 | | 1.0370 → 0.9919 | 1.0423 | 0.9829 | 0.9603 | 0.943125 |
+| 0.2 | `d/4` | 0.0157 → 0.0075 | `2.8·10⁻²` → `1.8·10⁻²` | 1.0317 → 0.9970 | 1.0521 | 0.9839 | 0.9600 | 0.942078 |
+
+- **The inertia's part of the eccentricity is gone, and another
+  remains.** `e` falls from `0.080q²` to `0.039q²` at every charge and
+  both resolutions. As vectors `(A, B)` the difference is `0.074q²` to
+  `0.078q²`, the estimate's `0.076q²`, at a phase 1.7 rad from what
+  remains, which it partly hid before. `d` now falls from the release
+  on. What the rest is, perhaps the other particle's acceleration field,
+  is not known **(open)**.
+- **The bias of the predictor's `ä` falls by 35 to 60 %,** not by the
+  estimate's 85 to 95 %. In the standard window the fits scatter by 0.04
+  to 0.4 per solve and the medians before were twice the wide window's
+  means; the wide window, whose fits scatter by 0.004, reads it
+  (`jobs/inertia.jl`'s `win-q<k>-h2`) **(open)**.
+- **From `t = 16` the three charges lose energy alike,** `ΔE/∫P` 0.963,
+  0.961 and 0.960 at `d/4`, where before they gave 0.963, 0.958 and
+  0.950. At `d/2` it is 1.2 % higher at 0.05, 0.973, as the runs before
+  at `d/2` were at 0.01 and 0.05 (0.972 and 0.969), and within
+  `3·10⁻⁴` of `d/4` at 0.2. Earlier `ΔE/∫P` is higher the
+  higher the charge, 1.052 at 0.2 from 8 to 12, and settles by
+  `t ≈ 16`; that is not the eccentricity, which no longer sets it
+  **(open)**. So a comparison from `t = 8` measures a transient too, and
+  one from `t = 16` the inspiral.
+- **The resolutions agree less in `d(20)` at 0.2,** to `10⁻³` against
+  `1.2·10⁻⁴` before; at 0.05 to `1.3·10⁻⁴`. Order 2's `d(20)` moved by
+  `2.8·10⁻³` between them before.
+- **The breathing mode decays or sits at the floor in all five:** at
+  0.2 from `4·10⁻⁶` to `7·10⁻⁷` at `d/4` and at −0.14 per unit at `d/2`,
+  at 0.05 at the floor, `10⁻⁷` to `5·10⁻⁷`, at `d/4` and at −0.12 at
+  `d/2`. The run at 0.2, `d/4` took 4.1 hours on a node.
 
 **The corrected `ä`.** `Dynamic(…; source_addot = :corrected,
 source_tau = τ)` writes the source with the predictor's `ä` plus
@@ -8206,9 +8256,11 @@ TreeHydro's ([On a device](#on-a-device)).
     outside the state vector, and at `d/2` takes up the face crossings'
     noise (the breathing instability's "The corrected `ä`").
 
-  The standard window with the predictor's `ä`, once the predictor's
-  inertia holds the other charge's potential, is the candidate
-  **(proposed)**. With the predicted or corrected `ä` the forces still
+  The standard window with the predictor's `ä`, its inertia holding the
+  other charge's potential, is the candidate **(proposed)**: it is
+  stable at `q² = 0.2`, and from `t = 16` its `ΔE/∫P` is the low
+  charge's ("The predictor with the potential"). An eccentricity of
+  `0.039q²` remains, from a cause not known. With the predicted or corrected `ä` the forces still
   read the solved `ä` (`dynamic_residual` builds the forces' jets from
   the unknowns, the source's from `sourced`), so the particle feels a
   field other than `Φ_r + WΨ̂` of the source's jets, by

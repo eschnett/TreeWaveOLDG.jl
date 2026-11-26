@@ -2025,6 +2025,19 @@ patches.
   runs are of the predictor before. `jobs/inertia.jl` measures the bias
   and the release with it. `CODE.md`, "The equations of motion" and
   "The release".
+- 2026-11-26: `jobs/inertia.jl`'s five runs (study `twoldg-6cbfa89`)
+  bore the review's estimate out for the eccentricity and not for the
+  bias. The eccentricity falls from `0.080q²` to `0.039q²` at every
+  charge; the part removed is `0.076q²`, as estimated, and the rest,
+  at another phase, had been partly hidden by it. The bias of the
+  predictor's `ä` falls by 35 to 60 % in the standard window, where its
+  fits are too noisy to say more, so two wide-window runs were added
+  (`twoldg-fd16d96`). From `t = 16` `ΔE/∫P` is 0.960 to 0.963 at
+  `q² = 0.01` to 0.2, where before it fell with the charge to 0.950; the
+  higher `ΔE/∫P` at 0.2 from `t = 8` to 12 is a transient that outlasts
+  the eccentricity. So the sharp edge now says to compare energies from
+  `t ≥ 16`. `CODE.md`, "The predictor with the potential" under "The
+  breathing instability".
 
 ### What the plan said of its finished milestones
 

@@ -550,11 +550,11 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   `--source-addot=predicted` holds `q² = 0.2` with the standard window,
   as order 2 and `--source-addot=corrected` do, and the three agree to
   0.35 %; the window `2.5–5` holds it too, but its `ΔE/∫P` is 2 % above
-  theirs. The released orbit is eccentric at order `q²`, so compare
-  energies from `t ≥ 8`, over one window. Check a new charge, window
-  or order with
-  `bin/breathing_loop.jl` before a long run ("The breathing
-  instability").
+  theirs. The released orbit is eccentric, `e ≈ 0.04q²`, and `ΔE/∫P`
+  settles only by `t ≈ 16` at 0.2, so compare energies over one window
+  in every run, from `t ≥ 16` for the inspiral. Check a new charge,
+  window or order with `bin/breathing_loop.jl` before a long run ("The
+  breathing instability").
 - **The asserted rates are measurements.** If one moves, re-measure and
   update "Measured results" rather than widen a tolerance.
 

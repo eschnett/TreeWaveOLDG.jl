@@ -230,9 +230,10 @@ place of the solved one, which the solve still finds and
 experiment on what the solved `ä`'s jumps at element faces do to the run
 (`CODE.md`, "The binary" under "Measured results"), and is a candidate
 cure of the binary's breathing instability ("The breathing
-instability"). The predictor's `ä` is low by about `0.07q²` of itself,
-likely from its inertia, which leaves out the other charge's potential
-("The release").
+instability"). The predictor's `ä` is low by `0.04q²` to `0.09q²` of
+itself in the standard window's runs; its inertia's leaving out the
+other charge's potential was about half of that, before the predictor
+took it ("The predictor with the potential").
 
 `source_addot = :corrected` writes it with the predictor's `ä` plus a
 running mean of that bias: each solve fits the solved `ä`'s departure
