@@ -3612,8 +3612,15 @@ since they read the particles' state and nothing of the grid.
 **The orbit.** `orbit_diagnostics(models, interaction, zs, vs; normal)`
 gives the separation `d` and its rate, the phase of `z₁ − z₂` about
 `normal` and its rate `ω = ((z₁ − z₂) × (v₁ − v₂))⋅n̂/d²`, the orbital
-energy `Σ M(γ − 1) − K/d` with the physical masses and the analytic
-binding, the centre of mass `Σ γMz/Σ γM` and the momentum `Σ γMv`. The
+energy `Σ M(γ − 1) − K/d − (Q₁Q₂/4πd) V` with the physical masses, the
+analytic binding and the scalar interaction's dependence on the
+velocities to `O(v²)`,
+`V = ½(v₁² + v₂²) − ½(v₁⋅v₂ − (n⋅v₁)(n⋅v₂))`, `n = (z₁ − z₂)/d`: the
+energy of the interaction's Lagrangian `(Q₁Q₂/4πd)(1 − V)`, from each
+charge's `dτ` and the field's retardation, `3v²/2` on a circle. Without
+`V`, which the energy lacked until 2026-11-26, an eccentric binary's
+energy swings around the orbit ("The energy's velocity terms" under "The
+breathing instability"). Then the centre of mass `Σ γMz/Σ γM` and the momentum `Σ γMv`. The
 energy is the orbit's alone: the field's energy near the particles is
 not counted, and the remainder's force is not in `K`.
 
@@ -7971,14 +7978,16 @@ grows, to `t = 12`, beside the others to 12):
 - **The window does, and more with the charge.** The wide window's
   `ΔE/∫P` is above the standard window's by 0.05 % at `q² = 0.01`,
   0.2 % at 0.05 and 2 % at 0.2, with either `ä`; at 0.2 by 0.6, 2.1
-  and 3.2 % in the windows `8–12`, `12–16` and `16–20`. Why is not known
-  **(open)**.
+  and 3.2 % in the windows `8–12`, `12–16` and `16–20`, a spread the
+  energy's missing velocity terms made; fitted with them, the loss rate
+  is 2.2 % above at 0.2, 0.9762 against 0.9553 ("The energy's velocity
+  terms" below). Why is not known **(open)**.
 - **The standard window's three stable schemes agree at `q² = 0.2`** to
   0.35 %: the predicted `ä` 1.0317, the corrected 1.0283, order 2
   1.0302.
 - **`ΔE/∫P` swings from window to window** between 0.95 and 1.12 at
-  `q² = 0.2`, with the eccentricity, so a comparison takes the same
-  window in every run.
+  `q² = 0.2`, with the eccentricity, through the energy's missing
+  velocity terms ("The energy's velocity terms" below).
 
 **The predictor with the potential.** `jobs/inertia.jl` (Symmetry,
 2026-11-25, study `twoldg-6cbfa89`, job 611495) reruns five of the runs
@@ -8009,41 +8018,94 @@ much to read. Before → now:
   both resolutions. As vectors `(A, B)` the difference is `0.074q²` to
   `0.078q²`, the estimate's `0.076q²`, at a phase 1.7 rad from what
   remains, which it partly hid before. `d` now falls from the release
-  on. What the rest is, perhaps the other particle's acceleration field,
-  is not known **(open)**.
+  on. The rest is M6b's ("The binary" under "Measured results"): the
+  circle is released without the inspiral's radial velocity `ḋ`, which
+  leaves `e` of `|ḋ|/ωd`, 0.81 to 0.87 of it here (the onset takes up
+  some), at a quarter orbit from the inertia's part, and at
+  `q² = 0.005` M6b's `1.95·10⁻⁴`, `0.039q²`.
 - **The bias of the predictor's `ä` along itself is 90 to 95 % gone,**
   as estimated: in the wide window, whose fits scatter by 0.01 to 0.03
   per solve, `α` falls from `0.073q²` to `0.004q²` at `q² = 0.05` and from
   `0.075q²` to `0.007q²` at 0.2. Its part toward `ȧ` stays, `−0.036q²` and
   `−0.033q²` (`−0.039q²` and `−0.046q²` before), which the estimate
-  left out **(open)**. In the standard window the fits scatter by 0.04
+  left out. It is the radiation reaction, which the predictor leaves
+  out: with a drag of 0.93 times the dipole's in `predicted_jets`, at
+  the states of the wide window's runs, the departures across `ä`, `a⃛`
+  and `a⃜`, `−0.035q²`, `−0.14q²` and `−0.45q²` of themselves, vanish
+  to 0.003, 0.01 and `0.1q²` (the second review, 2026-11-26; "The
+  predictor's drag" below). In the standard window the fits scatter by 0.04
   to 0.4 per solve, from the face crossings, and its medians, which fall
   by only 35 to 60 %, measure those.
-- **The windows still differ at 0.2, now the other way.** From `t = 16`
-  the wide window's `ΔE/∫P` is 0.933 against the standard window's
-  0.960, 2.8 % below, where before it was 2 % above; at 0.05 0.958
-  against 0.961. Its `F_t`/dip from `t = 8` is 0.898 against 0.922 at
-  0.2. So the window, not the eccentricity, makes that difference; which
-  window is right is not known **(open)**. Its eccentricity is the
-  standard window's.
-- **From `t = 16` the three charges lose energy alike** in the standard
-  window, `ΔE/∫P` 0.963, 0.961 and 0.960 at `d/4`, where before they gave 0.963, 0.958 and
-  0.950. At `d/2` it is 1.2 % higher at 0.05, 0.973, as the runs before
-  at `d/2` were at 0.01 and 0.05 (0.972 and 0.969), and within
-  `3·10⁻⁴` of `d/4` at 0.2. Earlier `ΔE/∫P` is higher the
-  higher the charge, 1.052 at 0.2 from 8 to 12, and settles by
-  `t ≈ 16`; that is not the eccentricity, which no longer sets it
-  **(open)**. So a comparison from `t = 8` measures a transient too, and
-  one from `t = 16` the inspiral.
+- **The windows still differ at 0.2, now the other way,** and the
+  standard window is the robust one. With the energy's velocity terms
+  (below) the wide window loses energy at 0.9346 of the dipole power at
+  `q² = 0.2` against the standard window's 0.9591, 2.6 % below, where
+  before it was 2.2 % above; at 0.05 0.9578 against 0.9627. Its
+  `F_t`/dip from `t = 8` is 0.898 against 0.922 at 0.2. The new
+  predictor moved the standard window's rate by 0.4 % at 0.2 and the
+  wide window's by 4.3 %, its `F_t`/dip from 0.945 to 0.898 against the
+  standard window's 0.928 to 0.922; at `q² = 0.01` the two windows agree
+  to `10⁻⁴` in `F_t`/dip. So the wide window's answer leans on the
+  predictor ten times as much. Why, perhaps through the predictor's
+  `a⃛` and `a⃜`, `jobs/drag.jl` tests ("The predictor's drag" below)
+  **(open)**. Its eccentricity is the standard window's.
+- **The `ΔE/∫P` above swing from window to window** at 0.2, 1.052,
+  0.984 and 0.960 in `8–12`, `12–16` and `16–20` at `d/4`, because the
+  energy lacked its velocity terms; with them the windows agree to
+  about 1 % and a fit over `8–20` to 0.06 % between `d/2` and `d/4`
+  (below).
 - **The resolutions agree less in `d(20)` at 0.2,** to `10⁻³` against
-  `1.2·10⁻⁴` before; at 0.05 to `1.3·10⁻⁴`. Order 2's `d(20)` moved by
-  `2.8·10⁻³` between them before.
+  `1.2·10⁻⁴` before; at 0.05 to `1.3·10⁻⁴`. The difference oscillates,
+  `+3·10⁻⁴` at `t = 8`, `+10⁻³` at 12, `+2·10⁻⁴` at 16, `−10⁻³` at 20,
+  so it is the release's eccentricity, 0.0084 at `d/2` against 0.0075,
+  not the rate of the inspiral; why the release depends on the
+  resolution is not known **(open)**.
 - **The breathing mode decays or sits at the floor in all seven:** at
   0.2 from `4·10⁻⁶` to `7·10⁻⁷` at `d/4` and at −0.14 per unit at `d/2`,
   at 0.05 at the floor, `10⁻⁷` to `5·10⁻⁷`, at `d/4` and at −0.12 at
   `d/2`, and with the wide window at the floor at both charges. The run
   at 0.2, `d/4` took 4.1 hours on a node, the wide window's at `d/2`
   2.6.
+
+**The energy's velocity terms.** Until 2026-11-26 `orbit_diagnostics`'
+energy was `Σ M(γ − 1) − K/d`, without the scalar interaction's
+`−(Q₁Q₂/4πd) V` ([Diagnostics](#diagnostics), "The orbit"), which on an
+eccentric orbit swings with `v²` and `d`: the "transient" of `ΔE/∫P`
+above and its swings in "The release" are that. The second review found
+it (2026-11-26). Adding `V` to the logged energy, a fit of
+`E = E₀ − κ∫P dt` from `t = 8` to 20, with the dipole power from the
+solved accelerations, `P = q²|a₁ − a₂|²/12π`, leaves residuals four to
+ten times smaller, and with `c` times the velocity terms the review's
+fit gives `c = 0.89` to 1.02. The
+spread of `ΔE/∫P` over two-unit windows falls from 0.041 to 0.006 at
+`q² = 0.2` (`d/4`), from 0.011 to 0.0014 at 0.05 and from 0.0025 to
+0.0005 at 0.01. The loss rate `κ`, before the predictor's potential →
+now, at `d/4` unless marked:
+
+| `q²` | standard | standard, `d/2` | wide, `d/2` | others before |
+|---|---|---|---|---|
+| 0.01 | 0.9636 → 0.9637 | | | wide 0.9638, order 2 0.9636 |
+| 0.05 | 0.9620 → 0.9627 | 0.9608 → 0.9625 | 0.9637 → 0.9578 | wide solved 0.9631, corrected 0.9609 |
+| 0.2 | 0.9553 → 0.9591 | 0.9524 → 0.9585 | 0.9762 → 0.9346 | order 2 0.9531, corrected 0.9524, wide at `d/4` 0.9762 |
+
+The standard window's rate falls with the charge as `−0.023q²`, the
+wide window's now as `−0.15q²`. Logs from 607e557 on hold the energy
+with `V`; the scripts that read earlier ones add it from `z` and `v`.
+
+**The predictor's drag.** The predictor leaves out the radiation
+reaction, so its `ä`, `a⃛` and `a⃜`, which the source takes, depart from
+the solved motion's across themselves by `−0.035q²`, `−0.14q²` and
+`−0.45q²`. `DipoleDrag(centre, q², κ)` is an external force
+`−κ P/(2v²) v` with the circle's dipole power `P = q²d²ω⁴/12π`, and
+`Dynamic`'s `predictor_external` gives it to the predictor alone; the
+solve reads it only through the source, moving `a`, `ȧ` and `ä` by
+`6·10⁻⁸` to `10⁻⁶` in the test, where reading the drag would move them
+by `6·10⁻⁴`. `bin/binary.jl --predictor-drag=κ` sets it, and
+`jobs/drag.jl` (Symmetry, 2026-11-26, study `twoldg-607e557`) runs
+`κ = 0.93`, the grid's `F_t`/dip, with the wide window at `d/2` at
+`q² = 0.05` and 0.2, and the standard window at `d/4` at 0.2: whether
+it brings the windows' loss rates together, and how far it moves the
+standard window's **(open)**.
 
 **The corrected `ä`.** `Dynamic(…; source_addot = :corrected,
 source_tau = τ)` writes the source with the predictor's `ä` plus
@@ -8263,9 +8325,11 @@ TreeHydro's ([On a device](#on-a-device)).
     `2.5–5`) without removing it. With the predictor's `ä` it is stable
     at `q² = 0.2`, quiets the solved jets to within 4 % of the
     predictor's, and agrees between `d/2` and `d/4` to `10⁻⁴`, at 1.0
-    to 2.1 times the cost. Its `ΔE/∫P` is above the standard window's
-    by 0.2 % at `q² = 0.05` and 2 % at 0.2, with either `ä`, for a
-    reason not known (the breathing instability's "The release");
+    to 2.1 times the cost. Its loss rate leans on the predictor ten
+    times as much as the standard window's: the predictor's inertia
+    moved it from 2.2 % above the standard window's at 0.2 to 2.6 %
+    below (the breathing instability's "The predictor with the
+    potential");
   - the source with the predictor's `ä` plus a running mean of the solved
     `ä`'s departure from it (`source_addot = :corrected`), an
     experiment. It holds `q² = 0.2`, is no more accurate than the
@@ -8275,10 +8339,11 @@ TreeHydro's ([On a device](#on-a-device)).
 
   The standard window with the predictor's `ä`, its inertia holding the
   other charge's potential, is the candidate **(proposed)**: it is
-  stable at `q² = 0.2`, and from `t = 16` its `ΔE/∫P` is the low
-  charge's ("The predictor with the potential"). An eccentricity of
-  `0.039q²` remains, from a cause not known, and the wide window's
-  `ΔE/∫P` is 2.8 % below it at 0.2 from `t = 16`. With the predicted or corrected `ä` the forces still
+  stable at `q² = 0.2`, its loss rate is within 0.4 % of the low
+  charge's and moved by 0.4 % when the predictor changed, and `d/2` and
+  `d/4` agree on it to 0.06 % ("The predictor with the potential", "The
+  energy's velocity terms"). The eccentricity of `0.039q²` that remains
+  is M6b's, from releasing a circle without its `ḋ`. With the predicted or corrected `ä` the forces still
   read the solved `ä` (`dynamic_residual` builds the forces' jets from
   the unknowns, the source's from `sourced`), so the particle feels a
   field other than `Φ_r + WΨ̂` of the source's jets, by

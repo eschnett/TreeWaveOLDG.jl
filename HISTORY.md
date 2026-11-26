@@ -2046,6 +2046,21 @@ patches.
   stays too, at 2.8 % from `t = 16`, but with the wide window now below
   the standard one where it was 2 % above, so the eccentricity did not
   make it.
+- 2026-11-26: a second review, of 3eab905 to 36099fa, by the session
+  writing the scalar particles' paper, which the owner asked for. It
+  found `orbit_diagnostics`' energy without the scalar interaction's
+  velocity terms, `−(Q₁Q₂/4πd)V`, whose swing on the eccentric orbit was
+  what had been read as a transient settling by `t ≈ 16`; the rule to
+  compare energies from `t ≥ 16` is withdrawn for loss rates fitted from
+  `t = 8` with those terms. It traced the predictor's departure toward
+  `ȧ` to the radiation reaction it leaves out, and the remaining
+  eccentricity to M6b's release without `ḋ`, and showed that the wide
+  window's loss rate leans on the predictor ten times as much as the
+  standard one's. The owner asked for the energy term, the documents and
+  a test of the drag: `DipoleDrag` and `Dynamic`'s `predictor_external`
+  give the predictor alone a drag, and `jobs/drag.jl` runs both windows
+  with it. `CODE.md`, "The energy's velocity terms" and "The predictor's
+  drag" under "The breathing instability".
 
 ### What the plan said of its finished milestones
 

@@ -211,8 +211,8 @@ interaction and, unless `predictor_external` says otherwise, the same
 external forces. `predictor_external` is for experiments on the
 predictor alone, such as a [`DipoleDrag`](@ref) in place of the radiation
 reaction it leaves out; the solve reads them only through the source's
-`a⃛` and `a⃜`, and its `ä` with `source_addot = :predicted` ("The predictor's drag" under "The breathing
-instability" in `CODE.md`).
+`a⃛` and `a⃜`, and its `ä` with `source_addot = :predicted` ("The
+predictor's drag" under "The breathing instability" in `CODE.md`).
 
 `past` is a [`Prescribed`](@ref) motion: the initial data are its
 retarded field, and the force takes over from it as

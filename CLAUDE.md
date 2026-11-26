@@ -549,12 +549,13 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   which the predictor's `a⃛` and `a⃜` do not follow.
   `--source-addot=predicted` holds `q² = 0.2` with the standard window,
   as order 2 and `--source-addot=corrected` do, and the three agree to
-  0.35 %; the window `2.5–5` holds it too, but its `ΔE/∫P` differs
-  from theirs by 2 to 3 % at 0.2 for a reason not known. The released orbit is eccentric, `e ≈ 0.04q²`, and `ΔE/∫P`
-  settles only by `t ≈ 16` at 0.2, so compare energies over one window
-  in every run, from `t ≥ 16` for the inspiral. Check a new charge,
+  0.3 %; the window `2.5–5` holds it too, but its loss rate differs
+  from theirs by 2 to 3 % at 0.2 and leans on the predictor ten times
+  as much. The released orbit is eccentric, `e ≈ 0.04q²`, so compare
+  loss rates fitted over the same span from `t = 8`, with the energy's
+  velocity terms, which logs before 607e557 lack. Check a new charge,
   window or order with `bin/breathing_loop.jl` before a long run ("The
-  breathing instability").
+  breathing instability", "The energy's velocity terms").
 - **The asserted rates are measurements.** If one moves, re-measure and
   update "Measured results" rather than widen a tolerance.
 
