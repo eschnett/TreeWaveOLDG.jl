@@ -8046,9 +8046,10 @@ much to read. Before → now:
   wide window's by 4.3 %, its `F_t`/dip from 0.945 to 0.898 against the
   standard window's 0.928 to 0.922; at `q² = 0.01` the two windows agree
   to `10⁻⁴` in `F_t`/dip. So the wide window's answer leans on the
-  predictor ten times as much. Why, perhaps through the predictor's
-  `a⃛` and `a⃜`, `jobs/drag.jl` tests ("The predictor's drag" below)
-  **(open)**. Its eccentricity is the standard window's.
+  predictor ten times as much, through the predictor's `a⃛` and `a⃜`,
+  which lack the radiation reaction: a drag in the predictor brings it
+  to 0.5 % of the standard window's ("The predictor's drag" below). Its
+  eccentricity is the standard window's.
 - **The `ΔE/∫P` above swing from window to window** at 0.2, 1.052,
   0.984 and 0.960 in `8–12`, `12–16` and `16–20` at `d/4`, because the
   energy lacked its velocity terms; with them the windows agree to
@@ -8103,9 +8104,32 @@ solve reads it only through the source, moving `a`, `ȧ` and `ä` by
 by `6·10⁻⁴`. `bin/binary.jl --predictor-drag=κ` sets it, and
 `jobs/drag.jl` (Symmetry, 2026-11-26, study `twoldg-607e557`) runs
 `κ = 0.93`, the grid's `F_t`/dip, with the wide window at `d/2` at
-`q² = 0.05` and 0.2, and the standard window at `d/4` at 0.2: whether
-it brings the windows' loss rates together, and how far it moves the
-standard window's **(open)**.
+`q² = 0.05` and 0.2, and the standard window at `d/4` at 0.2. Their
+logs hold the energy with its velocity terms. Without → with the drag:
+
+| run | `q²` | `κ` | `F_t`/dip | `β` | `d(20)` |
+|---|---|---|---|---|---|
+| wide, `d/2` | 0.05 | 0.9578 → 0.9622 | 0.9194 → 0.9237 | `−1.8·10⁻³` → `−1.2·10⁻⁴` | 0.986408 → 0.986348 |
+| wide, `d/2` | 0.2 | 0.9346 → 0.9544 | 0.8984 → 0.9175 | `−6.5·10⁻³` → `+2.8·10⁻⁴` | 0.943483 → 0.942339 |
+| standard, `d/4` | 0.2 | 0.9591 → 0.9591 | 0.9218 → 0.9220 | noise | 0.942078 → 0.942085 |
+
+- **The drag removes the departure toward `ȧ`,** `β` the median from
+  `t = 8` of each solve's fit, as the review's evaluation said: the
+  rest is what the drag's `κ = 0.93` and the circle's power leave.
+- **It brings the windows together.** The wide window's loss rate
+  rises by 0.5 % at 0.05 and 2.1 % at 0.2, to 0.05 % and 0.5 % below
+  the standard window's, from 0.5 % and 2.6 %; its `d(20)` comes to
+  `2.6·10⁻⁴` of the standard window's, from `1.4·10⁻³`. So the wide
+  window's lean on the predictor was its `a⃛` and `a⃜` (and `ä`) without
+  the radiation reaction. The 0.5 % left at 0.2, about `−0.025q²`, is
+  not explained **(open)**.
+- **The standard window does not notice it:** its loss rate is the same
+  to `10⁻⁴`, `F_t`/dip to `2·10⁻⁴` and `d(20)` to `7·10⁻⁶`. Its
+  smaller window takes the higher derivatives of the source from a
+  smaller region, where the predictor's error in them weighs less.
+- **The rest is unchanged:** the eccentricity, `α`, and the breathing
+  mode, at the floor in all three. The runs took 2.5, 3.1 and 4.1
+  hours.
 
 **The corrected `ä`.** `Dynamic(…; source_addot = :corrected,
 source_tau = τ)` writes the source with the predictor's `ä` plus
@@ -8328,8 +8352,9 @@ TreeHydro's ([On a device](#on-a-device)).
     to 2.1 times the cost. Its loss rate leans on the predictor ten
     times as much as the standard window's: the predictor's inertia
     moved it from 2.2 % above the standard window's at 0.2 to 2.6 %
-    below (the breathing instability's "The predictor with the
-    potential");
+    below, and a drag in the predictor in place of the radiation
+    reaction to 0.5 % below (the breathing instability's "The
+    predictor's drag");
   - the source with the predictor's `ä` plus a running mean of the solved
     `ä`'s departure from it (`source_addot = :corrected`), an
     experiment. It holds `q² = 0.2`, is no more accurate than the
@@ -8343,7 +8368,10 @@ TreeHydro's ([On a device](#on-a-device)).
   charge's and moved by 0.4 % when the predictor changed, and `d/2` and
   `d/4` agree on it to 0.06 % ("The predictor with the potential", "The
   energy's velocity terms"). The eccentricity of `0.039q²` that remains
-  is M6b's, from releasing a circle without its `ḋ`. With the predicted or corrected `ä` the forces still
+  is M6b's, from releasing a circle without its `ḋ`. A drag in the
+  predictor changes its loss rate by less than `10⁻⁴`, so it needs none;
+  the wide window needs one to come within 0.5 % of it ("The
+  predictor's drag"). With the predicted or corrected `ä` the forces still
   read the solved `ä` (`dynamic_residual` builds the forces' jets from
   the unknowns, the source's from `sourced`), so the particle feels a
   field other than `Φ_r + WΨ̂` of the source's jets, by

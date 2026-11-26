@@ -549,9 +549,10 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   which the predictor's `a⃛` and `a⃜` do not follow.
   `--source-addot=predicted` holds `q² = 0.2` with the standard window,
   as order 2 and `--source-addot=corrected` do, and the three agree to
-  0.3 %; the window `2.5–5` holds it too, but its loss rate differs
-  from theirs by 2 to 3 % at 0.2 and leans on the predictor ten times
-  as much. The released orbit is eccentric, `e ≈ 0.04q²`, so compare
+  0.3 %; the window `2.5–5` holds it too, but its loss rate leans on
+  the predictor ten times as much and is 2.6 % below theirs at 0.2
+  unless the predictor takes a drag (`--predictor-drag=0.93`), which
+  the standard window does not notice. The released orbit is eccentric, `e ≈ 0.04q²`, so compare
   loss rates fitted over the same span from `t = 8`, with the energy's
   velocity terms, which logs before 607e557 lack. Check a new charge,
   window or order with `bin/breathing_loop.jl` before a long run ("The

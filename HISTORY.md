@@ -2061,6 +2061,13 @@ patches.
   give the predictor alone a drag, and `jobs/drag.jl` runs both windows
   with it. `CODE.md`, "The energy's velocity terms" and "The predictor's
   drag" under "The breathing instability".
+- 2026-11-26: `jobs/drag.jl`'s runs (`twoldg-607e557`): the drag
+  removes the predictor's departure toward `ȧ` and brings the wide
+  window's loss rate from 2.6 % below the standard window's at
+  `q² = 0.2` to 0.5 % below, while the standard window's moves by less
+  than `10⁻⁴`. So the windows' difference was mostly the predictor's
+  missing radiation reaction in `a⃛` and `a⃜`, which the standard window
+  reads too little to show.
 
 ### What the plan said of its finished milestones
 
