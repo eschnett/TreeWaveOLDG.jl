@@ -248,4 +248,29 @@ end
     # It follows the circle, but for the percent of the acceleration that
     # is not the predictor's.
     @test norm(z1 - binary.path(2dt)[1].z) <= 0.1 * norm(trs[1].a) * (2dt)^2 / 2
+    # The predictor's own forces reach its `a⃛`, `a⃜` and `ä`, and the
+    # solve only through the source's `a⃛` and `a⃜`, which move `a`, `ȧ`
+    # and `ä` by `6·10⁻⁸`, `5·10⁻⁷` and `1.2·10⁻⁶` (measured)
+    # (`predictor_external`); a solve that read the drag itself would move
+    # them by its share, `6·10⁻⁴`.
+    drag = (DipoleDrag(c, 0.01, 1.0), DipoleDrag(c, 0.01, 1.0))
+    dd = Dynamic((NoForce(), NoForce()), binary; interaction=f, predictor_external=drag)
+    pd = InspiralProblem(wave, ms, Window(c, 1.0, 1.75; continuity=4), dd)
+    trd = TreeWaveOLDG.trajectories(dd, pd, u, 0.0)
+    zs, vs = map(tr -> tr.z, trs), map(tr -> tr.v, trs)
+    pj = predicted_jets(ms, drag, zs, vs; interaction=f)
+    p0 = predicted_jets(ms, (NoForce(), NoForce()), zs, vs; interaction=f)
+    for k in 1:2
+        for (s, tol) in ((:a, 1e-6), (:ȧ, 1e-5), (:ä, 1e-5))
+            @test getfield(trd[k], s) ≈ getfield(trs[k], s) rtol = tol
+        end
+        for s in (:a⃛, :a⃜)
+            @test getfield(trd[k], s) == getfield(pj[k], s)
+            @test norm(getfield(trd[k], s) - getfield(p0[k], s)) >
+                  1e-4 * norm(getfield(p0[k], s))
+        end
+        @test dd.scratch.last.addot_predicted[k] == pj[k].ä
+    end
+    @test_throws ArgumentError Dynamic((NoForce(), NoForce()), binary;
+                                       predictor_external=(NoForce(),))
 end

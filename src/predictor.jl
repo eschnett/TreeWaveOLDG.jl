@@ -31,6 +31,36 @@ end
 (f::SpringForce)(z, v) = -f.k * (z - f.centre)
 
 """
+    DipoleDrag(centre, q2, κ)
+
+An external force that models a binary's radiation reaction in the
+predictor: `F(z, v) = -κ P/(2v²) v` with the dipole power
+`P = q² d² ω⁴/12π` of two charges `±q` on a circle about `centre`,
+`d = 2|z - centre|`, `ω = |v|/|z - centre|`. Each particle then loses
+`κP/2`. `κ` is the grid's tangential force over the dipole's, about 0.93
+at `d/4` ("The predictor's drag" under "The breathing instability" in
+`CODE.md`). It is an experiment, for `Dynamic`'s `predictor_external`;
+the solve reads the radiation reaction from the grid. It is `isbits`.
+"""
+struct DipoleDrag{T}
+    centre::SVector{3,T}
+    q2::T
+    κ::T
+end
+
+function DipoleDrag(centre, q2, κ)
+    T = float(promote_type(eltype(centre), typeof(q2), typeof(κ)))
+    return DipoleDrag{T}(SVector{3,T}(Tuple(centre)), T(q2), T(κ))
+end
+
+function (f::DipoleDrag)(z, v)
+    r = z - f.centre
+    r2, v2 = dot(r, r), dot(v, v)
+    P = f.q2 * 4 * r2 * (v2 / r2)^2 / 12π
+    return -(f.κ * P / (2 * v2)) * v
+end
+
+"""
     NoForce()
 
 The external force of a free particle, zero.

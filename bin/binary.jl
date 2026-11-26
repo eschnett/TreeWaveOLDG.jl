@@ -8,7 +8,7 @@
 #         [--n2=4] [--rx1=100] [--rx2=110] [--every=1] [--jevery=0.125] \
 #         [--source-tol=0.1] [--flux=FILE] [--fradii=4,6,8,12] [--prescribed] \
 #         [--ell=1e-3] [--source-addot=solved] [--tau=2] [--window=1.25,2.5] \
-#         [--q2=0.005] [--oz=0.0093]
+#         [--q2=0.005] [--oz=0.0093] [--predictor-drag=0]
 #
 # Two particles of `M = 1`, `Q = ±√0.005`, `ℓ = 10⁻³`, at separation 1, each
 # at speed `v`, on `binary_circular_motion`'s circle about the centre
@@ -33,6 +33,10 @@
 # place of the solved one (`Dynamic`'s `source_addot`), which the rows
 # still record. `--source-addot=corrected` adds to it the running mean over
 # `--tau` of its bias against the solved `ä` (`source_tau`).
+# `--predictor-drag=κ` gives the predictor alone, not the solve, a
+# `DipoleDrag` of `κ` times the dipole's radiation reaction (`Dynamic`'s
+# `predictor_external`), so that its `ä`, `a⃛` and `a⃜`, which the source
+# takes, follow the inspiral (`CODE.md`, "The predictor's drag").
 #
 # Two more serve the instability of the dynamic binary at large charge
 # (`CODE.md`, "The breathing instability" under "Measured results",
@@ -119,6 +123,7 @@ function binary_evolve(backend)
     ℓ = parse(Float64, option("ell", "1e-3"))
     source_addot = Symbol(option("source-addot", "solved"))
     source_tau = parse(Float64, option("tau", "2"))
+    κ = parse(Float64, option("predictor-drag", "0"))
     wR₁, wR₂ = parse.(Float64, split(option("window", "1.25,2.5"), ','))
     start = time()
     P = 3
@@ -130,7 +135,9 @@ function binary_evolve(backend)
     f, past = newtonian_binary(ms, d0, v; centre=o, past=T, ramp, n)
     motion = prescribed ? past :
              Dynamic((NoForce(), NoForce()), past; interaction=f, onset, n2, source_tol,
-                     source_addot, source_tau)
+                     source_addot, source_tau,
+                     predictor_external=κ == 0 ? (NoForce(), NoForce()) :
+                                        (DipoleDrag(o, q2, κ), DipoleDrag(o, q2, κ)))
     p = InspiralProblem(wave, ms, Window(o, wR₁, wR₂; continuity=P + 1), motion; order)
     retarded = Window(o, rx1, rx2; continuity=4)
     u0 = prescribed ? inspiral_initial_state(p; retarded) :
@@ -153,6 +160,7 @@ function binary_evolve(backend)
     emit(tag..., 0.0, "source_addot_predicted", source_addot === :predicted ? 1 : 0)
     emit(tag..., 0.0, "source_addot_corrected", source_addot === :corrected ? 1 : 0)
     emit(tag..., 0.0, "source_tau", source_tau)
+    emit(tag..., 0.0, "predictor_drag", κ)
     emit(tag..., 0.0, "nodes", statelength(p.wave.fs) ÷ 2)
     emit(tag..., 0.0, "steps", integ.nsteps)
     emit(tag..., 0.0, "dt", integ.dt)

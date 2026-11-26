@@ -28,7 +28,12 @@ The orbit of two particles of `models` at positions `zs` and velocities
 - `phase`, the angle of `z₁ - z₂` about `normal`, from the first of two
   axes normal to it, and `omega`, its rate, `((z₁ - z₂) × (v₁ - v₂))⋅n̂/d²`;
 - `energy`, the orbital energy with the physical masses and the analytic
-  interaction, `Σ M(γ - 1) - K/d` ([`binding_constant`](@ref));
+  interaction, `Σ M(γ - 1) - K/d - (Q₁Q₂/4πd) V` ([`binding_constant`](@ref)),
+  where `V = ½(v₁² + v₂²) - ½(v₁⋅v₂ - (n⋅v₁)(n⋅v₂))`, `n = (z₁ - z₂)/d`, is
+  the scalar interaction's dependence on the velocities to `O(v²)`: the
+  energy of the Lagrangian `(Q₁Q₂/4πd)(1 - V)`, from each charge's `dτ`
+  and the field's retardation. On a circle `V = 3v²/2`; without it the
+  energy of an eccentric orbit swings by `O(v²q²e)` around the orbit;
 - `centre`, the centre of mass `Σ γMz / Σ γM`, and `momentum`, `Σ γMv`.
 
 The phase is in `(-π, π]`; unwrap it along a run.
@@ -48,9 +53,12 @@ function orbit_diagnostics(models::NTuple{2,ParticleModel}, interaction, zs, vs;
     γ1, γ2 = lorentz_factor(v1), lorentz_factor(v2)
     m1, m2 = γ1 * models[1].M, γ2 * models[2].M
     K = binding_constant(models, interaction)
+    n = r / d
+    V = (dot(v1, v1) + dot(v2, v2) - dot(v1, v2) + dot(n, v1) * dot(n, v2)) / 2
+    E = models[1].M * (γ1 - 1) + models[2].M * (γ2 - 1) - K / d -
+        models[1].Q * models[2].Q / (4π * d) * V
     return (; d, ddot=dot(r, w) / d, phase=atan(dot(r, e₂), dot(r, e₁)),
-            omega=dot(cross(r, w), n̂) / d^2,
-            energy=models[1].M * (γ1 - 1) + models[2].M * (γ2 - 1) - K / d,
+            omega=dot(cross(r, w), n̂) / d^2, energy=E,
             centre=(m1 * z1 + m2 * z2) / (m1 + m2), momentum=m1 * v1 + m2 * v2)
 end
 

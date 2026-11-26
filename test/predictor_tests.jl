@@ -5,7 +5,7 @@
 # a motion known otherwise: the spring's exact circle, and a two-body
 # orbit integrated numerically.
 
-using LinearAlgebra: dot, norm
+using LinearAlgebra: cross, dot, norm
 using StaticArrays: SVector
 
 @testset "The spring's predicted jets are its circle's" begin
@@ -142,6 +142,37 @@ end
             # times with `t`.
             @test 6.5 < log2(errs[1] / errs[2]) < 7.5
         end
+    end
+end
+
+@testset "A dipole drag takes the dipole's power, along the velocity" begin
+    # Guards `DipoleDrag` (`CODE.md`, "The predictor's drag"): on the
+    # binary's circle each particle must lose `κP/2` of the dipole power
+    # `P = q²d²ω⁴/12π`, against its velocity, and the predictor must take
+    # it through `(I - v vᵀ)` and the inertia `(M + QΦ)γ` as any external
+    # force. A power from the radius instead of the separation, or a
+    # force across the velocity, breaks the first two.
+    q2, κ, v = 0.2, 0.93, 0.2
+    ms = (ParticleModel(; Q=sqrt(q2), ℓ=0.04, M=1.0),
+          ParticleModel(; Q=-sqrt(q2), ℓ=0.04, M=1.0))
+    c = SVector(1.0, 2.0, 3.0)
+    f, motion = newtonian_binary(ms, 1.0, v; centre=c, phase=0.3)
+    trs = motion.path(0.0)
+    drag = DipoleDrag(c, q2, κ)
+    @test isbits(drag)
+    P = q2 * (2v)^4 / 12π
+    zs, vs = map(tr -> tr.z, trs), map(tr -> tr.v, trs)
+    for k in 1:2
+        F = drag(zs[k], vs[k])
+        @test dot(F, vs[k]) ≈ -κ * P / 2 rtol = 1e-14
+        @test norm(cross(F, vs[k])) <= 1e-16
+    end
+    a0 = predicted_acceleration(ms, (NoForce(), NoForce()), trs; interaction=f)
+    a1 = predicted_acceleration(ms, (drag, drag), trs; interaction=f)
+    γ = 1 / sqrt(1 - v^2)
+    QΦ = q2 / 4π
+    for k in 1:2
+        @test dot(a1[k] - a0[k], vs[k]) ≈ -(1 - v^2) * κ * P / 2 / ((1 + QΦ) * γ) rtol = 1e-12
     end
 end
 

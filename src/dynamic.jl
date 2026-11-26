@@ -190,7 +190,8 @@ renew_jacobian!(m) = (m.scratch.renew = true; m)
 """
     Dynamic(external, past; interaction = NoInteraction(), onset = 0, n2 = 4,
             rule = SupportRule(T), tol = 1e-10, source_tol = 0.1,
-            source_addot = :solved, source_tau = 2)
+            source_addot = :solved, source_tau = 2,
+            predictor_external = external)
 
 A motion in which each particle moves under its forces (INSPIRAL.md,
 "Equations of motion"): `a`, `ȧ` and `ä` of every particle are solved
@@ -205,8 +206,13 @@ fields' ([`other_force`](@ref)), `F_ext = external[k](z, v)` an
 `isbits` callable such as [`SpringForce`](@ref), and `F_N` the
 `interaction` with the other particles, such as the binary's
 [`NewtonianForce`](@ref), along their jets. `a⃛` and `a⃜` come from
-the predictor ([`predicted_jets`](@ref)), which takes the same external
-forces and interaction.
+the predictor ([`predicted_jets`](@ref)), which takes the same
+interaction and, unless `predictor_external` says otherwise, the same
+external forces. `predictor_external` is for experiments on the
+predictor alone, such as a [`DipoleDrag`](@ref) in place of the radiation
+reaction it leaves out; the solve reads them only through the source's
+`a⃛` and `a⃜`, and its `ä` with `source_addot = :predicted` ("The predictor's drag" under "The breathing
+instability" in `CODE.md`).
 
 `past` is a [`Prescribed`](@ref) motion: the initial data are its
 retarded field, and the force takes over from it as
@@ -252,8 +258,9 @@ A `τ` long beside the breathing's period, `2π/8`, keeps the loop open
 `m.scratch.bias` with any choice, and the source's `ä` in
 `m.scratch.last.addot_source`.
 """
-struct Dynamic{X<:Tuple,I,P<:Prescribed,T}
+struct Dynamic{X<:Tuple,Y<:Tuple,I,P<:Prescribed,T}
     external::X
+    predictor_external::Y
     interaction::I
     past::P
     onset::T
@@ -269,7 +276,7 @@ end
 function Dynamic(external::Tuple, past::Prescribed; interaction=NoInteraction(),
                  onset::Real=0, n2::Integer=4, rule=nothing, tol::Real=1e-10,
                  source_tol::Real=0.1, source_addot::Symbol=:solved,
-                 source_tau::Real=2)
+                 source_tau::Real=2, predictor_external::Tuple=external)
     T = eltype(first(past.path(0.0)).z)
     source_addot in (:solved, :predicted, :corrected) || throw(ArgumentError(
         "source_addot must be :solved, :predicted or :corrected, got :$source_addot"))
@@ -277,10 +284,12 @@ function Dynamic(external::Tuple, past::Prescribed; interaction=NoInteraction(),
     onset >= 0 || throw(ArgumentError("the onset must not be negative, got $onset"))
     length(external) == length(past.path(zero(T))) || throw(ArgumentError(
         "$(length(external)) external forces for $(length(past.path(zero(T)))) particles"))
+    length(predictor_external) == length(external) || throw(ArgumentError(
+        "$(length(predictor_external)) predictor forces for $(length(external)) particles"))
     rule === nothing && (rule = SupportRule(T))
     isbits(interaction) || throw(ArgumentError(
         "the interaction must be isbits, got a $(typeof(interaction))"))
-    return Dynamic(external, interaction, past, T(onset), Int(n2), rule, T(tol),
+    return Dynamic(external, predictor_external, interaction, past, T(onset), Int(n2), rule, T(tol),
                    T(source_tol), source_addot, T(source_tau),
                    DynamicScratch(nothing, nothing, nothing, nothing, false, nothing,
                                   nothing))
@@ -439,7 +448,8 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     fu = field_state(u, p)
     zv = particle_state(u, p)
     zs, vs = map(first, zv), map(last, zv)
-    pred = predicted_jets(p.models, m.external, zs, vs; interaction=m.interaction)
+    pred = predicted_jets(p.models, m.predictor_external, zs, vs;
+                          interaction=m.interaction)
     σ = handover(m, T(t))
     mix(f) = ntuple(k -> (1 - σ) * getfield(past[k], f) + σ * getfield(pred[k], f), Val(K))
     higher = ntuple(k -> (mix(:a⃛)[k], mix(:a⃜)[k]), Val(K))
