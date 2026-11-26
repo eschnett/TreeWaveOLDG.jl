@@ -2124,6 +2124,11 @@ patches.
   than `10⁻⁴`. So the windows' difference was mostly the predictor's
   missing radiation reaction in `a⃛` and `a⃜`, which the standard window
   reads too little to show.
+- 2026-11-26: for a pull request the owner chose to merge `inspiral-m6b`
+  (draft PR #24's branch, with `d/8` over MPI and the checkpoints) into
+  this branch and to open the pull request against it. `solve_state`
+  now carries the corrected source's running mean, so a checkpoint
+  holds it.
 
 ### What the plan said of its finished milestones
 

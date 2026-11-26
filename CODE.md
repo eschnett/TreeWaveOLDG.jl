@@ -8346,8 +8346,8 @@ wide window's runs at `d/4` agree with `d/2` to `5·10⁻⁴` in `ΔE/∫P`:
   `τ = 2` it grows at 0.03 at `q² = 0.35` (`ℓ = 0.05`), where the
   predicted `ä`'s decays at 0.99.
 - **Its mean is state outside the state vector,** in `Dynamic`'s
-  scratch and advanced by the solve, so a checkpoint would have to carry
-  it.
+  scratch and advanced by the solve; `solve_state` carries it, so a
+  checkpoint does (`bin/binary.jl`'s `--checkpoint`).
 - **At `d/2` the standard window's mean is noise.** The face crossings'
   solved `ä` is not zero on average, the fits scatter by 0.35 to 1.2 per
   solve, and `μ₁` wanders to 0.5 at `q² = 0.05` and 1.2 at 0.2.
