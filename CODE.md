@@ -8124,9 +8124,9 @@ logs hold the energy with its velocity terms. Without → with the drag:
   the radiation reaction. The 0.5 % left at 0.2, about `−0.025q²`, is
   not explained **(open)**.
 - **The standard window does not notice it:** its loss rate is the same
-  to `10⁻⁴`, `F_t`/dip to `2·10⁻⁴` and `d(20)` to `7·10⁻⁶`. Its
-  smaller window takes the higher derivatives of the source from a
-  smaller region, where the predictor's error in them weighs less.
+  to `10⁻⁴`, `F_t`/dip to `2·10⁻⁴` and `d(20)` to `7·10⁻⁶`; likely
+  because its window is closer to the particles, where the higher
+  derivatives' terms of the source weigh less.
 - **The rest is unchanged:** the eccentricity, `α`, and the breathing
   mode, at the floor in all three. The runs took 2.5, 3.1 and 4.1
   hours.
