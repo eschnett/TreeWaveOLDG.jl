@@ -221,9 +221,10 @@ results".
 ### M6b: The binary's parts
 
 **Status:** under way (2026-11-20) on `inspiral-m6b`; the code, the
-tests and the runs are done, and the documents (`CODE.md`, "Initial
-data", "Diagnostics", and "The flux" and "The binary" under "Measured
-results"); its pull request is not opened. `INSPIRAL.md`: "Initial data:
+tests and the runs are done, `d/8` over MPI on four nodes included
+(2026-11-22), and the documents (`CODE.md`, "Initial data",
+"Diagnostics", "Running distributed", and "The flux" and "The binary"
+under "Measured results"); its pull request is not opened. `INSPIRAL.md`: "Initial data:
 a quasi-circular orbit", "Diagnostics"; validation step 6, second half,
 as far as it can be checked with short runs.
 
@@ -284,7 +285,11 @@ memory (below).
   and the parameters, as raw arrays plus a TOML header, which needs no
   new dependency, written every
   few minutes of wall clock. A run can then be split into chunks on
-  `amddebugq` (1 hour) or continued on `amdq` (24 hours).
+  `amddebugq` (1 hour) or continued on `amdq` (24 hours). M6b's `d/8`
+  gave `bin/binary.jl` one (`CODE.md`, "Initial data"): each rank's
+  state, step and solve state with `Serialization`, resumed through
+  SimLaunch's restart chain, bit for bit; whether M7 keeps it, readable
+  only by the same Julia, or writes the raw arrays and header is open.
 - **Job specs** in `jobs/` for the run, a run per resolution.
 - **The series**: three resolutions, `P = 3`, each scaling M3b's layout
   as a whole. Record `d(t)`, the phase, `ḋ`, the flux balance, and the

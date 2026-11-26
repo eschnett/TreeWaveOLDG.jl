@@ -30,9 +30,11 @@
 # a refined reflecting box; the seven-patch ball's radiative sphere, whose
 # time step and boundary energy are host reductions over blocks; the
 # thirteen-patch ball's factored truncation and Dirichlet data; the
-# adaptive blast, whose regrids repartition the blocks; and particles on
+# adaptive blast, whose regrids repartition the blocks; particles on
 # nested boxes and in the ball's cube, whose source is averaged across
-# faces that ranks share and whose forces read blocks of other ranks.
+# faces that ranks share, whose forces read blocks of other ranks, and
+# whose spheres' values each rank reads in its own blocks; and the
+# binary's two dynamic particles, whose jets every rank solves.
 
 using MPI
 using TreeAMR
@@ -103,6 +105,11 @@ function mpi_inspiral(lines, tag, p, n)
                         " F0=", repr(F0), " F=", repr(F), " g=", repr(g), " ∇g=",
                         repr(∇g)))
     c = p.window.centre
+    # The spheres' values and the flux through them, which each rank reads
+    # in its own blocks and gathers: bit for bit.
+    ex = SphereExtraction(p.wave, [0.6, 1.5]; lmax=2, centre=c, gradient=true)
+    push!(lines, string(tag, " modes=", repr(sphere_modes(ex, p, field_state(u, p))),
+                        " flux=", repr(sphere_flux(ex, p, field_state(u, p)))))
     push!(lines, string("~", tag, " ball=", repr(ball_norm(p, u, c, 1.0)),
                         " max=", repr(ball_norm(p, u, c, 1.0; p=Inf))))
     remote = TW.rank_reduce(+, p.wave.fs.forest, length(p.shared.remote))
@@ -117,6 +124,28 @@ function mpi_particle(wave, c)
     w = Window(c, 1.0, 1.75; continuity=4)
     motion = uniform_motion((c + SVector(0.11, 0.07, 0.13),), (SVector(0.2, 0.0, 0.0),))
     return InspiralProblem(wave, (m,), w, motion)
+end
+
+# The binary of M6b (`dynamic_tests.jl`'s), two particles whose jets are
+# solved from the field: every rank solves them on the same gathered
+# numbers, and takes rank 0's Newton steps, so the jets, the solve's
+# course and the state are the serial ones.
+function mpi_binary(lines, wave)
+    c = SVector(0.011, 0.007, 0.013)
+    ms = (ParticleModel(; Q=0.1, ℓ=0.01, M=1.0), ParticleModel(; Q=-0.1, ℓ=0.01, M=1.0))
+    f, binary = newtonian_binary(ms, 0.5, 0.3; centre=c, phase=0.3)
+    dyn = Dynamic((NoForce(), NoForce()), binary; interaction=f)
+    p = InspiralProblem(wave, ms, Window(c, 1.0, 1.75; continuity=4), dyn)
+    u0 = inspiral_initial_state(p; retarded=Window(c, 1.5, 1.9; continuity=4))
+    dt = oldg_timestep(p.wave; cfl=1 // 2)
+    integ = solve!(inspiral_integrator(p, u0, 0.0, 2dt; dt=dt))
+    l = dyn.scratch.last
+    jets = map(tr -> (tr.a, tr.ȧ, tr.ä), l.trajs)
+    push!(lines, string("binary u=", inspiral_digest(p, integ.u), " jets=", repr(jets),
+                        " iterations=", l.iterations, " projections=", l.projections,
+                        " residual=", repr(l.residual), " F=",
+                        repr(particle_forces(p, integ.u, integ.t))))
+    return nothing
 end
 
 function mpi_cases(comm)
@@ -166,6 +195,7 @@ function mpi_cases(comm)
     wave = WaveProblem(forest, Element(Float64, 3); geometry=geo,
                        boundary=RadiativeBoundary())
     mpi_inspiral(lines, "ballparticle", mpi_particle(wave, SVector(0.0, 0.0, 0.0)), 2)
+    mpi_binary(lines, wave)
     return lines
 end
 

@@ -6,7 +6,12 @@
 # retarded field. The options are `--wradii` (10,20,30,50,70,90),
 # `--lmax` (6), `--ntheta` (`2lmax + 12`) and, read by the drivers,
 # `--wevery` (0.0625); `option` is the including script's. `bin/waveforms.jl`
-# reads the file.
+# reads the file. Over MPI every rank reads the spheres, which is
+# collective, and rank 0 alone writes (`bin/binary.jl`'s `--mpi`).
+
+# The file, or on a rank that does not print (`QUIET`, `bin/prescribed.jl`)
+# nowhere.
+output_file(file) = isdefined(@__MODULE__, :QUIET) && QUIET[] ? devnull : open(file, "w")
 
 # `--waves`: the extraction's spheres and its file, with the header row
 # written; `nothing` without the option.
@@ -18,7 +23,7 @@ function wave_writer(p, c, retarded)
     lmax = parse(Int, option("lmax", "6"))
     nθ = parse(Int, option("ntheta", string(2lmax + 12)))
     ex = SphereExtraction(p.wave, radii; lmax, nθ, centre=c)
-    io = open(file, "w")
+    io = output_file(file)
     name(r) = isinteger(r) ? string(Int(r)) : string(r)
     cols = ["r$(name(r))_l$(l)m$(m)_$(part)" for r in radii
             for (l, m) in harmonic_modes(lmax) for part in ("re", "im")]
@@ -66,7 +71,7 @@ function flux_writer(p, c, retarded)
     radii = [parse(Float64, strip(r)) for r in split(fs, ",")]
     nθ = parse(Int, option("fntheta", "24"))
     ex = SphereExtraction(p.wave, radii; lmax=0, nθ, centre=c, gradient=true)
-    io = open(file, "w")
+    io = output_file(file)
     name(r) = isinteger(r) ? string(Int(r)) : string(r)
     cols = ["F_r$(name(r))" for r in radii]
     retarded === nothing || append!(cols, "ref_" .* cols)

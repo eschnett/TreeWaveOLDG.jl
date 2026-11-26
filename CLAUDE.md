@@ -226,6 +226,14 @@ step, `d/6` and the circle, a run each, 10 to 12 hours per binary run on
 julia --project=. -t 4,0 bin/binary.jl --hdiv=2 --levels=1 --w0=4 --R1=8 --rx1=10 --rx2=12 --tend=0.25
 ```
 
+With `--mpi` it runs over MPI under `mpiexec`, bit for bit the serial
+run, and with `--checkpoint=DIR` and `--restart-from=DIR` from
+checkpoints ("Initial data"); `jobs/binary_mpi.jl` runs `d/8` on four
+Symmetry nodes, one rank per node, about 13 hours. Give each rank a
+node's cores: every rank repeats the jets' solve on its own threads.
+`jobs/binary_mpi_check.toml` and `jobs/binary_restart.toml` check both
+against the serial, uninterrupted run, under an hour each.
+
 The binary's breathing instability at large charge ("The breathing
 instability"): `bin/binary.jl --q2` and `bin/dynamic.jl --q2 --ell` set
 the charge, `jobs/instability.jl` scans it on Symmetry, and
@@ -460,8 +468,10 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   index is the rank's own. A number combined on the host from per-block
   values goes through `rank_reduce`, a refusal found in a rank's own
   blocks through `agree_refusal`, and a read of another rank's block
-  through `gather_blocks`. The package never loads MPI ("Running
-  distributed").
+  through `gather_blocks`. A branch every rank takes on a number from
+  a library that may differ between CPUs, as LAPACK's solve in a
+  dynamic particle's Newton step, takes rank 0's number (`rank_agree`).
+  The package never loads MPI ("Running distributed").
 - **The `u` and `v` of a state vector interleave block by block**; use
   `statearray` and `selectdim`, not halves of the vector.
 - **A reflecting box is a TreeAMR reflection symmetry, not a boundary
