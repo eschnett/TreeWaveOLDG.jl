@@ -6837,6 +6837,13 @@ front, `|Φ₁₁|` falls as `1/r` from `2.1·10⁻³` at `r = 10` to
 against the reference is 0.03 % to 0.4 % of it at `r = 10` and 0.4 % to
 0.8 % at 20 to 40. `|Φ₃₃|` is 25 times smaller, with errors of 0.1 % to
 0.7 %.
+In the plane at `t = 72` the error of `r(Φ − ΣΨ̂₀)` against the
+reference is about `10⁻⁴` against the spiral's `0.02`, in rings that
+follow the shells and the nested cubes' edges; on the zoomed grid it is
+largest in the window's shell, `1.25 ≤ r < 2.5`. The viewer made the
+movie, 289 frames of `1600 × 1000` at 30 per second, and its error movie
+in four minutes on Symmetry (`bin/output/inspiral.mp4`,
+`inspiral-error.mp4`).
 
 **The first run broke down.** With the solved `ä` in the source (job
 607865, study `twoldg-7cf5e7f`), the breathing grew from `10⁻⁶` of
