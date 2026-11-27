@@ -35,13 +35,45 @@ the number type, so that it works on dual numbers along the motion.
 """
 function support_integrals(m::ParticleModel, traj::Trajectory, rule::SupportRule, h)
     (; z, v) = traj
+    γ = lorentz_factor(v)
+    scale = m.ℓ^3 / γ
+    S = typeof(scale * first(h(z)))
+    # The rule's points in chunks of a fixed size, threaded, and the
+    # chunks' sums added in their order: the result is the same at every
+    # thread count. A dynamic step evaluates these sums along nested dual
+    # numbers in `τ` for its own field and the other particles' at every
+    # residual, which serially was most of the solve's cost.
+    n = length(rule.w)
+    nchunks = cld(n, SUPPORT_CHUNK)
+    parts = Vector{Tuple{S,S,SVector{3,S}}}(undef, nchunks)
+    Threads.@threads :dynamic for k in 1:nchunks
+        lo = (k - 1) * SUPPORT_CHUNK + 1
+        parts[k] = support_sum(m, traj, rule, h, lo:min(n, lo + SUPPORT_CHUNK - 1), S)
+    end
+    Iρg, Iρġ, I∇ρg = parts[1]
+    for k in 2:nchunks
+        Iρg += parts[k][1]
+        Iρġ += parts[k][2]
+        I∇ρg += parts[k][3]
+    end
+    return scale * Iρg, scale * Iρġ, scale * I∇ρg
+end
+
+# The points of a chunk: 2048 of `SupportRule`'s defaults in 64 chunks,
+# one per thread of a Symmetry node.
+const SUPPORT_CHUNK = 32
+
+# `support_integrals`' sums over the rule's points `js`, without the
+# scale `ℓ³/γ`.
+function support_sum(m::ParticleModel, traj::Trajectory, rule::SupportRule, h, js,
+                     ::Type{S}) where {S}
+    (; z, v) = traj
     ℓ = m.ℓ
     γ = lorentz_factor(v)
     c = γ / (γ + 1)
-    scale = ℓ^3 / γ
-    S = typeof(scale * first(h(z)))
     Iρg, Iρġ, I∇ρg = zero(S), zero(S), zero(SVector{3,S})
-    for (y, w) in zip(rule.y, rule.w)
+    for j in js
+        y, w = rule.y[j], rule.w[j]
         ly = ℓ * y
         x = z + ly - (c * dot(v, ly)) * v
         q = dot(ly, ly)
@@ -53,7 +85,7 @@ function support_integrals(m::ParticleModel, traj::Trajectory, rule::SupportRule
         Iρġ += w * ρ * ġ
         I∇ρg += (w * g) * ∇ρ
     end
-    return scale * Iρg, scale * Iρġ, scale * I∇ρg
+    return Iρg, Iρġ, I∇ρg
 end
 
 # The particle's own near field, `Ψ - Φ_C`: the near-field terms and the
@@ -138,24 +170,102 @@ mutable struct DynamicScratch
     w::Any                              # (Π_r, 0), whose rate is (0, LΠ_r)
     dw::Any
     last::Any                           # what the last solve did
+    renew::Bool                         # find the next solve's Jacobian afresh
+    bias::Any                           # the running mean of the predictor's `ä`'s bias
+    bias_t::Any                         # when it was last brought forward
+    seconds::Dict{Symbol,Float64}       # wall-clock seconds by part, summed over solves
+end
+
+DynamicScratch() = DynamicScratch(nothing, nothing, nothing, nothing, false, nothing,
+                                  nothing, Dict(k => 0.0 for k in SOLVE_PARTS))
+
+# The parts of a solve whose seconds `solve_seconds` reports: the whole
+# solve, `LΠ`'s `wave_rhs!`, the source's projections, the residuals
+# (those of the Jacobian included) and the Jacobians.
+const SOLVE_PARTS = (:solve, :laplacian, :projection, :residual, :jacobian)
+
+# `f()`, its wall-clock seconds added to part `key` of `sc`.
+function tally(f, sc::DynamicScratch, key::Symbol)
+    t0 = time_ns()
+    result = f()
+    sc.seconds[key] += (time_ns() - t0) / 1e9
+    return result
 end
 
 """
-    Dynamic(external, past; onset = 0, n2 = 4, rule = SupportRule(T), tol = 1e-10,
-            source_tol = 0.1)
+    solve_seconds(m::Dynamic)
+
+The wall-clock seconds `m`'s solves have taken so far, by part, as a
+named tuple: `solve` in all, and of it `laplacian` (`LΠ`'s `wave_rhs!`),
+`projection` (the source's projections near the particles), `residual`
+(every residual, the Jacobians' included) and `jacobian` (the Jacobians
+by finite differences). For the drivers' cost rows.
+"""
+solve_seconds(m) = NamedTuple{SOLVE_PARTS}(map(k -> m.scratch.seconds[k], SOLVE_PARTS))
+
+"""
+    renew_jacobian!(m::Dynamic)
+
+Have the next solve of `m`'s jets find its Jacobian afresh rather than
+keep the last one, so that `m.scratch.last.jacobian` is then the one at
+that solve's state: its `ä` block's distance from `MγI` is the grid's
+self-inertia at the current `γ`, which a kept Jacobian misreads by the
+change in `γ` since it was found (`CODE.md`, "The equations of motion"
+under "Measured results"). For diagnostics; it costs a Jacobian.
+"""
+renew_jacobian!(m) = (m.scratch.renew = true; m)
+
+"""
+    solve_state(m::Dynamic)
+    solve_state!(m::Dynamic, s)
+
+What `m`'s next solve starts from beyond the state vector, as a named
+tuple, and setting it: the last solve's record, whose jets give the next
+guess and whose Jacobian the next solve keeps, whether the next one
+finds its Jacobian afresh, and the running mean of the predictor's
+`ä`'s bias with the time it was brought to, which `source_addot =
+:corrected` writes into the source. A run resumed from a checkpoint of the state
+vector and this, in a fresh `Dynamic` of the same arguments
+([`resume_integrator!`](@ref)), takes the uninterrupted run's steps to
+the bit (`bin/binary.jl`'s `--checkpoint`).
+"""
+solve_state(m) = (; last=m.scratch.last, renew=m.scratch.renew, bias=m.scratch.bias,
+                   bias_t=m.scratch.bias_t)
+
+function solve_state!(m, s)
+    m.scratch.last = s.last
+    m.scratch.renew = s.renew
+    m.scratch.bias = s.bias
+    m.scratch.bias_t = s.bias_t
+    return m
+end
+
+"""
+    Dynamic(external, past; interaction = NoInteraction(), onset = 0, n2 = 4,
+            rule = SupportRule(T), tol = 1e-10, source_tol = 0.1,
+            source_addot = :solved, source_tau = 2,
+            predictor_external = external)
 
 A motion in which each particle moves under its forces (INSPIRAL.md,
 "Equations of motion"): `a`, `ȧ` and `ä` of every particle are solved
 together from the state, from the equation of motion
 
-    m γ a = F_grid + F_own + Σ_b F_b + (I - v vᵀ) F_ext,   m = M₀ + QΦ̄ₑ,
+    m γ a = F_grid + F_own + Σ_b F_b + (I - v vᵀ)(F_ext + F_N),   m = M₀ + QΦ̄ₑ,
 
 and its first two time derivatives, by Newton's method. `F_grid` is the
 remainder's force ([`particle_forces`](@ref)), `F_own` the particle's
 own near field's ([`own_force`](@ref)), `F_b` the other particles'
-fields' ([`other_force`](@ref)), and `F_ext = external[k](z, v)` an
-`isbits` callable such as [`SpringForce`](@ref). `a⃛` and `a⃜` come from
-the predictor ([`predicted_jets`](@ref)).
+fields' ([`other_force`](@ref)), `F_ext = external[k](z, v)` an
+`isbits` callable such as [`SpringForce`](@ref), and `F_N` the
+`interaction` with the other particles, such as the binary's
+[`NewtonianForce`](@ref), along their jets. `a⃛` and `a⃜` come from
+the predictor ([`predicted_jets`](@ref)), which takes the same
+interaction and, unless `predictor_external` says otherwise, the same
+external forces. `predictor_external` is for experiments on the
+predictor alone, such as a [`DipoleDrag`](@ref) in place of the radiation
+reaction it leaves out; the solve reads them only through the source's
+`a⃛` and `a⃜`, and its `ä` with `source_addot = :predicted` ("The
+predictor's drag" under "The breathing instability" in `CODE.md`).
 
 `past` is a [`Prescribed`](@ref) motion: the initial data are its
 retarded field, and the force takes over from it as
@@ -170,27 +280,71 @@ than `source_tol` from where it was found, relative to their size: the
 source reads the jets so weakly that never finding it again moves the
 force by `3·10⁻⁸ F_RR` while the force takes over, where the jets move
 up to 9% from the guess (`CODE.md`, "The equations of motion").
+
+`source_addot = :predicted` writes the source, and projects it in the
+solve, with the predictor's `ä` (blended with the past's as `a⃛` is) in
+place of the solved one, which the solve still finds and
+`m.scratch.last.trajs` records. The blended predictor's `ä` is in
+`m.scratch.last.addot_predicted` with either choice. It began as an
+experiment on what the solved `ä`'s jumps at element faces do to the run
+(`CODE.md`, "The binary" under "Measured results"), and is a candidate
+cure of the binary's breathing instability ("The breathing
+instability"). The solved `ä` departs from the predictor's by about
+`0.005q²` of it along itself and `−0.035q²` toward `ȧ`; before the
+predictor's inertia took the other charge's potential, by `0.07q²` along
+itself ("The predictor with the potential").
+
+`source_addot = :corrected` writes it with the predictor's `ä` plus a
+running mean of that bias: each solve fits the solved `ä`'s departure
+from the predictor's as `α ä_p + β (|ä_p|/|ȧ_p|) ȧ_p`, with `ä_p` and
+`ȧ_p` the blended predictor's, which on a circle is constant, and the
+mean of `(α, β)` follows it as `dμ/dt = (fit − μ)/τ`, `τ = source_tau`,
+brought forward at each solve later in time than the last, as the
+stages of a step are, once the force has taken over: during the onset the
+solved jets follow the blend with the past, many times the bias at a
+short onset, and the mean is held at zero. The source takes `μ` as it
+stood before the solve. It is an experiment: no more accurate than
+`:predicted`, with a margin that shrinks as `q²/τ`, and its mean is
+state outside the state vector ("The corrected `ä`").
+A `τ` long beside the breathing's period, `2π/8`, keeps the loop open
+(`bin/breathing_loop.jl --source-addot=corrected`). The mean is in
+`m.scratch.bias` with any choice, and the source's `ä` in
+`m.scratch.last.addot_source`.
 """
-struct Dynamic{X<:Tuple,P<:Prescribed,T}
+struct Dynamic{X<:Tuple,Y<:Tuple,I,P<:Prescribed,T}
     external::X
+    predictor_external::Y
+    interaction::I
     past::P
     onset::T
     n2::Int
     rule::SupportRule{T}
     tol::T
     source_tol::T
+    source_addot::Symbol
+    source_tau::T
     scratch::DynamicScratch
 end
 
-function Dynamic(external::Tuple, past::Prescribed; onset::Real=0, n2::Integer=4,
-                 rule=nothing, tol::Real=1e-10, source_tol::Real=0.1)
+function Dynamic(external::Tuple, past::Prescribed; interaction=NoInteraction(),
+                 onset::Real=0, n2::Integer=4, rule=nothing, tol::Real=1e-10,
+                 source_tol::Real=0.1, source_addot::Symbol=:solved,
+                 source_tau::Real=2, predictor_external::Tuple=external)
     T = eltype(first(past.path(0.0)).z)
+    source_addot in (:solved, :predicted, :corrected) || throw(ArgumentError(
+        "source_addot must be :solved, :predicted or :corrected, got :$source_addot"))
+    source_tau > 0 || throw(ArgumentError("source_tau must be positive, got $source_tau"))
     onset >= 0 || throw(ArgumentError("the onset must not be negative, got $onset"))
     length(external) == length(past.path(zero(T))) || throw(ArgumentError(
         "$(length(external)) external forces for $(length(past.path(zero(T)))) particles"))
+    length(predictor_external) == length(external) || throw(ArgumentError(
+        "$(length(predictor_external)) predictor forces for $(length(external)) particles"))
     rule === nothing && (rule = SupportRule(T))
-    return Dynamic(external, past, T(onset), Int(n2), rule, T(tol), T(source_tol),
-                   DynamicScratch(nothing, nothing, nothing, nothing))
+    isbits(interaction) || throw(ArgumentError(
+        "the interaction must be isbits, got a $(typeof(interaction))"))
+    return Dynamic(external, predictor_external, interaction, past, T(onset), Int(n2),
+                   rule, T(tol), T(source_tol), source_addot, T(source_tau),
+                   DynamicScratch())
 end
 
 retarded_path(m::Dynamic) = m.past.path
@@ -294,7 +448,8 @@ function dynamic_residual(m::Dynamic, p::InspiralProblem{T,K}, fu, fdu, LΠ, zs,
                 F += Fb
                 Q += Qb
             end
-            Fx = m.external[k](tr.z, tr.v)
+            Fx = m.external[k](tr.z, tr.v) +
+                 pair_force(m.interaction, p.models, map(j -> j.z, jτ), k)
             Eφ = (mk.M₀ + Q) * γ * tr.a - F - (Fx - dot(tr.v, Fx) * tr.v)
             σ = handover(m, t + τ)
             return σ * Eφ + (1 - σ) * mk.M * (tr.a - trajectory_at(past[k], τ).a)
@@ -342,18 +497,42 @@ before the force takes over, the past's jets. What the solve did is in
 function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     past = m.past.path(T(t))
     m.onset > 0 && t <= 0 && return past
+    return tally(() -> solve_handed_over(m, p, u, fdu, t, past), m.scratch, :solve)
+end
+
+function solve_handed_over(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t,
+                           past) where {T,K}
     fu = field_state(u, p)
     zv = particle_state(u, p)
     zs, vs = map(first, zv), map(last, zv)
-    pred = predicted_jets(p.models, m.external, zs, vs)
+    pred = predicted_jets(p.models, m.predictor_external, zs, vs;
+                          interaction=m.interaction)
     σ = handover(m, T(t))
     mix(f) = ntuple(k -> (1 - σ) * getfield(past[k], f) + σ * getfield(pred[k], f), Val(K))
     higher = ntuple(k -> (mix(:a⃛)[k], mix(:a⃜)[k]), Val(K))
-    LΠ = rate_laplacian(m.scratch, p, fu, T(t))
+    sc = m.scratch
+    if sc.bias === nothing
+        sc.bias = ntuple(k -> SVector{2,T}(0, 0), Val(K))
+        sc.bias_t = T(t)
+    end
+    # The basis of the predictor's bias, `ä_p` and `ȧ_p` scaled to its size.
+    basis = ntuple(Val(K)) do k
+        äp, ȧp = mix(:ä)[k], mix(:ȧ)[k]
+        nȧ = norm(ȧp)
+        (äp, nȧ > 0 ? (norm(äp) / nȧ) * ȧp : zero(ȧp))
+    end
+    correction(k) = sc.bias[k][1] * basis[k][1] + sc.bias[k][2] * basis[k][2]
+    # The jets the source is written with: the solved ones, or with
+    # `source_addot = :predicted` the predictor's `ä` in their place, with
+    # `:corrected` that plus the mean of its bias.
+    addot_source = ntuple(k -> m.source_addot === :corrected ? mix(:ä)[k] + correction(k) :
+                               mix(:ä)[k], Val(K))
+    sourced(X) = m.source_addot === :solved ? X :
+                 ntuple(k -> (X[k][1], X[k][2], addot_source[k]), Val(K))
+    LΠ = tally(() -> rate_laplacian(m.scratch, p, fu, T(t)), m.scratch, :laplacian)
     pack(X) = reduce(vcat, (vcat(x...) for x in X))
     unpack(x) = ntuple(k -> ntuple(j -> SVector{3,T}(x[9(k - 1) + 3(j - 1) .+ (1:3)]), 3),
                        Val(K))
-    sc = m.scratch
     # The first guess: the last solve's jets, advanced to `t` along their
     # Taylor polynomials, if it was near in time; the blend otherwise.
     near = sc.last !== nothing && length(sc.last.trajs) == K &&
@@ -366,17 +545,22 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     else
         Vector{T}(pack(ntuple(k -> (mix(:a)[k], mix(:ȧ)[k], mix(:ä)[k]), Val(K))))
     end
-    sources = source_projections(p, zs, vs, higher, unpack(x))
+    project(x) = tally(() -> source_projections(p, zs, vs, higher, sourced(unpack(x))),
+                       sc, :projection)
+    sources = project(x)
     xp = copy(x)                        # where the sources were found
-    resid(x) = pack(dynamic_residual(m, p, fu, fdu, LΠ, zs, vs, higher, past, T(t),
-                                     unpack(x), sources))
+    resid(x) = tally(sc, :residual) do
+        pack(dynamic_residual(m, p, fu, fdu, LΠ, zs, vs, higher, past, T(t), unpack(x),
+                              sources))
+    end
     r = resid(x)
     n = length(x)
     # The residual is nearly affine in the jets, and its Jacobian changes
     # slowly with the state: it is kept from the last solve, and found
     # again by finite differences when there is none or the chord
     # iteration converges slowly with it.
-    function jacobian()
+    jacobian() = tally(jacobian_fd, sc, :jacobian)
+    function jacobian_fd()
         J = Matrix{T}(undef, n, n)
         scale = pack(ntuple(k -> (pred[k].a, pred[k].ȧ, pred[k].ä), Val(K)))
         for i in 1:n
@@ -399,8 +583,9 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     # converges with it all the same, so it would be kept for good. It is
     # found again when the blend has moved by a quarter, and when the
     # force has taken over.
-    fresh = sc.last === nothing || size(sc.last.jacobian) != (n, n) ||
+    fresh = sc.renew || sc.last === nothing || size(sc.last.jacobian) != (n, n) ||
             (σ != sc.last.σ && (σ == 1 || abs(σ - sc.last.σ) > 1 // 4))
+    sc.renew = false
     J = fresh ? jacobian() : sc.last.jacobian
     σJ = fresh ? σ : sc.last.σ          # the blend at which `J` was found
     iterations = 0
@@ -410,7 +595,9 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     projected = false                   # the sources are those of the last iterate
     moves = T[]                         # how far the jets moved from each source
     for it in 1:20
-        dx = J \ r
+        # The ranks of a distributed forest take rank 0's step, as LAPACK
+        # may differ in its last bits between CPUs ("Running distributed").
+        dx = rank_agree(p.wave.fs, J \ r)
         x -= dx
         r = resid(x)
         iterations = it
@@ -422,7 +609,7 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
             (projected || norm(x - xp) <= m.source_tol * norm(x)) &&
                 (converged = true; break)
             push!(moves, norm(x - xp) / norm(x))
-            sources = source_projections(p, zs, vs, higher, unpack(x))
+            sources = project(x)
             xp = copy(x)
             projections += 1
             r = resid(x)
@@ -452,7 +639,32 @@ function solve_jets(m::Dynamic, p::InspiralProblem{T,K}, u, fdu, t) where {T,K}
     hₑ = frame_hₑ(p.wave.fs.forest, p.frame, order(p.wave.element) + 1)
     reach = hₑ / max(maximum(v -> norm(v), vs), eps(T))
     push!(moves, norm(x - xp) / norm(x))
+    # The solved `ä`'s departure from the predictor's, fitted on the basis
+    # by least squares, and the mean brought forward to `t`.
+    fit = ntuple(Val(K)) do k
+        b1, b2 = basis[k]
+        δ = X[k][3] - mix(:ä)[k]
+        G = SMatrix{2,2,T}(dot(b1, b1), dot(b2, b1), dot(b1, b2), dot(b2, b2))
+        g = SVector{2,T}(dot(b1, δ), dot(b2, δ))
+        # Where the predictor's `ä` or `ȧ` vanishes, as from rest under a
+        # constant force, there is no bias to fit along it.
+        iszero(G[1, 1]) ? zero(SVector{2,T}) :
+        iszero(G[2, 2]) ? SVector{2,T}(g[1] / G[1, 1], 0) : G \ g
+    end
+    # While the force takes over, the solved jets follow the blend with
+    # the past, not the predictor's bias, and the mean is held.
+    if T(t) > sc.bias_t
+        if σ == 1
+            w = -expm1(-(T(t) - sc.bias_t) / m.source_tau)
+            sc.bias = ntuple(k -> sc.bias[k] + w * (fit[k] - sc.bias[k]), Val(K))
+        end
+        sc.bias_t = T(t)
+    end
     sc.last = (; t=T(t), iterations, projections, residual=norm(r), jacobian=J, σ=σJ,
-               fresh, trajs, reach=min(reach, T(Inf)), moves)
-    return trajs
+               fresh, trajs, reach=min(reach, T(Inf)), moves, addot_predicted=mix(:ä),
+               addot_source, fit)
+    m.source_addot === :solved && return trajs
+    S = sourced(X)
+    return ntuple(k -> Trajectory(; z=zs[k], v=vs[k], a=S[k][1], ȧ=S[k][2], ä=S[k][3],
+                                  a⃛=higher[k][1], a⃜=higher[k][2]), Val(K))
 end

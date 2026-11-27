@@ -180,7 +180,7 @@ the particle in uniform motion is
 julia --project=. -t 4,0 bin/uniform_motion.jl --hdiv=4 --tend=0.125
 ```
 
-The particles do not yet move under their forces. They run on uniform
+They run on uniform
 forests and on static nested boxes whose finest level holds their
 source, which moves the box's faces out: a particle at rest on five
 levels stays clean to the end of a run of `t = 20`, and the coarse-fine
@@ -208,6 +208,23 @@ errors and forces to rounding:
 
 ```bash
 julia --project=. -t 4,0 bin/prescribed.jl --path=hyperbolic --hdiv=2 --levels=3 --tend=0.25 --ball --R1=48
+```
+
+A particle can also move under its forces, its acceleration and the
+acceleration's first two derivatives solved together at each stage, and
+two of them form the binary of the first run, held by a Newtonian force
+and started in the ball from the retarded field of an assumed past of
+the orbit. Its diagnostics give the separation, phase, orbital energy,
+centre of mass and eccentricity, and the energy flux through spheres,
+which on a charge's circle converges to the retarded field's. A short
+run of the binary falls inward at the leading-order rate to `O(v²)`, the
+same at three resolutions and at half the time step, the finest over
+MPI on four nodes and resumed from a checkpoint; the warm-up and the
+long orbits come next ([INSPIRAL-PLAN.md](INSPIRAL-PLAN.md)'s M7). A
+coarse binary for a few steps:
+
+```bash
+julia --project=. -t 4,0 bin/binary.jl --hdiv=2 --levels=1 --w0=4 --R1=8 --rx1=10 --rx2=12 --tend=0.25
 ```
 
 ## Design

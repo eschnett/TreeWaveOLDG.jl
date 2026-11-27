@@ -1,0 +1,32 @@
+# `bin/binary.jl --mpi` against the serial run, on one node, before the
+# binary goes over several (`CODE.md`, "Running distributed"): the MPI
+# test alone (`test/mpi_tests.jl`, three ranks under MPICH's own
+# launcher, as `jobs/suite.toml` runs it), then the binary of
+# `jobs/binary_profile.toml`'s `h4` at two and four ranks, whose rows but
+# the seconds must be the serial run's to the bit.
+name = "binary_mpi_check"
+description = "TreeWaveOLDG M6b: the binary over MPI against one rank"
+
+[site.symmetry]
+time = "1:00:00"
+
+[[run]]
+label = "mpitest"
+cmd = "test/some_tests.jl mpi_tests.jl"
+env = "test"
+threads = 4
+vars = { HYDRA_LAUNCHER = "fork", MPIR_CVAR_CH4_SHM_POSIX_RELEASE_GATHER_ENABLE = "0" }
+
+[[run]]
+label = "r2"
+cmd = "bin/binary.jl --levels=3 --w0=4 --R1=50 --hshell=1 --every=1 --hdiv=4 --tend=0.25 --mpi"
+ranks = 2
+threads = 32
+placement = "numa"
+
+[[run]]
+label = "r4"
+cmd = "bin/binary.jl --levels=3 --w0=4 --R1=50 --hshell=1 --every=1 --hdiv=4 --tend=0.25 --mpi"
+ranks = 4
+threads = 16
+placement = "numa"

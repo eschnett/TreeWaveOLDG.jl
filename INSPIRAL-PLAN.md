@@ -7,7 +7,9 @@ knows it is done. Section names of `INSPIRAL.md` and `CODE.md` are used
 below without links.
 
 **Status.** M0 to M5 are done; M6a is done (2026-11-20), merged with
-pull request #21; M6b and M7 are not started; of M8,
+pull request #21; M6b is under way (2026-11-20), its work done and its
+pull request #24 open; M7
+is not started; of M8,
 M8a and M8b are done (2026-11-11), M8a's gate having passed, and M8c is
 done (2026-11-14), merged with pull request #15. M8d, data that are the
 field far from an accelerated particle, is done (2026-11-15), merged with
@@ -157,7 +159,7 @@ These hold for every milestone.
 | M4 | 4 | `inspiral-m4-prescribed` | hyperbolic motion and the slow circle; **go/no-go** | M3b |
 | M5 | 5 | `inspiral-m5-labslice` | lab-slice re-expansion, the circle at `v = 0.2` | M4 |
 | M6a | 6, first half | `inspiral-m6a-solved` | the `a`, `ȧ`, `ä` solves, the predictor, one particle on an external force | M5 |
-| M6b | 6, second half | `inspiral-m6b-binary` | the binary's initial data and diagnostics, the flux check, a short binary run | M6a |
+| M6b | 6, second half | `inspiral-m6b` | the binary's initial data and diagnostics, the flux check, a short binary run | M6a |
 | M7 | 6, the rest | `inspiral-m7-orbits` | warm-up, orbits, checkpointing, the convergence series | M6b |
 | M8a | — | `inspiral-m8a-sphere` | the radiative sphere's reflection against nested boxes; **gate** | — |
 | M8b | — | `inspiral-m8b-refined-ball` | refinement inside the ball's cube, the field alone | M8a |
@@ -219,9 +221,16 @@ results".
 
 ### M6b: The binary's parts
 
-**Status:** not started. `INSPIRAL.md`: "Initial data: a quasi-circular
-orbit", "Diagnostics"; validation step 6, second half, as far as it can
-be checked with short runs.
+**Status:** under way (2026-11-20) on `inspiral-m6b`; the code, the
+tests and the runs are done, `d/8` over MPI on four nodes included
+(2026-11-22), and the documents (`CODE.md`, "Initial data",
+"Diagnostics", "Running distributed", and "The flux" and "The binary"
+under "Measured results"). Pull requests #25, the breathing instability
+at large charge and its cure, and #26, the movie of the inspiralling
+binary, are merged into the branch (2026-11-27); its own pull request,
+#24, is open. `INSPIRAL.md`: "Initial data:
+a quasi-circular orbit", "Diagnostics"; validation step 6, second half,
+as far as it can be checked with short runs.
 
 - **Initial data**: `Ω` from the predictor's two-body force, positions
   and velocities about the centre of mass, `Σ γₐMₐvₐ = 0`, and the fields
@@ -235,20 +244,24 @@ be checked with short runs.
   `R_ext > R₂` by a Gauss product rule on the sphere of `reconstruct`ed
   `Π_r ∂_rΦ_r`, the orbital energy, the drift of the centre of mass, and
   the leading-order `ḋ`.
-- **The flux check** on M4's prescribed circle: once the initial junk
-  has passed the sphere, the flux averaged over a fraction of the period
-  matches the dipole power `|d̈|²/12π` to `O(v²)`. This is the one
-  diagnostic that a short run can validate against a known answer.
+- **The flux check** on M8e's prescribed circle in the ball, `v = 0.2`,
+  from the retarded field (the owner, 2026-11-20, in place of M4's
+  `v = 0.05` boxes): the flux averaged over whole orbits converges to the
+  retarded field's at the same points, and that matches the dipole power
+  `|d̈|²/12π` to `O(v²)`. This is the one diagnostic that a short run
+  can validate against a known answer.
 - **A short binary run** (`bin/binary.jl`): `Dynamic` from the initial
-  data, released at once with no warm-up, on M3b's nested boxes, for as
-  long as their clean time allows on one Symmetry node.
+  data, the force taking over from the past over one orbit, in the
+  seven-patch ball with M3b's nested cubes in its cube, to `t = 32` on
+  one Symmetry node.
 
 Tests: a coarse binary takes a few steps with a finite right-hand side,
 and the centre of mass stays put to roundoff over them.
 
 **Done when** the flux check passes on the circle. The short binary run
-must stay smooth while the junk leaves, and its centre-of-mass drift and
-its radial and tangential forces after the junk has passed are recorded.
+must stay smooth through the hand-over, and its centre-of-mass drift and
+its radial and tangential forces after it are recorded, with what was and
+was not checked for instabilities in the higher derivatives.
 `CODE.md` has "Initial data" and "Diagnostics". README's status mentions
 the binary's parts.
 
@@ -276,7 +289,11 @@ memory (below).
   and the parameters, as raw arrays plus a TOML header, which needs no
   new dependency, written every
   few minutes of wall clock. A run can then be split into chunks on
-  `amddebugq` (1 hour) or continued on `amdq` (24 hours).
+  `amddebugq` (1 hour) or continued on `amdq` (24 hours). M6b's `d/8`
+  gave `bin/binary.jl` one (`CODE.md`, "Initial data"): each rank's
+  state, step and solve state with `Serialization`, resumed through
+  SimLaunch's restart chain, bit for bit; whether M7 keeps it, readable
+  only by the same Julia, or writes the raw arrays and header is open.
 - **Job specs** in `jobs/` for the run, a run per resolution.
 - **The series**: three resolutions, `P = 3`, each scaling M3b's layout
   as a whole. Record `d(t)`, the phase, `ḋ`, the flux balance, and the
@@ -432,7 +449,6 @@ Decisions that are better made with numbers, at the start of the
 milestone named. Those of the finished milestones are in `HISTORY.md`
 ("Settled later").
 
-- M6b: whether diagnostics get their own file.
 - M7: its outer region, nested boxes with seven or more levels, or the
   ball, which M8c has made ready; and its initial data. `INSPIRAL.md`'s
   `(1 − W)Ψ̂` is ruled out far from the binary (M8c). On M5's circle

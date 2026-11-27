@@ -1795,6 +1795,389 @@ patches.
   a whole `wave_rhs!` per stage, doubles the circle's step at `d/12`. A
   Laplacian of `Π_r` on the support's elements alone is proposed in
   `CODE.md`.
+- 2026-11-20: M6b started, the binary's parts (`CODE.md`, "Initial
+  data" and "Diagnostics"). Erik Schnetter settled the plan's questions:
+  - **The ball and M8f's past**, not M3b's boxes released at once: the
+    boxes' kinked far data and short clean time are what M8 removed.
+  - **`v = 0.2` fixed and `G` solved** (0.08204), rather than
+    `INSPIRAL.md`'s `G = 0.0804` and `Ω` solved, so that M8's grids and
+    measured pasts carry over.
+  - **The flux check on M8e's `v = 0.2` circle in the ball**, not on M4's
+    `v = 0.05` boxes, the plan's text: the ball's data are the retarded
+    field, clean from the start, and the flux's `O(v²)` departure from
+    the dipole power is then large enough to see.
+  - **`LΠ` on the support's elements alone deferred to M7.** Asked what
+    it would take, he was told: gathering `Π_r` on the `5³` elements
+    about the support and applying the element's Laplacian tables there,
+    tested against `wave_rhs!`; a second copy of the Laplacian's
+    arithmetic for about 2 s of a step estimated at 8–9 s.
+  - **The quarter ball** (`x ≥ 0`, `z ≥ 0`, with a reflection and a
+    half-turn), his suggestion, to be recommended if the runs proved very
+    expensive; not for M6b, since the transfer would have to fold every
+    read across both faces.
+
+  Through M6a's session he asked that the runs watch for the
+  instabilities in the higher derivatives that other self-force schemes
+  report: every step the jets, the solved `ä`'s rate against the
+  predicted `a⃛`, Newton's residual and a fresh Jacobian's `δm_h`, at
+  two resolutions and half the step. He also had the large runs,
+  test files included, go to a cluster rather than the laptop.
+
+  Writing the tests found that opposite charges repel in the scalar
+  theory and like ones attract; a comment in the predictor's tests said
+  otherwise and was fixed. The binary's symmetry test first asked for
+  `10⁻⁸` in every jet; `ȧ` and `ä` keep it to `10⁻¹⁰` and `10⁻⁸`
+  because each time derivative reads the unsymmetric field through
+  another of the grid's second differences, so the test's tolerances are
+  per jet. The first flux test, of a field like `1/r`, had a singularity
+  at a node; it takes `g(r²)` and `h(r²)`.
+
+  The flux runs found that a sphere whose centre is not the circle's
+  sees a flux that changes over the orbit, the energy inside it moving
+  as the charge goes round, so `bin/flux.jl` compares means over whole
+  orbits. On the centred sphere the retarded field's flux is
+  `γ⁴Q²a²/12π` exactly.
+
+  The first binary step at `d/4` took 9.2 s, the own and other fields'
+  quadrature over the support serial on the host; threaded over chunks
+  of the rule summed in order, the same numbers, it took 4.6 s. The runs
+  at half the step and at `d/6`, which would have taken about 18 hours,
+  were cancelled after their first hour and restarted on the threaded
+  code at his request; the `d/4` run and the circle ran on.
+- 2026-11-21: M6b's runs finished (`CODE.md`, "The flux" and "The
+  binary" under "Measured results"). The flux converges to the
+  retarded field's at about second order in the orbit's mean, so the
+  plan's done-when for the flux holds. The binary's orbit is the same at
+  `d/4`, `d/6` and half the step, its centre of mass drifting as the
+  grid's error. Nothing grew that depends on the resolution or the step;
+  the solved `ä` jumps by up to three times itself where the support
+  straddles an element face, halving from `d/4` to `d/6`, and the
+  binary's `δm_h/M` is `3.9·10⁻⁴`, about `q²/4π`, at every resolution,
+  both recorded as open. `d/8` was not run: about 28 hours, past
+  `amdq`'s 24, without a checkpoint.
+- 2026-11-21: two experiments on the solved `ä`, at the owner's
+  question whether there were two problems in it, a 1 % that does not
+  converge and noise at the faces (`CODE.md`, "The binary" under
+  "Measured results"). Particles of twice the size cut the jump at a
+  face about as `ℓ⁻²` and left the departure away from the faces as it
+  was, to the digits shown; so that departure is the grid's, falling
+  from `d/4` to `d/6`, not the tail of the crossings, as it had seemed
+  in the morning's reading of the runs. The source written with the predictor's
+  `ä` left the solved `ä` and the orbit as they were, so the noise does
+  not feed back. `Dynamic`'s `source_addot` and `bin/binary.jl`'s
+  `--ell` and `--source-addot` stay as experiments. The full suite
+  passed on Symmetry three ways on the same commit.
+- 2026-11-21: the binary's `δm_h/M ≈ 3.9·10⁻⁴`, left open in the
+  morning, traced (`CODE.md`, "The binary" under "Measured results"):
+  it is the other charge's potential in the equation's mass
+  `m = M₀ + QΦ̄ₑ`, `γQΦ̄_b = q²/(4πdγ)` at `d = 1`, which the residual's
+  analytic parts alone give to five digits, and the cross block is
+  `Ψ̂₂`'s order-3 near field. What is left for the grid is
+  `1.5·10⁻⁷ M` typically. The recorded `δm_h` measures the grid's
+  self-inertia only for a lone particle; subtracting `QΦ̄ₑ` for the
+  binary was proposed, not done.
+- 2026-11-21: the 1–2 % in the binary's solved `ä` away from the faces
+  traced, from the runs' records (`CODE.md`, "The binary" under
+  "Measured results"). It is a ringing of the grid's field at
+  `ω hₑ ≈ 8` to 10, the same at half the step, which the force carries
+  at about 1 % of `F_RR`, the prescribed circle's equally. `ȧ` reads it
+  times `ω` and `ä` times `ω²`, so `ä`'s part falls little with `hₑ`
+  while the force's falls by 2.4 from `d/4` to `d/6`. What rings the
+  field stays open.
+- 2026-11-21: the prescribed circle at `v = 0.1` and 0.05
+  (`jobs/ringing.jl`, at the owner's request) put the ringing's band at
+  `ω hₑ ≈ 8` to 9 at every speed, with the same amplitude, which rises at
+  `t ≈ 4` and falls fourfold by `t = 24`. So it is a transient of the
+  grid's own modes, not the moving source's projection, which would
+  have moved the band as `v/hₑ`, and not driven by the motion. `ä`'s
+  departure away from the faces follows it, 1.3 % to 0.55 % after the
+  hand-over. That the transient is the initial data's error from the
+  coarser levels is likely and was not checked.
+- 2026-11-21: the owner asked for the two left over. The likely cause
+  of the ringing was wrong: the circle with its coarse-fine faces at 8
+  instead of 4 (`jobs/ringing.jl`'s `circle-w8`) rings as before, to a
+  few percent window by window. With the window twice as wide,
+  `R₁ = 2.5`, `R₂ = 5` (`--window`, `circle-w8-win`), the ringing is 30
+  to 50 times less from `t = 0` on and the mean force the same to
+  `3·10⁻⁴`: the grid answers the source in the window's shell at its own
+  high frequencies. The wider window costs twice the step; whether the
+  binary should take it is the owner's, and why the ringing grows from
+  `t ≈ 4` and then falls stays open. `bin/binary.jl` now records the
+  grid's part of `δm_h` alone (`dmhgrid<k>`), less the other charge's
+  potential through the hand-over's blend; a `d/4` run to `t = 20` gives
+  `1.7·10⁻⁷` after the hand-over, as the analysis of the old rows had.
+- 2026-11-21: `d/8`, which would have taken about 28 hours on one node,
+  made to run (`CODE.md`, "Running distributed", "Initial data" and "The
+  binary" under "Measured results"). Erik Schnetter preferred several
+  nodes over MPI to a checkpoint, with a checkpoint as the fallback or
+  both; both were done. A profile on one node (job 607832) split a step
+  at `d/8` into 4.6 s of field and source and 4.3 s of the jets' solve,
+  half of that `LΠ`, the part that grows with the mesh; the projections
+  and residuals, about 1 s each, do not. `bin/binary.jl` now records
+  those parts every step (`solve_seconds`).
+  - **Over MPI** three things stood in the way. `Dynamic`'s solve had
+    never run on a distributed forest; it needed nothing but its Newton
+    step agreed, since LAPACK's `J \ r` may differ in its last bits
+    between `amdq`'s EPYC 7532 and 7543 nodes and the ranks would then
+    take different numbers of the residual's collective gathers:
+    `rank_agree` takes rank 0's. The spheres refused a distributed
+    forest; each rank now stencils its own points and the values are
+    gathered in the serial order. The drivers' output came from every
+    rank. The MPI test gained the binary's two steps and the spheres,
+    bit for bit on three ranks (job 607833, 12 minutes alone). At `d/4`
+    on one node two ranks of 32 threads gave the one-rank run's records
+    bit for bit, at 5.7 s a step against one rank's 3.7, and four of 16
+    at 9.9: every rank repeats the solve, on fewer threads. So the run
+    takes one rank per node.
+  - **The checkpoint**, every two hours and before the job's time,
+    writes each rank's state, step, solve state and records with
+    `Serialization`, and a later job resumes from the newest one every
+    rank has, through SimLaunch's restart chain. A resumed run, on one
+    rank and on two, gave the uninterrupted run's records bit for bit
+    (job 607849); `test/dynamic_tests.jl` checks it in process.
+  - The suite on the first snapshot failed two tests three ways: the
+    plane's extraction shares the spheres' `stencil_values` and has no
+    gather; fixed, it passed three ways (job 607886, 10517 passing, the
+    one known broken).
+- 2026-11-22: `d/8` ran to `t = 32` on four nodes (`CODE.md`, "The
+  binary" under "Measured results"), at 5.9 s a step. The first job
+  failed at step 7090 after 11.7 hours, when UCX could not register
+  memory for InfiniBand on one node, and hung until its time ran out,
+  so the restart chain did not continue it; it was resubmitted from the
+  checkpoint at step 6025 and finished in 3 h 49 min, its records over
+  the steps both jobs ran the first's to the bit. The orbit is `d/6`'s:
+  `ḋ` to `6·10⁻⁶` of itself, the eccentricity and the mean forces to the
+  digits shown, the centre of mass's drift seven times smaller. The
+  solved `ä`'s jump at a face falls threefold from `d/6`, and the 1 %
+  away from the faces, which had fallen little from `d/4` to `d/6`,
+  halves: the force's ringing falls by 2.3 while its frequency grows by
+  only 1.2.
+- 2026-11-22: the owner had the binary run with the wider window
+  (`jobs/binary.jl`'s `binary-w8-win`, job 608223). It took more than
+  the estimate said: the departure away from the faces fell 10 to 20
+  times, to about 0.1 %, not to a few hundredths of a percent, but the
+  jump at a face crossing fell 28 times too, to 2 % rms. That jump had
+  been put down to the particle's size alone, from its `ℓ⁻²` scaling;
+  the scaling stands, but the field's jump it multiplies is mostly the
+  ringing's. The orbit is the same to `2·10⁻⁴` in `ḋ`. The finest cube
+  has to be twice as wide to hold the window's ball, so the step costs
+  twice as much.
+- 2026-11-22: the movie's dynamic binary at `q² = 0.2`, `ℓ = 0.04`
+  (job 607865) went unstable: its separation oscillated at `ω = 7.7`,
+  growing 1.3 per unit time from `t ≈ 9`, until the solve failed at
+  `t ≈ 16`. The movie's session asked for the cause before any fix. Its
+  guess, a grid feedback `∝ q²/(M hₑ)`, did not hold: the grid's part
+  of `δm_h` is `10⁻⁵` at `d/4`. `jobs/instability.jl` scanned the
+  charge, `ℓ`, `hₑ`, the step, the window and the near field's order
+  (`CODE.md`, "The breathing instability" under "Measured results").
+  `ω ≈ 8` throughout, and the growth depends only on the charge: 1.4,
+  0.5 and none at `q² = 0.2`, 0.05 and 0.0125. Orders 1 and 2 are
+  stable. The window twice as wide slows the growth to 0.24 without
+  removing it. A model without a grid, `bin/breathing_loop.jl`,
+  identified the loop and gives these numbers to 10 to 20 %. The solved
+  `ä` writes into the source an oscillation the predictor's `a⃛` and
+  `a⃜` do not follow; the order-3 near field's `ä` term leaves an error
+  source over the window's ball; and its field pushes both particles
+  in phase along their separation. The run with the predictor's `ä` in
+  the source, which the model predicts stable, is stable to `t = 20` at
+  `q² = 0.2`. The cure is left to the owner.
+- 2026-11-23: the owner preferred the source with the predictor's `ä`
+  and asked what error it introduces. `Dynamic` now keeps the blended
+  predictor's `ä` in its solve record, and `bin/binary.jl` writes it per
+  row with the positions and velocities. `jobs/addot_error.jl` ran the
+  binary with the solved and the predicted `ä` side by side at
+  `q² = 0.005` and 0.01, at `d/2` and `d/4`. They agree in the
+  tangential force and the energy loss to `7·10⁻⁴` or better, with no
+  difference that persists at `d/4`. At `q² = 0.2` the predicted `ä`
+  is stable at both resolutions, and its force against the dipole's
+  is 0.3 % above the small charges'. A second way, `bin/addot_error.jl`,
+  estimates the error from one run's rows through the retarded field of
+  the source's mismatch. It failed the check below the threshold,
+  overestimating the measured effect by orders of magnitude: it
+  differences the solved jets' step-to-step jumps across rows, and the
+  continuum's retarded field counts the result in full (`CODE.md`,
+  "The breathing instability"). It stays as a starting point, with that
+  caveat.
+- 2026-11-24: the owner asked to try two cures at once: the wider window
+  with the predicted `ä`, and the near field to order 2. `jobs/cures.jl`
+  ran both at `q² = 0.2` and 0.01, at `d/2` and `d/4`. Both are stable at
+  0.2.
+  - The wide window brings the solved `ä` to within 4 % of the
+    predictor's, against 60 to 240 % with the standard window.
+  - With the wide window, `d/2` and `d/4` agree to `10⁻⁴`, and at 0.01
+    it agrees with order 3 and the standard window.
+  - At 0.2 it inspirals 1.3 % further than the standard window and
+    order 2 do, at every resolution. That is likely the error source of
+    the ringing jets, which only the wide window removes.
+  - Order 2 gets the radial force's sign wrong, and its value does not
+    converge.
+
+  `CODE.md`, "Two cures side by side" under "The breathing instability".
+  The choice is left to the owner.
+- 2026-11-25: the owner asked for the check at `q² = 0.05`. It reversed
+  the reading of 2026-11-24: there the wide window holds the binary
+  with either `ä`, and with the solved `ä` the two windows agree to
+  0.1–0.24 %. The wide window with the predicted `ä` loses its energy
+  0.45 % too fast, at both resolutions. So the 1.3 % at 0.2 was the wide
+  window's error, not the standard window's.
+
+  The cause is a bias of the predictor's `ä`, low by about `0.07q²` of
+  itself whichever `ä` the source takes, since the predictor has
+  neither the self force nor retardation. The wide window weighs a wrong
+  `ä` ten to thirty times more than the standard window. `CODE.md`,
+  "Which window is right" under "The breathing instability". A source
+  `ä` corrected by a slow running mean of the bias is proposed, not
+  tried.
+- 2026-11-25: the owner asked to try that source. `Dynamic`'s
+  `source_addot = :corrected` adds to the predictor's `ä` a running mean
+  over `τ` of a fit of the solved `ä`'s departure along the predictor's
+  `ä` and `ȧ`. The first runs (study `twoldg-2a5c44f`) let the onset's
+  fits into the mean, and the smoke run's solve went to NaN; they were
+  cancelled, and the mean now waits for the force to take over
+  (`twoldg-c9b9501`). The smoke run still fails, at `t ≈ 0.03` with the
+  mean zero throughout, so with the predictor's `ä` alone: the smoke's
+  order 3 at `q² = 0.2` with an onset of `1/16` on one level, not the
+  correction.
+
+  With `τ = 2` every run is stable. With the standard window at `d/4` it
+  agrees at `q² = 0.2` with order 2 to `5·10⁻⁵` in `d(20)`, and at 0.05
+  with the wide window's solved `ä`. With the wide window it changes
+  nothing, although its mean is the bias: so the bias was not the cause
+  of the wide window's energy loss, and the reading of the morning is
+  withdrawn. At `d/2` the standard window's mean takes up the face
+  crossings' noise. `CODE.md`, "The corrected `ä`" under "The breathing
+  instability". The wide window's runs at `d/4`, finished later that
+  day, agree with `d/2` to `5·10⁻⁴` in `ΔE/∫P`.
+- 2026-11-25: an independent review of the cure, at e9e72af, by the
+  session writing the scalar particles' paper, which the owner asked
+  for. It confirmed the loop's diagnosis and found four things, each
+  checked here against the runs' logs and the loop model:
+  - The comparisons from `t = 4.5` measured the release's transient.
+    From `t = 8` the wide window's two `ä` agree to 0.06 % at
+    `q² = 0.05`, so the morning's "outlier" and its bias explanation are
+    withdrawn. The windows still differ, by 0.2 % at 0.05 and 2 % at
+    0.2, with either `ä`.
+  - The predictor's inertia leaves out the other charge's potential,
+    which accounts for 85 to 95 % of the bias of its `ä` and for an
+    eccentricity of about `0.076q²` of the released orbit.
+  - The corrected `ä` is no more accurate than the predicted one, its
+    `d(20)` agreement with order 2 is a crossing, and its margin
+    shrinks as `q²/τ`.
+  - With the predicted or corrected `ä` the forces still read the solved
+    `ä`, which the loop model leaves out; and the model's real root at
+    `λ = 16` is the other particle's `ä` term acting directly, not
+    structure below the element width.
+
+  The review proposed the standard window with the predicted `ä`, after
+  the predictor's inertia takes in the other charge's potential. The
+  owner asked for the documents to be corrected and the inertia to be
+  fixed. `CODE.md`, "The release" and "The corrected `ä`" under "The
+  breathing instability".
+- 2026-11-25: the predictor's inertia takes the other particles'
+  potential, `(M + QΦ_C)γ`, the point form of the equation of motion's
+  `m = M₀ + QΦ̄ₑ`; `INSPIRAL.md`'s point form had `M` alone. `G` of
+  `newtonian_binary` follows, from 0.08204 to 0.08207 at M6b's
+  `q² = 0.005` and from 0.097244 to 0.098543 at 0.2, so M6b's measured
+  runs are of the predictor before. `jobs/inertia.jl` measures the bias
+  and the release with it. `CODE.md`, "The equations of motion" and
+  "The release".
+- 2026-11-26: `jobs/inertia.jl`'s five runs (study `twoldg-6cbfa89`)
+  bore the review's estimate out for the eccentricity and not for the
+  bias. The eccentricity falls from `0.080q²` to `0.039q²` at every
+  charge; the part removed is `0.076q²`, as estimated, and the rest,
+  at another phase, had been partly hidden by it. The bias of the
+  predictor's `ä` falls by 35 to 60 % in the standard window, where its
+  fits are too noisy to say more, so two wide-window runs were added
+  (`twoldg-fd16d96`). From `t = 16` `ΔE/∫P` is 0.960 to 0.963 at
+  `q² = 0.01` to 0.2, where before it fell with the charge to 0.950; the
+  higher `ΔE/∫P` at 0.2 from `t = 8` to 12 is a transient that outlasts
+  the eccentricity. So the sharp edge now says to compare energies from
+  `t ≥ 16`. `CODE.md`, "The predictor with the potential" under "The
+  breathing instability".
+- 2026-11-26: the two wide-window runs (`twoldg-fd16d96`) bore the
+  estimate out for the bias too: along the predictor's `ä` it falls
+  from about `0.074q²` to 0.004 and `0.007q²`, and the standard window's
+  smaller fall was its face crossings' noise. The part toward `ȧ`,
+  `−0.035q²`, stays. The windows' difference in `ΔE/∫P` at `q² = 0.2`
+  stays too, at 2.8 % from `t = 16`, but with the wide window now below
+  the standard one where it was 2 % above, so the eccentricity did not
+  make it.
+- 2026-11-26: a second review, of 3eab905 to 36099fa, by the session
+  writing the scalar particles' paper, which the owner asked for. It
+  found `orbit_diagnostics`' energy without the scalar interaction's
+  velocity terms, `−(Q₁Q₂/4πd)V`, whose swing on the eccentric orbit was
+  what had been read as a transient settling by `t ≈ 16`; the rule to
+  compare energies from `t ≥ 16` is withdrawn for loss rates fitted from
+  `t = 8` with those terms. It traced the predictor's departure toward
+  `ȧ` to the radiation reaction it leaves out, and the remaining
+  eccentricity to M6b's release without `ḋ`, and showed that the wide
+  window's loss rate leans on the predictor ten times as much as the
+  standard one's. The owner asked for the energy term, the documents and
+  a test of the drag: `DipoleDrag` and `Dynamic`'s `predictor_external`
+  give the predictor alone a drag, and `jobs/drag.jl` runs both windows
+  with it. `CODE.md`, "The energy's velocity terms" and "The predictor's
+  drag" under "The breathing instability".
+- 2026-11-26: `jobs/drag.jl`'s runs (`twoldg-607e557`): the drag
+  removes the predictor's departure toward `ȧ` and brings the wide
+  window's loss rate from 2.6 % below the standard window's at
+  `q² = 0.2` to 0.5 % below, while the standard window's moves by less
+  than `10⁻⁴`. So the windows' difference was mostly the predictor's
+  missing radiation reaction in `a⃛` and `a⃜`, which the standard window
+  reads too little to show.
+- 2026-11-26: for a pull request the owner chose to merge `inspiral-m6b`
+  (draft PR #24's branch, with `d/8` over MPI and the checkpoints) into
+  this branch and to open the pull request against it. `solve_state`
+  now carries the corrected source's running mean, so a checkpoint
+  holds it.
+- 2026-11-21: Erik Schnetter asked for the movie again with M6b's binary
+  inspiralling under its forces in place of the forced circle. At M6b's
+  `q² = 0.005` the orbit would take `t ≈ 2500` to shrink to `d = 0.7`,
+  so three binaries were put to him, each with `ℓ ∝ q²` to keep
+  `δm/M = 0.26`, at `d/4` on one AMD node:
+  - `q² = 0.1` to `d ≈ 0.8` by `t = 100`, about 17 hours, closest to the
+    measured regime;
+  - `q² = 0.2` to `d ≈ 0.7` by `t = 72`, about 12 hours;
+  - `q² = 0.5` to `d ≈ 0.5` by `t = 42`, about 7 hours, with
+    `δm_h/M ≈ 4 %` and its final waves under-resolved.
+
+  He chose `q² = 0.2`. For the reference, against no reference and the
+  viewer showing `d` alone, he chose the retarded field of the path the
+  run records (`CODE.md`, "The movie"). A new driver,
+  `bin/inspiral_movie.jl`, took the place of a mode of
+  `bin/orbit_movie.jl`, whose path, data and options are a prescribed
+  circle's, and of a mode of `bin/binary.jl`, which another session was
+  changing for the run at `d/8`. Its reference frames are written by the
+  run, since the retarded field at `t` needs the path only up to `t`.
+- 2026-11-21: the movie's first run on Symmetry (job 607840) took 11 to
+  25 s a step against `bin/binary.jl`'s 3.4: at its `o_z = 0.0093` the
+  support of `ℓ = 0.04` straddled the face `z = 0` all the time, which
+  multiplies the solve's projections. It was cancelled, and the orbit's
+  plane moved halfway between element faces (`--oz`), 4.1 s a step. A
+  try on an H200 ran at 55 to 58 s a step, the solve on the host's 8
+  threads, so the movie stayed on an AMD node.
+- 2026-11-22: that run (job 607865) broke down at `t ≈ 17`: the binary
+  breathed at a period of about 0.8, growing from the start, until
+  Newton's solve failed. The owner had it investigated in a session of
+  its own, which found the loop through the solved `ä` in the source and
+  `--source-addot=predicted` to cure it ("The breathing instability").
+- 2026-11-26: the owner had the movie rerun with the predictor's `ä`, on
+  the branch with the predictor's inertia `(M + QΦ_C)γ`, and it reached
+  `t = 72` in 14.1 hours, `d` from 1 to 0.713 in 5.6 orbits. Its 5.7 GB of
+  frames were rendered on Symmetry, at the owner's suggestion, not
+  fetched to the laptop (`CODE.md`, "The movie" under "Measured
+  results").
+- 2026-11-27: the owner found the tracks too dark beside the charges and
+  could not tell the data from what the run made. The tracks became light
+  grey, and the inspiral's maps gained two light fronts about the orbit's
+  centre, of `t = 0` and of the hand-over's end, each widened by the
+  charges' distance from the centre so that beyond the one the field is
+  the data's alone and inside the other the force's alone; the panels of
+  the modes and of `d` shade the same spans (`CODE.md`, "The movie").
+- 2026-11-27: the owner dropped the question of the first `d/8` job's
+  failure in UCX's memory registration, and of whether memory grows on
+  some ranks (Slurm's peak was 114 GB on one rank against 12 to 17 GB on
+  others): no per-rank memory trace is run. The launcher's hang after it
+  went to SimLaunch as a report, not as a change here.
 
 ### What the plan said of its finished milestones
 
@@ -2914,6 +3297,9 @@ force's take-over, for M6b to take.
   `10⁻⁸`. Settled 2026-11-14 by the owner: `R₁` large enough that the
   sphere is causally disconnected from the run, 100 for M8d, and no
   scans in `R₁`.
+- M6b: whether diagnostics get their own file. Settled 2026-11-20:
+  `src/diagnostics.jl`, since they read the particles' state and nothing
+  of the grid (`CODE.md`, "Diagnostics").
 - M8c and the inspiral: initial data that are the field far from an
   accelerated particle. `(1 − W)Ψ̂` of order 3 grows like `r²` and is a
   hundred times the field at `r = 48`, and on the circle what it sent in

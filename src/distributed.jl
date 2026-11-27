@@ -48,6 +48,22 @@ function rank_reduce(op, over, value; present::Bool=true)
 end
 
 """
+    rank_agree(over, v::AbstractVector)
+
+Rank 0's `v` on every rank of `over`: collective. For a number every
+rank computes from the same inputs, but through a library that may pick
+its kernels by the CPU it runs on, as LAPACK's solves do; the ranks of a
+job on several nodes may get different CPUs, and a rank whose number
+differed in its last bit could take another branch and call collectives
+the others do not (`solve_jets`' Newton steps). Serially `v` itself.
+"""
+function rank_agree(over, v::AbstractVector)
+    comm = rank_comm(over)
+    TreeAMR.commsize(comm) == 1 && return v
+    return TreeAMR.bcast(comm, v, 0)
+end
+
+"""
     agree_refusal(f, over)
 
 `f()`, run on every rank of `over`; if it throws an `ArgumentError` on

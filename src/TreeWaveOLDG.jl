@@ -45,7 +45,7 @@ import ForwardDiff
 using IMEXRungeKutta: IMEXProblem, RK4, init, solve!, step!
 using KernelAbstractions: @kernel, @index, @Const, Backend, CPU, get_backend,
                           allocate, synchronize
-using LinearAlgebra: Symmetric, cholesky, det, dot, eigvals, norm
+using LinearAlgebra: Symmetric, cholesky, cross, det, dot, eigvals, norm
 using MultiFloats: Float64x2
 using SpecialFunctions: besselj0
 using StaticArrays: SMatrix, SVector, push, setindex
@@ -97,20 +97,24 @@ export TransferTables, gauss_nodes_weights, sinh_rule, ParticleSupport, project_
 # The coupled problem
 export InspiralProblem, Prescribed, uniform_motion, field_state, particle_state,
        inspiral_initial_state, inspiral_rhs!, inspiral_stage!, inspiral_partition,
-       inspiral_integrator, particle_forces, ball_norm, ball_mean
+       inspiral_integrator, resume_integrator!, particle_forces, ball_norm, ball_mean
 
 # Prescribed paths
-export circular_motion, hyperbolic_motion, retarded_field, point_model,
-       ramped_circular_motion, binary_circular_motion, smoothstep
+export circular_motion, hyperbolic_motion, retarded_field, retarded_gradient,
+       point_model, ramped_circular_motion, binary_circular_motion, smoothstep
 
 # Dynamic particles
-export SpringForce, NoForce, spring_circle, predicted_acceleration, predicted_jets,
-       SupportRule, support_integrals, field_force, own_force, other_force, Dynamic,
-       solve_jets, dynamic_initial_state
+export SpringForce, DipoleDrag, NoForce, NewtonianForce, NoInteraction, spring_circle,
+       newtonian_binary, predicted_acceleration, predicted_jets, SupportRule,
+       support_integrals, field_force, own_force, other_force, Dynamic, solve_jets,
+       dynamic_initial_state, renew_jacobian!, solve_seconds, solve_state, solve_state!
+
+# The binary's diagnostics
+export binding_constant, orbit_diagnostics, dipole_ddot, eccentricity_fit
 
 # Waveforms
-export SphereExtraction, sphere_values, sphere_modes, harmonic_modes, spherical_harmonics,
-       ball_patch_point, PlaneExtraction, plane_values
+export SphereExtraction, sphere_values, sphere_modes, sphere_gradients, sphere_flux,
+       harmonic_modes, spherical_harmonics, ball_patch_point, PlaneExtraction, plane_values
 
 include("precision.jl")
 include("device.jl")
@@ -132,6 +136,7 @@ include("inspiral.jl")
 include("prescribed.jl")
 include("predictor.jl")
 include("dynamic.jl")
+include("diagnostics.jl")
 include("extraction.jl")
 
 end

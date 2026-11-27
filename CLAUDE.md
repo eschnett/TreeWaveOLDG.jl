@@ -214,6 +214,53 @@ below takes about three minutes on four threads:
 julia --project=. -t 4,0 bin/dynamic.jl --hdiv=2 --levels=3 --tend=0.125 --rx1=10 --rx2=14 --onset=0.5 --v=0.2
 ```
 
+The binary of the first run in the ball under its forces ("Initial
+data", "Diagnostics"), from the retarded field of its assumed past, every
+step its orbit, forces, jets and solve; `--prescribed` runs the past's
+circle. On Symmetry `jobs/binary.jl` runs M6b's `d/4`, `d/4` at half the
+step, `d/6` and the circle, a run each, 10 to 12 hours per binary run on
+64 threads and an hour and a half for the circle, and
+`jobs/binary_smoke.toml` the run below, about six minutes on 64 threads:
+
+```bash
+julia --project=. -t 4,0 bin/binary.jl --hdiv=2 --levels=1 --w0=4 --R1=8 --rx1=10 --rx2=12 --tend=0.25
+```
+
+With `--mpi` it runs over MPI under `mpiexec`, bit for bit the serial
+run, and with `--checkpoint=DIR` and `--restart-from=DIR` from
+checkpoints ("Initial data"); `jobs/binary_mpi.jl` runs `d/8` on four
+Symmetry nodes, one rank per node, about 13 hours. Give each rank a
+node's cores: every rank repeats the jets' solve on its own threads.
+`jobs/binary_mpi_check.toml` and `jobs/binary_restart.toml` check both
+against the serial, uninterrupted run, under an hour each.
+
+The binary's breathing instability at large charge ("The breathing
+instability"): `bin/binary.jl --q2` and `bin/dynamic.jl --q2 --ell` set
+the charge, `jobs/instability.jl` scans it on Symmetry, and
+`bin/breathing_loop.jl`, the loop without a grid, gives the growing
+modes in seconds:
+
+```bash
+julia --project=. -t 4,0 bin/breathing_loop.jl --q2=0.2 --split
+```
+
+The flux through spheres ("Diagnostics"): `bin/prescribed.jl --flux=FILE`
+writes it beside the retarded field's, and `bin/flux.jl` gives the
+retarded flux against the dipole power at several speeds (seconds), or
+with `HDIV=FILE` pairs the grid's mean over whole orbits, its error and
+order. On Symmetry `jobs/flux.jl` runs M6b's `d/4`, `d/6` and `d/8` on an
+H200, about two hours for the three:
+
+```bash
+julia --project=. -t 4,0 bin/flux.jl
+julia --project=. bin/flux.jl --v=0.2 4=flux-h4.tsv 6=flux-h6.tsv 8=flux-h8.tsv
+```
+
+A few of the suite's files, on four threads and with
+`--check-bounds=yes` side by side, go to Symmetry through
+`jobs/tests_by_part.jl`, whose `parts` name them (`test/some_tests.jl`);
+a new part is a new snapshot.
+
 The movie of two charges on a circle ("The movie"): `bin/orbit_movie.jl`
 writes frames of the field in the orbit's plane, `bin/orbit_exact.jl`
 the exact field's frames for the same options (about a second per frame
@@ -227,6 +274,19 @@ about half an hour on four threads:
 julia --project=. -t 4,0 bin/orbit_movie.jl --plane=DIR --levels=2 --hdiv=2 --R1=16 --tend=2 --grids=16:128,8:128 --waves=FILE --wradii=6,10,14
 julia --project=. -t 4,0 bin/orbit_exact.jl --plane=EXACT --frames=0:40 --pevery=2
 julia --project=bin -t 4,0 bin/visualize_orbit.jl DIR --ref=EXACT --waves=FILE --wradius=10
+```
+
+The movie of a binary that inspirals under its forces ("The movie"):
+`bin/inspiral_movie.jl` writes the frames, the retarded field of its
+recorded path (`--ref`) and its path (`jets.tsv`), and the same viewer
+shows its separation; `jobs/inspiral_movie.jl` runs it on an AMD node,
+about 14 hours, and its 5.7 GB of frames are best rendered there. The
+small run below takes about 17 minutes on four threads, most of it the
+binary's solve:
+
+```bash
+julia --project=. -t 4,0 bin/inspiral_movie.jl --hdiv=2 --levels=1 --w0=4 --R1=8 --rx1=10 --rx2=12 --tend=0.125 --pevery=0.03125 --every=0.03125 --grids=7:128,3:128 --plane=DIR --ref=REF --waves=FILE --wradii=5,7
+julia --project=bin -t 4,0 bin/visualize_orbit.jl DIR --ref=REF --waves=FILE --wradius=5 --modes=1:1,3:3
 ```
 
 The dispersion relation of the semi-discrete scheme on a brick, and
@@ -421,8 +481,10 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   index is the rank's own. A number combined on the host from per-block
   values goes through `rank_reduce`, a refusal found in a rank's own
   blocks through `agree_refusal`, and a read of another rank's block
-  through `gather_blocks`. The package never loads MPI ("Running
-  distributed").
+  through `gather_blocks`. A branch every rank takes on a number from
+  a library that may differ between CPUs, as LAPACK's solve in a
+  dynamic particle's Newton step, takes rank 0's number (`rank_agree`).
+  The package never loads MPI ("Running distributed").
 - **The `u` and `v` of a state vector interleave block by block**; use
   `statearray` and `selectdim`, not halves of the vector.
 - **A reflecting box is a TreeAMR reflection symmetry, not a boundary
@@ -499,6 +561,25 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   projection, and keep `source_pairing` choosing the projection's rule
   per element, or the solve reads another source than the evolution
   writes ("The equations of motion").
+- **A dynamic particle's solved `ä` jumps at a face crossing,** by up to
+  three times itself at `d/4` while the support straddles an element
+  face, halving with `hₑ`; it is noise there, not an instability, and
+  `jerkgap` measures it. Read `ä`'s trend away from the faces ("The
+  binary" under "Measured results").
+- **A dynamic binary's charge is bounded at order 3:** above
+  `q² ≈ 0.02` (`M = 1`, `d = 1`, the window `1.25–2.5`) its separation
+  oscillates at `ω ≈ 8` and grows, from the solved `ä` in the source,
+  which the predictor's `a⃛` and `a⃜` do not follow.
+  `--source-addot=predicted` holds `q² = 0.2` with the standard window,
+  as order 2 and `--source-addot=corrected` do, and the three agree to
+  0.3 %; the window `2.5–5` holds it too, but its loss rate leans on
+  the predictor ten times as much and is 2.6 % below theirs at 0.2
+  unless the predictor takes a drag (`--predictor-drag=0.93`), which
+  the standard window does not notice. The released orbit is eccentric, `e ≈ 0.04q²`, so compare
+  loss rates fitted over the same span from `t = 8`, with the energy's
+  velocity terms, which logs before 607e557 lack. Check a new charge,
+  window or order with `bin/breathing_loop.jl` before a long run ("The
+  breathing instability", "The energy's velocity terms").
 - **The asserted rates are measurements.** If one moves, re-measure and
   update "Measured results" rather than widen a tolerance.
 

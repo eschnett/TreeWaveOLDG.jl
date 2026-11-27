@@ -132,6 +132,11 @@
 # the retarded window is 1 (`rx1` beyond the largest radius). Beyond
 # `R₂` the remainder is the field, so the modes are the field's.
 #
+# With `--flux=FILE`, the energy flux `-∮ Π ∂_rΦ dA` through spheres in
+# the cube about `c` of the radii `--fradii` (4,6,8,12), every `--fluxevery`
+# (`1/16`), and with `--data=retarded` the retarded field's at the same
+# points (INSPIRAL-PLAN.md's M6b; `bin/waves_io.jl`, `bin/flux.jl`).
+#
 # With `--reading` and `--data=retarded`, nothing is evolved: the force of
 # the exact remainder as the pairing reads it, at `t = 0` for the circle
 # (`Fr0`, `Ft0`, `Fn0`) and at `tend` for hyperbolic motion (`Fa0`,
@@ -176,7 +181,11 @@ end
 # waited for on the device (`best`, `bin/backend.jl`).
 timed(backend, f, reps) = best(f, backend, reps)
 
+# Over MPI only rank 0 prints (`bin/binary.jl`'s `--mpi`).
+const QUIET = Ref(false)
+
 function emit(row...)
+    QUIET[] && return nothing
     println(join((Threads.nthreads(), row...), '\t'))
     flush(stdout)
     return nothing
@@ -455,6 +464,9 @@ function evolve(backend)
     waves = wave_writer(p, c, retarded)
     kw = max(1, round(Int, parse(Float64, option("wevery", "0.0625")) / integ.dt))
     write_waves(waves, p, integ.u, integ.t, retarded)
+    fluxes = flux_writer(p, c, retarded)
+    kf = max(1, round(Int, parse(Float64, option("fluxevery", "0.0625")) / integ.dt))
+    write_flux(fluxes, p, integ.u, integ.t, retarded)
     observe(path, p, c, w0, integ.u, integ.t, tag; retarded, radii)
     for (name, value) in force_rows(path, p, integ.u, integ.t)
         emit(tag..., integ.t, name, value)
@@ -481,8 +493,11 @@ function evolve(backend)
             observe(path, p, c, w0, integ.u, t, tag; retarded, radii)
         (integ.nstep % kw == 0 || integ.nstep == integ.nsteps) &&
             write_waves(waves, p, integ.u, t, retarded)
+        (integ.nstep % kf == 0 || integ.nstep == integ.nsteps) &&
+            write_flux(fluxes, p, integ.u, t, retarded)
     end
     waves === nothing || close(waves.io)
+    fluxes === nothing || close(fluxes.io)
 
     "--cost" in ARGS || return nothing
     u = integ.u
