@@ -7,7 +7,11 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 TreeAMR = "91bc416d-811c-44c1-9bc4-b9c8bbdbbd08"
 
+# TreeAMR 0.3 (M22, closed blocks) is on a branch of the checkout beside
+# this one, not yet released: take it from there, and replace this entry
+# by the release once there is one.
 [sources]
+TreeAMR = {path = "../../TreeAMR"}
 IMEXRungeKutta = {rev = "main", url = "https://github.com/eschnett/IMEXRungeKutta.jl"}
 
 [compat]

@@ -316,11 +316,15 @@ The positions and the quadrature are TreeAMR's: for an element set,
 Gauss–Lobatto node, and `volume_weighted_norm` and the folds weight it
 by the element's tensor quadrature. Element `q = (I-1) ÷ (P+1)` and node
 `i = (I-1) % (P+1)` of owned point `I` sit at
-`origin + h·(q(P+1) + offsets[i])`, with the block's own origin and
-spacing, and the offsets of the two face nodes are the integers `0` and
-`P+1`, so the two face nodes at one position get bit-identical
-coordinates. TreeAMR builds the offsets in `BigFloat` as `Element` does,
-so its positions are this package's bit for bit (a test).
+`lo + h·(B + q(P+1) + offsets[i])`, formed by TreeAMR's `nodeposition`
+from the block's patch low corner `lo` and integer corner `B` (TreeAMR
+0.3) in one rounding, and the offsets of the two face nodes are the
+integers `0` and `P+1`, so the two face nodes at one position get
+bit-identical coordinates. TreeAMR builds the offsets in `BigFloat` as
+`Element` does, so its positions are this package's bit for bit (a
+test). Two forests whose patches start at different corners place the
+same physical node to rounding, not bit for bit (the nested boxes
+against the uniform finest box: 3e-15 of the field's scale).
 
 The functions in [`src/layout.jl`](src/layout.jl) keep this package's
 names, take the `Element`, and refuse a set that is not element-centered

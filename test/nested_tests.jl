@@ -129,7 +129,14 @@ end
         a = blocks[block_origin(fq.forest, blockkey(fq, b))]
         @test level(blockkey(fp, a)) == 2
         @test ulp_equal(sa_p[:, :, :, :, a], sa_q[:, :, :, :, b])
-        @test ulp_equal(ua_p[:, :, :, :, a], ua_q[:, :, :, :, b])
+        # The initial remainder to rounding at the field's scale, not to an
+        # ulp: TreeAMR 0.3 places a node from its patch's low corner and
+        # integer corner (`nodeposition`), and the two forests' corners
+        # differ (0 against 6), so a node off the integers is at the same
+        # position to the last bit only up to its rounding (3e-15 of the
+        # scale measured).
+        @test maximum(abs, ua_p[:, :, :, :, a] .- ua_q[:, :, :, :, b]) <=
+              64 * eps() * maximum(abs, ua_q)
     end
     for s in supports, var in (1, 2)
         m, tr = p.models[1], trajs[1]

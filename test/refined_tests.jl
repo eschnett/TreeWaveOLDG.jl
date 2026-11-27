@@ -223,15 +223,17 @@ end
         fill_at_nodes!((x, v) -> x[v], fs, el)
         N = forest.N
         same = true
+        # TreeAMR 0.3 forms every position from the block's integer corner
+        # and its patch's low corner (`nodeposition`), one rounding, so the
+        # reference is that expression, not `origin + h (…)`.
+        lows, bases = TreeAMR.block_lows(forest, Float64), TreeAMR.block_bases(forest)
         for b in 1:nblocks(fs)
             key = blockkey(fs, b)
-            origin = block_origin(forest, key)
             h = spacing(forest, key)
             for I in CartesianIndices(ntuple(_ -> N, D))
                 x = node_coordinates(fs, el, b, Tuple(I))
                 xr = ntuple(D) do d
-                    q, i = divrem(I[d] - 1, P + 1)
-                    origin[d] + h * (q * (P + 1) + el.offsets[i + 1])
+                    TreeAMR.nodeposition(lows[b][d], h, bases[b][d], I[d], 0, el.offsets)
                 end
                 same &= x === xr
                 same &= x === coordinates(fs, b, Tuple(I) .+ 1)
