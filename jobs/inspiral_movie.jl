@@ -11,8 +11,10 @@
 #
 # - `smoke`: the smallest ball whose finest cube holds the window, a few
 #   steps with frames, before the movie.
-# - `movie-q2-h4`: the movie, about 9 200 steps at 4.6 s on 64 threads,
-#   12 hours.
+# - `movie-q2-h4`: the movie, about 9 200 steps at 4.1 s on 64 threads,
+#   11 hours. The source takes the predictor's `ä` (the driver's default):
+#   with the solved one the run broke down at `t = 17` ("The breathing
+#   instability" in `CODE.md`).
 # - `cuda-smoke`, in `inspiral_movie_gpu.toml`: whether `Dynamic` runs on
 #   an H200.
 im = "bin/inspiral_movie.jl --q2=0.2 --ell=0.04"

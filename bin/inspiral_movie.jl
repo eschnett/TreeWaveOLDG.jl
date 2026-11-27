@@ -9,7 +9,7 @@
 #         [--n=4] [--onset=2π/Ω] [--n2=4] [--tend=72] [--rx1=100] [--rx2=110] \
 #         [--cfl=0.5] [--pevery=0.25] [--grids=48:1024,3:512] [--every=0.125] \
 #         [--waves=FILE] [--wevery=0.0625] [--wradii=10,20,30,40] [--lmax=6] \
-#         [--oz=1/(2hdiv)] [--backend=cpu|cuda]
+#         [--oz=1/(2hdiv)] [--source-addot=predicted] [--backend=cpu|cuda]
 #
 # `bin/binary.jl`'s binary with a larger charge: two particles of `M = 1`
 # and `Q = ±q`, `q² = --q2`, of size `ℓ = --ell`, at separation 1, each at
@@ -27,6 +27,13 @@
 # the elements on both sides, and each doubles the solve's projections
 # near the particle, so `bin/binary.jl`'s `o_z = 0.0093`, chosen for
 # `ℓ = 10⁻³`, would make every step several times dearer.
+#
+# The source takes the predictor's `ä`, not the solved one
+# (`--source-addot=predicted`, `Dynamic`'s `source_addot`): with the
+# solved `ä` the binary breathes at a period of about 0.8, growing from
+# the start at every `q²` above about 0.02, and the run at `q² = 0.2`
+# broke down at `t = 17` ("The breathing instability" in `CODE.md`).
+# `--source-addot=solved` brings that back.
 #
 # `--plane=DIR` writes a frame (`bin/plane_io.jl`) at `t = 0` and every
 # `pevery`: the total field and its rate on each grid of `--grids`, a
@@ -147,6 +154,7 @@ function inspiral_evolve(backend)
     rx1, rx2 = num("rx1", 100), num("rx2", 110)
     pevery, every = num("pevery", 0.25), num("every", 0.125)
     dir, refdir = option("plane", ""), option("ref", "")
+    source_addot = Symbol(option("source-addot", "predicted"))
     isempty(dir) && error("--plane=DIR is needed: the path is recorded there")
     P = 3
     start = time()
@@ -156,7 +164,8 @@ function inspiral_evolve(backend)
     q = sqrt(q2)
     ms = (ParticleModel(; Q=q, ℓ, M=1.0), ParticleModel(; Q=-q, ℓ, M=1.0))
     f, past = newtonian_binary(ms, d0, v; centre=o, past=T, ramp, n)
-    motion = Dynamic((NoForce(), NoForce()), past; interaction=f, onset, n2)
+    motion = Dynamic((NoForce(), NoForce()), past; interaction=f, onset, n2,
+                     source_addot)
     p = InspiralProblem(wave, ms, Window(o, 1.25, 2.5; continuity=P + 1), motion; order)
     retarded = Window(o, rx1, rx2; continuity=4)
     u0 = dynamic_initial_state(p; retarded)
@@ -166,6 +175,7 @@ function inspiral_evolve(backend)
     println(join(("threads", "t", "quantity", "value"), '\t'))
     for (name, value) in ("q2" => q2, "ell" => ℓ, "G" => f.G, "K" => K,
                           "ddot0" => dipole_ddot(ms, f, d0), "Omega" => Ω, "onset" => onset,
+                          "source_addot_predicted" => Int(source_addot === :predicted),
                           "nodes" => statelength(p.wave.fs) ÷ 2, "hdiv" => hdiv,
                           "Lc" => layout.Lc, "R1" => R1, "m" => layout.m,
                           "hshell" => layout.hshell, "steps" => integ.nsteps,
@@ -176,6 +186,7 @@ function inspiral_evolve(backend)
                        "M" => 1.0, "K" => 2, "order" => order, "v" => v, "d0" => d0,
                        "rc" => d0 / 2, "Omega" => Ω, "centre" => Tuple(o), "T" => T,
                        "ramp" => ramp, "n" => n, "onset" => onset, "n2" => n2,
+                       "source_addot" => String(source_addot),
                        "G" => f.G, "binding" => K, "R1" => R1, "window" => (1.25, 2.5),
                        "tend" => tend, "pevery" => pevery, "hdiv" => hdiv,
                        "levels" => levels, "w0" => w0, "hshell" => layout.hshell,
