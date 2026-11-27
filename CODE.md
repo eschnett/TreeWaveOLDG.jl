@@ -160,6 +160,7 @@ outgoing pulse ([The seven-patch ball](#the-seven-patch-ball)).
   - [The equations of motion](#the-equations-of-motion-1)
   - [The flux](#the-flux)
   - [The binary](#the-binary)
+  - [The breathing instability](#the-breathing-instability)
 - [What carried over from TreeWave, and what did not](#what-carried-over-from-treewave-and-what-did-not)
 - [Possible extensions](#possible-extensions)
 - [Open questions](#open-questions)
@@ -2384,11 +2385,29 @@ the jets moved from each (`moves`) and the Jacobian.
 
 **The predictor** (`predicted_jets`) is the instantaneous acceleration
 under `F_ext`, the interaction and the other particles' `Φ_C` in point
-form, with the physical masses. It is differentiated along its own
+form, with the inertia `(M + QΦ_C)γ`: the physical mass and the other
+particles' potential, the point form of the equation of motion's
+`m = M₀ + QΦ̄ₑ`, which `other_force`'s potential equals in uniform motion.
+`INSPIRAL.md`'s point form has `M` alone; for a binary that leaves the
+predicted acceleration short by about `q²/4πdM` of itself, an orbit
+held on the predictor's circle eccentric, and its `ä` biased ([The
+breathing instability](#the-breathing-instability), "The release"). It is differentiated along its own
 motion by iterating on the Taylor polynomials: each pass makes one more
 derivative exact, and five give `a⃜`. The spring's jets are its
 circle's to roundoff, `Ω² = k/(γM)` (`spring_circle`). A two-body orbit's Taylor polynomial
 follows its RK4 integration to seventh order in `t`.
+
+**The predictor's `a⃛` and `a⃜` bound the charge.** The source is
+written with the solved `ä` and the predictor's `a⃛`, which do not
+agree when `ä` oscillates at a frequency the predictor's point
+particles do not have. The order-3 near field's `ä` term, `∝ r²` out to
+the window's edge, then leaves an error source over the window's ball.
+Its field acts back on both particles with a delay of the window's
+size. Above `q² ≈ 0.02` (`M = 1`, `d = 1`, the window `1.25–2.5`) that
+loop's gain exceeds one, and the binary's separation oscillates at
+`ω ≈ 8`, growing; M6b's `q² = 0.005` is a quarter of the way there
+([The breathing instability](#the-breathing-instability) under
+"Measured results").
 
 **The data and the hand-over** follow [Assumed pasts](#assumed-pasts).
 `past` is a `Prescribed` motion, whose retarded field the data take
@@ -3597,9 +3616,12 @@ acceleration, Newton's attraction with the other particle's boosted
 static field, is the circle's `v²/r`. That acceleration is affine in `G`,
 so two evaluations give `G` exactly, and the orbit's half-turn symmetry
 gives both particles the same. `INSPIRAL.md` fixes `G = 0.0804` and finds
-`Ω`; here `v = 0.2` is fixed, `Ω = 0.4` at `d₀ = 1`, and `G = 0.08204`,
+`Ω`; here `v = 0.2` is fixed, `Ω = 0.4` at `d₀ = 1`, and `G = 0.08207`,
 so that M8's grids and its measured pasts carry over (`HISTORY.md`,
-2026-11-20). The masses must be equal, since `binary_circular_motion`
+2026-11-20). M6b's runs had `G = 0.08204`, from the predictor's inertia
+`M` alone; at the breathing instability's larger charges `G` is
+0.082494, 0.085873 and 0.098543 at `q² = 0.01`, 0.05 and 0.2, where the
+runs before had 0.082429, 0.085548 and 0.097244. The masses must be equal, since `binary_circular_motion`
 has one radius, so `Σ γMv = 0` and the centre of mass is `centre`; a
 pair of charges that alone attract more than the circle needs is
 refused.
@@ -3655,8 +3677,15 @@ since they read the particles' state and nothing of the grid.
 **The orbit.** `orbit_diagnostics(models, interaction, zs, vs; normal)`
 gives the separation `d` and its rate, the phase of `z₁ − z₂` about
 `normal` and its rate `ω = ((z₁ − z₂) × (v₁ − v₂))⋅n̂/d²`, the orbital
-energy `Σ M(γ − 1) − K/d` with the physical masses and the analytic
-binding, the centre of mass `Σ γMz/Σ γM` and the momentum `Σ γMv`. The
+energy `Σ M(γ − 1) − K/d − (Q₁Q₂/4πd) V` with the physical masses, the
+analytic binding and the scalar interaction's dependence on the
+velocities to `O(v²)`,
+`V = ½(v₁² + v₂²) − ½(v₁⋅v₂ − (n⋅v₁)(n⋅v₂))`, `n = (z₁ − z₂)/d`: the
+energy of the interaction's Lagrangian `(Q₁Q₂/4πd)(1 − V)`, from each
+charge's `dτ` and the field's retardation, `3v²/2` on a circle. Without
+`V`, which the energy lacked until 2026-11-26, an eccentric binary's
+energy swings around the orbit ("The energy's velocity terms" under "The
+breathing instability"). Then the centre of mass `Σ γMz/Σ γM` and the momentum `Σ γMv`. The
 energy is the orbit's alone: the field's energy near the particles is
 not counted, and the remainder's force is not in `K`.
 
@@ -3898,7 +3927,9 @@ step is the field's right-hand side and the source.
   serially and at two ranks against the uninterrupted one.
   `--ell` and `--source-addot=predicted` are experiments on the solved
   `ä` ([The binary](#the-binary) under "Measured results"), which
-  `jobs/addot.jl` runs; `--window` sets the window's radii;
+  `jobs/addot.jl` runs; `--source-addot=corrected --tau=τ` is the
+  bias-corrected `ä` (the breathing instability's "The corrected
+  `ä`"); `--window` sets the window's radii;
   `jobs/ringing.jl` runs the circle at lower speeds, with a wider finest
   cube and with a wider window.
 - `bin/flux.jl`: without files, the retarded flux of a charge on a
@@ -4265,7 +4296,9 @@ one thread on CI, is otherwise silent until its summary.
   zero; the Taylor polynomial of a two-body orbit's predicted jets, two
   opposite charges in `BigFloat`, follows its RK4 integration to seventh
   order in `t`, with and without Newton's force; Newton's force is equal
-  and opposite and enters as an external force does; `newtonian_binary`'s
+  and opposite and enters as an external force does; the predictor's
+  inertia is `(M + QΦ_C)γ`, its potential `other_force`'s to `10⁻¹²` in
+  uniform motion at `q² = 0.2`; `newtonian_binary`'s
   `G` makes the predictor's acceleration the circle's to roundoff for
   both particles, with `Σ γMv = 0`; and unequal masses and charges that
   alone bind too strongly are refused.
@@ -7726,6 +7759,15 @@ is an argument, not a demonstration; the runs check it as follows.
   hand-over it grows with `σ`, `5·10⁻¹⁰` at `t < 4`, `9·10⁻⁸` at `t = 8` to 12.
   The `ä` system stays within `4·10⁻⁴` of `MγI`, its condition number
   within `6·10⁻⁴` of 1.
+- **At larger charge the binary is unstable,** not in its higher
+  derivatives but through the source's order-3 near field. The solved
+  `ä` writes into `□(WΨ̂)` a mode the predictor's `a⃛` and `a⃜` do not
+  follow, and the field it leaves acts back on both particles. The
+  separation then oscillates at `ω ≈ 8`, growing from
+  `q² ≈ 0.02` on, 1.4 per unit time at `q² = 0.2`; at `q² = 0.005` the
+  loop's gain is a quarter of what it needs, `|G(8i)| = 0.26` against
+  `Mγ = 1.02`. See [The breathing
+  instability](#the-breathing-instability).
 - **Not checked:** anything beyond `t = 32`, one orbit after the
   hand-over; and other speeds.
 
@@ -7768,6 +7810,554 @@ The quarter ball the owner suggested (2026-11-20), the half-spaces
 mesh by four and, with the second particle the first's image, halve the
 solve; it would need the transfer to fold across both faces
 **(proposed)**, for M7.
+
+### The breathing instability
+
+**The dynamic binary is unstable at large charge.** The movie's binary
+(`bin/inspiral_movie.jl`, Symmetry job 607865, study `twoldg-7cf5e7f`):
+[The binary](#the-binary)'s, at `q² = 0.2` and `ℓ = 0.04`, at `d/4`,
+with the force taking over over one orbit. Its solve failed at
+`t ≈ 16`. From `t ≈ 9` the relative acceleration along the separation,
+`a_rel·n`, is a clean sinusoid at `ω = 7.7`, and the separation follows
+it as `−a_rel/ω²`. It grows from `2.8·10⁻⁵` at `t = 9` to 0.13 at
+`t = 15.5`, 1.3 per unit time. It is the particles' relative motion
+along their separation, the breathing: at `t ≈ 16` it is 0.14 against
+`2·10⁻³` for the centre of mass's. At `q² = 0.005` the binary shows
+none to `t = 32`.
+
+`jobs/instability.jl` (Symmetry, 2026-11-22, Julia 1.13, 64 threads,
+one AMD node per run, studies `twoldg-9eb52ee`, jobs 608250 to 608266,
+and `twoldg-c5c889b`, job 608367) maps it. Each run is
+`bin/binary.jl`'s binary with `--q2` in its ball: three levels at
+`w0 = 4`, shells to `R₁ = 50`, the orbit's plane halfway between element
+faces. The force takes over over `onset = 4`, the run goes to `t = 20`,
+and every step writes a row. The growth is the slope of the log of
+`a_rel·n`'s envelope, band-passed to `ω = 5.5` to 11, from `t = 5` until
+the envelope reaches `4·10⁻³`. `ω` is the median of sine fits over
+windows of two time units. The model's column is
+`bin/breathing_loop.jl`'s fastest mode, explained below.
+
+| run | differs by | growth | `ω` | model `λ`, `ω` |
+|---|---|---|---|---|
+| `q1-h2` | `q² = 0.2`, `ℓ = 0.04`, `d/2` | 1.44 | 7.8 | 1.46, 7.74 |
+| `q1-h2-dt2` | half the step | 1.44 | 7.8 | |
+| `q1-h2-w8` | two levels at `w0 = 8` | 1.38 | 7.8 | |
+| `q1-h4` | `d/4` | 1.2 to 1.3 | 7.9 | |
+| `q1-h4-dt2` | `d/4`, half the step | 1.32 | 7.9 | |
+| 607865 | `d/4`, `onset = 15.7` | 1.3 | 7.7 | |
+| `q1-h2-movie` | `onset = 15.7` | 1.3 to 1.6 | 7.8 | |
+| `q2-h2` | `q² = 0.05`, `ℓ = 0.01` | 0.62 | 8.2 | 0.52, 7.92 |
+| `q2-h4` | the same at `d/4` | 0.46 to 0.52 | 7.9 | |
+| `q2-l04-h2` | `q² = 0.05`, `ℓ = 0.04` | 0.52 | 8.3 | |
+| `q3-h2`, `q3-h4`, `q3-l04-h2` | `q² = 0.0125` | none | | none (−0.23) |
+| `q1-h2-w8-win` | window `2.5–5`, two levels | 0.24 | 4 to 5 | 0.11 to 0.32 |
+| `q1-h2-o2` | order 2 | none | | none |
+| `q1-h2-o1` | order 1 | none | | none |
+| `lone-q1-h2` | one particle, spring circle | 0.65 to 0.73 | 8.6 | 0.77, 7.93 |
+| `q1-h2-pred` | the predictor's `ä` in the source | none | | none |
+
+The `q3` runs' envelopes fall at 0.07 to 0.12 per unit from about
+`10⁻⁵`. The two runs at orders 1 and 2 fall at 0.14 and 0.19 from
+`3·10⁻⁵`. With the predictor's `ä` in the source, the envelope
+falls at 0.17 per unit from `6·10⁻⁵` to `5·10⁻⁶` at `t = 20`, where
+the same run with the solved `ä` had reached 0.1 at `t = 8`. Newton
+takes at most 5 iterations, and `dmhgrid` stays below `1.8·10⁻⁵`. The two at the movie's `onset` grow from `t ≈ 9`, while the
+force is still taking over.
+
+- **Neither the grid nor the step sets it.** At `q² = 0.2`, `d/2` and
+  `d/4` agree to the fit's scatter. Half the step at `d/2` gives the
+  same envelope to two digits. Two levels at `w0 = 8`, with the
+  window's ball on the finest level, give the same growth. `ω ≈ 8` in
+  every run, at every charge, resolution and step.
+- **Nor does `ℓ`:** at `q² = 0.05`, `ℓ = 0.01` and 0.04 differ by less
+  than `d/2` and `d/4` do.
+- **The charge sets it.** The growth rises with `ln q²`: 1.4, 0.5 and
+  none at `q² = 0.2`, 0.05 and 0.0125. That is the mark of a loop whose
+  gain is `∝ q²` and whose delay is fixed.
+- **The grid's self-inertia is small,** so the guess of a grid feedback
+  `∝ q²/(M hₑ)` does not hold. `dmhgrid` after the hand-over, before
+  the mode is large, is `2.1·10⁻⁴` at `q² = 0.2`, `d/2`, `10⁻⁵` at `d/4`
+  and `7·10⁻⁷` at `q² = 0.0125`. It falls fast with `hₑ` and grows
+  later with the mode. The rest of `δm_h`, the other charge's potential
+  and the cross block, is [The binary](#the-binary)'s, `∝ q²`.
+- **The solved jets move with the mode; the predictor's do not.** In
+  the band, `ȧ ≈ 0.85 s a` and `ä ≈ 1.0` to `1.3 s² a`, near the rates
+  of `a e^{st}`, so the solved jets are about consistent. The
+  predictor's `a⃛` and `a⃜`, functions of the positions and velocities,
+  have nothing in the band.
+
+**The mechanism.** `bin/breathing_loop.jl` models the loop without a
+grid. The source `S = □(WΨ̂)` is written with `𝒟`, the derivative along
+the jets' polynomial ([The split](#the-split)). It is the field's only
+if the jets' actual rates are those `𝒟` reads. A solved `ä` that
+oscillates at a frequency the predictor's `a⃛` and `a⃜` do not have
+leaves the total field `Φ_r + WΨ̂` with an error source
+
+    □Φ = −ρ + σ,   σ = (∂ₜ² − 𝒟²)(WΨ̂) ≈ W (s⁴ ∂_äΨ̂ + s³ ∂_ȧΨ̂)·δa
+
+for a perturbation `δa e^{st}`. `σ` is spread over the window's ball,
+and its retarded field acts on both particles. The equation of motion
+`Mγ δa = −Q∇Φ` closes the loop: `G(s) = Mγ`, where `G` is the force of
+`σ`'s retarded field per unit `δa`. At `ω = 8` and `q² = 0.2`:
+
+- **The order-3 near field's `ä` term carries it.** `∂_äΨ̂` grows like
+  `r²` away from the particle, until the window cuts it off. The gain
+  comes from `R ≈ 0.5` to 2.5 about the particle:
+
+  | `R` | 0 to 0.5 | 0.5 to 1 | 1 to 1.5 | 1.5 to 2 | 2 to 2.5 | beyond |
+  |---|---|---|---|---|---|---|
+  | `ä` term | 1.97 | 11.0 | 26.1 | 21.6 | 20.1 | 2.4 |
+
+  Their phases rotate as `e^{−sR}` and sum to `|G(8i)| = 10.5` at
+  `−3°`, a positive feedback ten times the threshold. `∂_ȧΨ̂` along the
+  separation vanishes at rest, and at `v = 0.2` only the lab slice
+  gives it, `10⁻¹⁸` of the `ä` term.
+- **The two particles' terms add in the breathing mode:** own `4.95`
+  and the other's `5.55 − 0.74i`. In the centre of mass's mode they
+  subtract, to `|G| = 1.1`, which is why the breathing grows and the
+  centre of mass does not. The lone particle has the own term alone
+  and grows half as fast.
+- **The delay is the window's,** the light-crossing time of `σ`'s
+  region, so `ω` is fixed at about 8 and the growth rises as
+  `ln(q²/q²_c)`. The model's threshold is `q²_c ≈ 0.02`: `λ = 0.014`
+  at `q² = 0.02`, 0.23 at 0.03.
+- **Orders 1 and 2 have no `ä` term,** and the model has no growing
+  mode for them. With the predictor's `ä` in the source the mismatch
+  moves down a rate, `σ ≈ W (s² ∂_aΨ̂ + s³ ∂_ȧΨ̂)·δa`, and
+  `|G(iω)| ≤ 0.19`.
+- **The window's width lowers the gain but does not remove it.** At
+  `2.5–5`, `|G(8i)| = 3.2` with its phase rotating faster. Several
+  modes grow at 0.11 to 0.32, between `ω = 3` and 16, and the run grows
+  at 0.24 at `ω ≈ 4` to 5. The growth is the model's; which frequency
+  the run picks is not explained. Half the window, `0.625–1.25`, is
+  worse, 2.5 at `ω = 8.2` and 3.9 at 19.5.
+
+The model reproduces the growth to 10 to 20 % and the frequency to a
+few percent, at every charge, and the stable cases. It leaves out the
+grid; the terms of `𝒟∂_äΨ̂`, smaller by about `v/sR`; the jets'
+departure from consistency; and the physical forces on the
+perturbation, of order `q²` and `G M/d³`, far below `s²`. It also has
+slower modes, at `λ ≈ 0.7` to 1.0 near `ω = 12` to 17, which the
+fastest outgrows. In the centre of mass's mode it has a real root at
+`λ = 16`, which no run shows **(open)**. It is the other particle's
+order-3 `ä` term acting on the particle directly: the solved source's
+gain grows as `0.0043ω²` at phase 0 out to `ω = 80`, and `other_force`
+gives `∂F₁/∂ä₂ = 0.0042` for an `ä₂` along the separation at
+`q² = 0.2`, about `q²d/16π`, so that `√(Mγ/0.0042) ≈ 15.5`. No window
+removes that part. So the model identifies the loop, not every number.
+
+**What the predictor's `ä` costs.** `jobs/addot_error.jl` (Symmetry,
+2026-11-23, study `twoldg-1d156bd`, jobs 609515 to 609528, the layout
+above) runs the binary with the solved and the predicted `ä` side by
+side at `q² = 0.005` and 0.01, where both are stable, at `d/2` and
+`d/4`, and with the predicted `ä` at `q² = 0.2`. Over `t = 4.5` to 20,
+about an orbit after the hand-over, the two particles' mean forces are
+measured against the dipole's, `P/2v` with `P = q²d²ω⁴/12π`, and the
+orbital energy lost against `∫P dt`:
+
+| `q²` | `hₑ` | `ä` | `F_t`/dipole | `F_r`/dipole | `ΔE/∫P` | `d(20)` |
+|---|---|---|---|---|---|---|
+| 0.005 | `d/2` | solved | 0.9254 | 0.088 | 0.9656 | 0.998754 |
+| 0.005 | `d/2` | predicted | 0.9251 | 0.085 | 0.9653 | 0.998756 |
+| 0.005 | `d/4` | solved | 0.9251 | 0.0439 | 0.9647 | 0.998779 |
+| 0.005 | `d/4` | predicted | 0.9257 | 0.0439 | 0.9653 | 0.998779 |
+| 0.01 | `d/2` | solved | 0.9245 | 0.091 | 0.9659 | 0.997508 |
+| 0.01 | `d/2` | predicted | 0.9252 | 0.085 | 0.9666 | 0.997513 |
+| 0.01 | `d/4` | solved | 0.9257 | 0.0441 | 0.9664 | 0.997558 |
+| 0.01 | `d/4` | predicted | 0.9257 | 0.0437 | 0.9664 | 0.997557 |
+| 0.2 | `d/2` | predicted | 0.9281 | 0.085 | 1.0081 | 0.949891 |
+| 0.2 | `d/4` | predicted | 0.9287 | 0.035 | 1.0085 | 0.950013 |
+
+- **Below the threshold the choice does not show.** In each pair,
+  solved and predicted agree in `F_t` and `ΔE` to `7·10⁻⁴` or better,
+  within the scatter of the means, with signs that change from pair to
+  pair. `d(20)` agrees to `5·10⁻⁶` at `d/2` and `7·10⁻⁷` at `d/4`.
+  `F_r` differs by 4 to 7 % at `d/2`, where it is twice `d/4`'s, and by
+  under 1 % at `d/4`; that difference is the grid's, not the choice's. So
+  the predicted `ä`'s error there is below `10⁻³` of the radiation
+  reaction, below what the runs resolve.
+- **At `q² = 0.2` there is no solved run to compare,** since the solved
+  run is unstable. `F_t`/dipole is 0.928 at `d/2` and 0.929 at `d/4`,
+  0.3 % above the small charges', and `ΔE/∫P` is 1.008 against 0.966,
+  each the same at both resolutions. Averages from `t = 4.5` hold the
+  release's transient ("The release" below): from `t = 8` the same run
+  gives `ΔE/∫P` 1.032. The shifts hold the orbit's own
+  `O(q²)` changes along with whatever the predicted `ä` costs. Unless
+  the two cancel, it costs at most `3·10⁻³` of `F_t`.
+- **The solved and the predictor's `ä` differ most at face crossings.**
+  Below the threshold `|δä|/|ä|` is 10 to 30 % rms, with peaks of 2 to
+  8 at the face crossings. It is alike in the solved and predicted
+  runs, does not grow with `q²`, and falls by up to half from `d/2` to
+  `d/4`: the face crossings' jump of [The binary](#the-binary). At
+  `q² = 0.2` the ringing brings it to about 50 %.
+- **`bin/addot_error.jl` does not reproduce this** **(open)**. It
+  estimates the error from a run's rows: `F_σ`, the force of the
+  retarded field of `σ = W(∂ₜ² − 𝒟²)Ψ̂` with the jets' rates taken by
+  differences across rows, and `ΔF`, the own and the other particle's
+  forces with the solved `ä` less with the source's. Below the
+  threshold it gives `F_σ` of 10² to 10³ times `F_t` in the solved runs
+  and 10 to 50 % in the predicted ones, against the `10⁻³` measured.
+  The cause is in the solved jets, which jump from step to step:
+  differenced across rows, the jumps make a source at frequencies the
+  grid does not carry, and the continuum's retarded field counts it in
+  full. At `q² = 0.2` it gives `F_σ ≈ 1 %` and `ΔF` a few percent of
+  `F_t`, with signs that change with resolution. Those numbers are
+  plausible but unchecked. To be useful, the estimator would need the
+  jets low-passed to what the grid carries.
+
+**Two cures side by side.** `jobs/cures.jl` (Symmetry, 2026-11-24, study
+`twoldg-76d6e08`, jobs 610103 to 610110) runs the same binary two more
+ways, at `q² = 0.2` and 0.01, at `d/2` and `d/4`:
+- `win`: the window twice as wide, `2.5–5`, with the predictor's `ä`
+  in the source, on two levels at `w0 = 8` so that the window's ball
+  stays on the finest level;
+- `o2`: the near field to order 2, with the solved jets.
+
+Measured as above, with `δä` the rms of `|ä − ä_pred|/|ä|` from
+`t = 4.5` on and the cost against the order-3 run with the standard
+window at the same charge and resolution:
+
+| `q²` | run | `hₑ` | growth | `F_t`/dip | `F_r`/dip | `ΔE/∫P` | `d(20)` | `δä` | cost |
+|---|---|---|---|---|---|---|---|---|---|
+| 0.01 | `win` | `d/2` | none | 0.9261 | 0.0462 | 0.9670 | 0.997558 | | 1.2 |
+| 0.01 | `win` | `d/4` | none | 0.9261 | 0.0467 | 0.9670 | 0.997558 | 0.004 | 2.1 |
+| 0.01 | `o2` | `d/2` | none | 0.9248 | −0.080 | 0.9664 | 0.997503 | | 0.8 |
+| 0.01 | `o2` | `d/4` | none | 0.9254 | −0.121 | 0.9663 | 0.997557 | 0.12 | 0.8 |
+| 0.2 | `win` | `d/2` | none | 0.9496 | 0.0998 | 1.0317 | 0.949340 | 0.04 | 1.0 |
+| 0.2 | `win` | `d/4` | none | 0.9497 | 0.1004 | 1.0316 | 0.949336 | 0.025 | 1.5 |
+| 0.2 | `o2` | `d/2` | none | 0.9238 | −0.041 | 1.0125 | 0.947312 | 2.0 | 0.7 |
+| 0.2 | `o2` | `d/4` | none | 0.9227 | −0.130 | 1.0074 | 0.950128 | 0.8 | 0.7 |
+
+At order 3 with the standard window, the solved `ä`'s `δä` is 0.12 at
+`q² = 0.01`, `d/4`. The predicted `ä`'s is 1.6 to 2.4 at `q² = 0.2`,
+`d/2`, and 0.6 to 0.7 at `d/4`.
+
+- **Both hold the binary at `q² = 0.2`.** The breathing mode's envelope
+  stays at `10⁻⁷` to `10⁻⁶` with the wide window and the predicted `ä`,
+  10 to 60 times below the standard window's predicted run at `d/2`.
+  Order 2 is at `10⁻⁵` falling at `d/2`, and at `10⁻⁶` at `d/4`.
+- **The wide window quiets the solved jets.** The solved `ä` stays within
+  2.5 to 4 % of the predictor's at `q² = 0.2`, and within 0.4 % at 0.01.
+  With the standard window the ringing and the face crossings put it at
+  60 to 240 % and 12 %. So the source with the predictor's `ä` departs
+  little from the solved one there.
+- **With the wide window the answer stops depending on the resolution.**
+  `d/2` and `d/4` agree to `10⁻⁴` in `F_t`/dip, to 1 % in `F_r`, and to
+  `4·10⁻⁶` in `d(20)`, at both charges. At `q² = 0.01` it agrees with
+  order 3 and the standard window at `d/4` to `6·10⁻⁴` in `F_t` and
+  `ΔE`, and to 6 % in `F_r`.
+- **At `q² = 0.2` the wide window inspirals 1.3 % further.** It gives
+  `F_t`/dip 0.950 and `ΔE/∫P` 1.032. The standard window with the
+  predicted `ä` gives 0.928 and 1.008, and order 2 gives 0.923 and 1.007
+  to 1.013. Each is the same at `d/2` and `d/4`. `d(20)` is 0.94934
+  against 0.95001 and 0.95013 at `d/4`. From `t = 8` it is 2 % in
+  `ΔE/∫P`, and it is the window's, not the `ä`'s ("The release" below).
+- **Order 2 loses the radial force.** At `q² = 0.01` its `F_r`/dip is
+  −0.08 at `d/2` and −0.12 at `d/4`, against order 3's 0.044 to 0.047,
+  the wrong sign and not converging. `F_t` and the orbit agree with
+  order 3 to `10⁻³`. It is the cheapest, at 0.7 to 0.8 of order 3's
+  cost, and its solved jets ring as order 3's do.
+
+**Which window is right.** `jobs/cures.jl` (Symmetry, 2026-11-25, study
+`twoldg-51a42e7`, jobs 610699 to 610704) runs the binary at
+`q² = 0.05`, `ℓ = 0.01`, where the wide window holds it with either
+`ä` (the model's gain is 0.81, its slowest mode decaying at 0.05 per
+unit): the wide window with the predicted and with the solved `ä`, and
+the standard window with the predicted `ä`, at `d/2` and `d/4`.
+`jobs/instability.jl`'s `q2-h<n>` is the standard window with the
+solved `ä`, whose mode grows. Measured as above from `t = 4.5` to 20,
+and `ΔE/∫P` also to 12, where `q2-h4`'s envelope is still below
+`5·10⁻⁵`:
+
+| window | `ä` | `hₑ` | growth | `F_t`/dip | `F_r`/dip | `ΔE/∫P` | `ΔE/∫P` to 12 | `d(20)` |
+|---|---|---|---|---|---|---|---|---|
+| standard | solved | `d/2` | 0.62 | | | | | |
+| standard | solved | `d/4` | 0.52 | | | | 0.9738 | |
+| standard | predicted | `d/2` | none | 0.9252 | 0.079 | 0.9751 | 0.9660 | 0.987574 |
+| standard | predicted | `d/4` | none | 0.9262 | 0.042 | 0.9752 | 0.9732 | 0.987729 |
+| wide | solved | `d/2` | none | 0.9251 | 0.061 | 0.9744 | 0.9713 | 0.987718 |
+| wide | solved | `d/4` | none | 0.9253 | 0.062 | 0.9744 | 0.9714 | 0.987719 |
+| wide | predicted | `d/2` | none | 0.9295 | 0.058 | 0.9789 | 0.9790 | 0.987711 |
+| wide | predicted | `d/4` | none | 0.9295 | 0.058 | 0.9788 | 0.9792 | 0.987710 |
+
+These averages start at `t = 4.5`, inside the release's transient,
+and the reading of them first given here, that the wide window with the
+predicted `ä` lost its energy 0.45 % too fast from a bias of that `ä`,
+does not hold ("The release" below). What stands:
+
+- **The predictor's `ä` is low by about `0.07q²` of itself.** The mean
+  of `(ä − ä_pred)·ä_pred/|ä_pred|²` from `t = 4.5` on is `7·10⁻⁴` at
+  `q² = 0.01`, `3.7·10⁻³` at 0.05 and `1.45·10⁻²` at 0.2, the same at
+  `d/2` and `d/4` and with either `ä` in the source. The predictor's
+  inertia was 90 to 95 % of it; the departure toward `ȧ`, about
+  `−0.035q²`, remains ("The predictor with the potential" below).
+- **The bias does not set the energy.** Removing it from the source
+  changes nothing measurable ("The corrected `ä`" below).
+
+**The release.** `newtonian_binary` tunes `G` so that the predictor's
+force holds the past's circle, but the predictor's inertia is `Mγ`,
+while the equation of motion's is `(M₀ + QΦ̄)γ` with the other charge's
+potential in `QΦ̄`, about `q²/4πd` (`other_force` gives `0.0765q²` at
+`d = 1`). So the released binary's acceleration was short of the
+circle's by about `0.076q²`, and the orbit eccentric: `d` first
+rises, to 1.0030 at `t ≈ 7.4` at `q² = 0.05` and 1.012 at 0.2, then
+falls, to 0.98696 and 0.948 near `t = 18`. Evaluating `predicted_jets`
+with the inertia `M + QΦ̄` and `G` scaled to keep the forces gives `ä`
+shifts along itself of `6.7·10⁻⁴`, `3.3·10⁻³` and `1.23·10⁻²` at
+`q² = 0.01`, 0.05 and 0.2, 85 to 95 % of the measured bias, and shifts
+`a⃛` and `a⃜` by about `0.5q²` and `1.5q²` of themselves; it gives no
+tangential part, so the bias's tangential part, `−0.035q²`, is
+something else. The other particle's acceleration field, of the same
+order, is not in that estimate **(open)**. The predictor now takes the
+other particles' potential into its inertia ([The equations of
+motion](#the-equations-of-motion)), which removes that part of the
+eccentricity and leaves another of half its size ("The predictor with
+the potential" below). The runs below are of the predictor before.
+Measured from `t = 8`, past
+the departure, `ΔE/∫P` of the runs above, of `jobs/addot_error.jl`'s,
+of the corrected `ä` below and of order 2, at `d/4` (the wide window's
+corrected runs to `t = 20` at `d/2`, since those at `d/4` had not
+finished; at `q² = 0.05` the standard window's solved run, whose mode
+grows, to `t = 12`, beside the others to 12):
+
+| `q²` | standard, solved | standard, predicted | standard, corrected | wide, solved | wide, predicted | wide, corrected | order 2 |
+|---|---|---|---|---|---|---|---|
+| 0.01 | 0.9676 | 0.9676 | | | 0.9681 | | 0.9676 |
+| 0.05, to 12 | 0.9913 | 0.9908 | 0.9899 | 0.9953 | 0.9943 | 0.9948 | |
+| 0.05 | grows | 0.9815 | 0.9804 | 0.9829 | 0.9835 | 0.9833 | |
+| 0.2 | grows | 1.0317 | 1.0283 | grows | 1.0516 | 1.0517 | 1.0302 |
+
+- **The choice of `ä` does not show.** At `q² = 0.05` the wide window's
+  solved and predicted runs agree to 0.06 % from `t = 8` to 20, and the
+  standard window's to 0.06 % to 12. In successive windows of four
+  units the sign of the difference changes. The `0.45 %` of the table
+  above was the transient between `t = 4` and 6, where the energies
+  depart and then run parallel.
+- **The window does, and more with the charge.** The wide window's
+  `ΔE/∫P` is above the standard window's by 0.05 % at `q² = 0.01`,
+  0.2 % at 0.05 and 2 % at 0.2, with either `ä`; at 0.2 by 0.6, 2.1
+  and 3.2 % in the windows `8–12`, `12–16` and `16–20`, a spread the
+  energy's missing velocity terms made; fitted with them, the loss rate
+  is 2.2 % above at 0.2, 0.9762 against 0.9553 ("The energy's velocity
+  terms" below). Why is not known **(open)**.
+- **The standard window's three stable schemes agree at `q² = 0.2`** to
+  0.35 %: the predicted `ä` 1.0317, the corrected 1.0283, order 2
+  1.0302.
+- **`ΔE/∫P` swings from window to window** between 0.95 and 1.12 at
+  `q² = 0.2`, with the eccentricity, through the energy's missing
+  velocity terms ("The energy's velocity terms" below).
+
+**The predictor with the potential.** `jobs/inertia.jl` (Symmetry,
+2026-11-25, study `twoldg-6cbfa89`, job 611495) reruns five of the runs
+above with the predictor's inertia `(M + QΦ_C)γ`: the standard window
+with the predictor's `ä` at `q² = 0.05` and 0.2, `d/2` and `d/4`, and
+the solved `ä` at 0.01, `d/4`; and the wide window with the
+predictor's `ä` at 0.05 and 0.2, `d/2` (study `twoldg-fd16d96`, job
+613433). The eccentricity `e` is fitted to the
+radial velocity, `ḋ = c₀ + c₁t + A cos φ + B sin φ` with `φ = ∫ω dt`
+from `t = 4.5` to 20, about one orbit, as `√(A² + B²)/(ω̄ d̄)`
+(`eccentricity_fit` on `d` needs two orbits). `α` is the median from
+`t = 8` of the fit of the solved `ä`'s departure along the predictor's,
+over both particles; in the standard window at `d/2` it scatters too
+much to read. Before → now:
+
+| `q²` | `hₑ` | `e` | `α` | `ΔE/∫P` from 8 | 8–12 | 12–16 | 16–20 | `d(20)` |
+|---|---|---|---|---|---|---|---|---|
+| 0.01 | `d/4` | 0.00080 → 0.00039 | `1.1·10⁻³` → `4.1·10⁻⁴` | 0.9676 → 0.9656 | 0.9687 | 0.9651 | 0.9631 | 0.997305 |
+| 0.05 | `d/2` | 0.00403 → 0.00187 | | 0.9877 → 0.9779 | 0.9908 | 0.9757 | 0.9729 | 0.986209 |
+| 0.05 | `d/4` | 0.00399 → 0.00195 | `6.6·10⁻³` → `3.9·10⁻³` | 0.9815 → 0.9718 | 0.9862 | 0.9686 | 0.9609 | 0.986337 |
+| 0.2 | `d/2` | 0.0159 → 0.0084 | | 1.0370 → 0.9919 | 1.0423 | 0.9829 | 0.9603 | 0.943125 |
+| 0.2 | `d/4` | 0.0157 → 0.0075 | `2.8·10⁻²` → `1.8·10⁻²` | 1.0317 → 0.9970 | 1.0521 | 0.9839 | 0.9600 | 0.942078 |
+| 0.05 | `d/2`, wide | 0.00400 → 0.00194 | `3.6·10⁻³` → `1.9·10⁻⁴` | 0.9834 → 0.9671 | 0.9830 | 0.9657 | 0.9577 | 0.986408 |
+| 0.2 | `d/2`, wide | 0.0157 → 0.0075 | `1.5·10⁻²` → `1.4·10⁻³` | 1.0515 → 0.9717 | 1.0323 | 0.9602 | 0.9327 | 0.943483 |
+
+- **The inertia's part of the eccentricity is gone, and another
+  remains.** `e` falls from `0.080q²` to `0.039q²` at every charge and
+  both resolutions. As vectors `(A, B)` the difference is `0.074q²` to
+  `0.078q²`, the estimate's `0.076q²`, at a phase 1.7 rad from what
+  remains, which it partly hid before. `d` now falls from the release
+  on. The rest is M6b's ("The binary" under "Measured results"): the
+  circle is released without the inspiral's radial velocity `ḋ`, which
+  leaves `e` of `|ḋ|/ωd`, 0.81 to 0.87 of it here (the onset takes up
+  some), at a quarter orbit from the inertia's part, and at
+  `q² = 0.005` M6b's `1.95·10⁻⁴`, `0.039q²`.
+- **The bias of the predictor's `ä` along itself is 90 to 95 % gone,**
+  as estimated: in the wide window, whose fits scatter by 0.01 to 0.03
+  per solve, `α` falls from `0.073q²` to `0.004q²` at `q² = 0.05` and from
+  `0.075q²` to `0.007q²` at 0.2. Its part toward `ȧ` stays, `−0.036q²` and
+  `−0.033q²` (`−0.039q²` and `−0.046q²` before), which the estimate
+  left out. It is the radiation reaction, which the predictor leaves
+  out: with a drag of 0.93 times the dipole's in `predicted_jets`, at
+  the states of the wide window's runs, the departures across `ä`, `a⃛`
+  and `a⃜`, `−0.035q²`, `−0.14q²` and `−0.45q²` of themselves, vanish
+  to 0.003, 0.01 and `0.1q²` (the second review, 2026-11-26; "The
+  predictor's drag" below). In the standard window the fits scatter by 0.04
+  to 0.4 per solve, from the face crossings, and its medians, which fall
+  by only 35 to 60 %, measure those.
+- **The windows still differ at 0.2, now the other way,** and the
+  standard window is the robust one. With the energy's velocity terms
+  (below) the wide window loses energy at 0.9346 of the dipole power at
+  `q² = 0.2` against the standard window's 0.9591, 2.6 % below, where
+  before it was 2.2 % above; at 0.05 0.9578 against 0.9627. Its
+  `F_t`/dip from `t = 8` is 0.898 against 0.922 at 0.2. The new
+  predictor moved the standard window's rate by 0.4 % at 0.2 and the
+  wide window's by 4.3 %, its `F_t`/dip from 0.945 to 0.898 against the
+  standard window's 0.928 to 0.922; at `q² = 0.01` the two windows agree
+  to `10⁻⁴` in `F_t`/dip. So the wide window's answer leans on the
+  predictor ten times as much, through the predictor's `a⃛` and `a⃜`,
+  which lack the radiation reaction: a drag in the predictor brings it
+  to 0.5 % of the standard window's ("The predictor's drag" below). Its
+  eccentricity is the standard window's.
+- **The `ΔE/∫P` above swing from window to window** at 0.2, 1.052,
+  0.984 and 0.960 in `8–12`, `12–16` and `16–20` at `d/4`, because the
+  energy lacked its velocity terms; with them the windows agree to
+  about 1 % and a fit over `8–20` to 0.06 % between `d/2` and `d/4`
+  (below).
+- **The resolutions agree less in `d(20)` at 0.2,** to `10⁻³` against
+  `1.2·10⁻⁴` before; at 0.05 to `1.3·10⁻⁴`. The difference oscillates,
+  `+3·10⁻⁴` at `t = 8`, `+10⁻³` at 12, `+2·10⁻⁴` at 16, `−10⁻³` at 20,
+  so it is the release's eccentricity, 0.0084 at `d/2` against 0.0075,
+  not the rate of the inspiral; why the release depends on the
+  resolution is not known **(open)**.
+- **The breathing mode decays or sits at the floor in all seven:** at
+  0.2 from `4·10⁻⁶` to `7·10⁻⁷` at `d/4` and at −0.14 per unit at `d/2`,
+  at 0.05 at the floor, `10⁻⁷` to `5·10⁻⁷`, at `d/4` and at −0.12 at
+  `d/2`, and with the wide window at the floor at both charges. The run
+  at 0.2, `d/4` took 4.1 hours on a node, the wide window's at `d/2`
+  2.6.
+
+**The energy's velocity terms.** Until 2026-11-26 `orbit_diagnostics`'
+energy was `Σ M(γ − 1) − K/d`, without the scalar interaction's
+`−(Q₁Q₂/4πd) V` ([Diagnostics](#diagnostics), "The orbit"), which on an
+eccentric orbit swings with `v²` and `d`: the "transient" of `ΔE/∫P`
+above and its swings in "The release" are that. The second review found
+it (2026-11-26). Adding `V` to the logged energy, a fit of
+`E = E₀ − κ∫P dt` from `t = 8` to 20, with the dipole power from the
+solved accelerations, `P = q²|a₁ − a₂|²/12π`, leaves residuals four to
+ten times smaller, and with `c` times the velocity terms the review's
+fit gives `c = 0.89` to 1.02. The
+spread of `ΔE/∫P` over two-unit windows falls from 0.041 to 0.006 at
+`q² = 0.2` (`d/4`), from 0.011 to 0.0014 at 0.05 and from 0.0025 to
+0.0005 at 0.01. The loss rate `κ`, before the predictor's potential →
+now, at `d/4` unless marked:
+
+| `q²` | standard | standard, `d/2` | wide, `d/2` | others before |
+|---|---|---|---|---|
+| 0.01 | 0.9636 → 0.9637 | | | wide 0.9638, order 2 0.9636 |
+| 0.05 | 0.9620 → 0.9627 | 0.9608 → 0.9625 | 0.9637 → 0.9578 | wide solved 0.9631, corrected 0.9609 |
+| 0.2 | 0.9553 → 0.9591 | 0.9524 → 0.9585 | 0.9762 → 0.9346 | order 2 0.9531, corrected 0.9524, wide at `d/4` 0.9762 |
+
+The standard window's rate falls with the charge as `−0.023q²`, the
+wide window's now as `−0.15q²`. Logs from 607e557 on hold the energy
+with `V`; the scripts that read earlier ones add it from `z` and `v`.
+
+**The predictor's drag.** The predictor leaves out the radiation
+reaction, so its `ä`, `a⃛` and `a⃜`, which the source takes, depart from
+the solved motion's across themselves by `−0.035q²`, `−0.14q²` and
+`−0.45q²`. `DipoleDrag(centre, q², κ)` is an external force
+`−κ P/(2v²) v` with the circle's dipole power `P = q²d²ω⁴/12π`, and
+`Dynamic`'s `predictor_external` gives it to the predictor alone; the
+solve reads it only through the source, moving `a`, `ȧ` and `ä` by
+`6·10⁻⁸` to `10⁻⁶` in the test, where reading the drag would move them
+by `6·10⁻⁴`. `bin/binary.jl --predictor-drag=κ` sets it, and
+`jobs/drag.jl` (Symmetry, 2026-11-26, study `twoldg-607e557`) runs
+`κ = 0.93`, the grid's `F_t`/dip, with the wide window at `d/2` at
+`q² = 0.05` and 0.2, and the standard window at `d/4` at 0.2. Their
+logs hold the energy with its velocity terms. Without → with the drag:
+
+| run | `q²` | `κ` | `F_t`/dip | `β` | `d(20)` |
+|---|---|---|---|---|---|
+| wide, `d/2` | 0.05 | 0.9578 → 0.9622 | 0.9194 → 0.9237 | `−1.8·10⁻³` → `−1.2·10⁻⁴` | 0.986408 → 0.986348 |
+| wide, `d/2` | 0.2 | 0.9346 → 0.9544 | 0.8984 → 0.9175 | `−6.5·10⁻³` → `+2.8·10⁻⁴` | 0.943483 → 0.942339 |
+| standard, `d/4` | 0.2 | 0.9591 → 0.9591 | 0.9218 → 0.9220 | noise | 0.942078 → 0.942085 |
+
+- **The drag removes the departure toward `ȧ`,** `β` the median from
+  `t = 8` of each solve's fit, as the review's evaluation said: the
+  rest is what the drag's `κ = 0.93` and the circle's power leave.
+- **It brings the windows together.** The wide window's loss rate
+  rises by 0.5 % at 0.05 and 2.1 % at 0.2, to 0.05 % and 0.5 % below
+  the standard window's, from 0.5 % and 2.6 %; its `d(20)` comes to
+  `2.6·10⁻⁴` of the standard window's, from `1.4·10⁻³`. So the wide
+  window's lean on the predictor was its `a⃛` and `a⃜` (and `ä`) without
+  the radiation reaction. The 0.5 % left at 0.2, about `−0.025q²`, is
+  not explained **(open)**.
+- **The standard window does not notice it:** its loss rate is the same
+  to `10⁻⁴`, `F_t`/dip to `2·10⁻⁴` and `d(20)` to `7·10⁻⁶`; likely
+  because its window is closer to the particles, where the higher
+  derivatives' terms of the source weigh less.
+- **The rest is unchanged:** the eccentricity, `α`, and the breathing
+  mode, at the floor in all three. The runs took 2.5, 3.1 and 4.1
+  hours.
+
+**The corrected `ä`.** `Dynamic(…; source_addot = :corrected,
+source_tau = τ)` writes the source with the predictor's `ä` plus
+`μ₁ ä_p + μ₂ (|ä_p|/|ȧ_p|) ȧ_p`, in the basis of the predictor's `ä_p`
+and `ȧ_p`. `μ` is a running mean over `τ` of each solve's least-squares
+fit of the solved `ä`'s departure from `ä_p` in that basis. It moves
+only at a solve later in time than the last, so that a step's stages
+weigh as their spacing, and only once the force has taken over
+(`handover = 1`): during the onset the fits reach 20 and more, and a mean
+that took them in drove the smoke run's Newton solve to NaN by
+`t = 0.03`. Through the onset the source is the predictor's `ä`. In
+`bin/breathing_loop.jl` (`--source-addot=corrected`) its gain is
+`G_pred + (G_solved − G_pred)/(1 + sτ)`. With `τ = 2` that holds
+`q² = 0.2` with either window, its slowest modes decaying at 0.25 and
+0.34 per unit.
+
+`jobs/cures.jl`'s `cor-q<k>-<window>-h<n>` (Symmetry, 2026-11-25, study
+`twoldg-c9b9501`, jobs 611197 to 611204) run it with `τ = 2` at
+`q² = 0.05` and 0.2, with both windows, at `d/2` and `d/4`. They are
+measured as above from `t = 4.5` to 20, `μ₁` and `μ₂` at the end. The
+wide window's runs at `d/4` agree with `d/2` to `5·10⁻⁴` in `ΔE/∫P`:
+
+| `q²` | window | `hₑ` | growth | `F_t`/dip | `F_r`/dip | `ΔE/∫P` | `d(20)` | `μ₁` | `μ₂` |
+|---|---|---|---|---|---|---|---|---|---|
+| 0.05 | standard | `d/2` | −0.17 | 0.9279 | 0.116 | 0.9779 | 0.987407 | 0.04 | −0.06 |
+| 0.05 | standard | `d/4` | −0.07 | 0.9254 | 0.044 | 0.9744 | 0.987743 | 0.0035 | −0.0040 |
+| 0.05 | wide | `d/2` | −0.02 | 0.9296 | 0.062 | 0.9789 | 0.987713 | 0.0033 | −0.0021 |
+| 0.05 | wide | `d/4` | −0.02 | 0.9296 | 0.062 | 0.9788 | 0.987713 | 0.0036 | −0.0019 |
+| 0.2 | standard | `d/2` | −0.15 | 0.9412 | 0.168 | 1.0229 | 0.947693 | 0.39 | −0.13 |
+| 0.2 | standard | `d/4` | −0.14 | 0.9266 | 0.041 | 1.0060 | 0.950183 | 0.028 | −0.008 |
+| 0.2 | wide | `d/2` | −0.02 | 0.9511 | 0.118 | 1.0329 | 0.949337 | 0.015 | −0.009 |
+| 0.2 | wide | `d/4` | floor | 0.9507 | 0.118 | 1.0323 | 0.949367 | 0.015 | −0.008 |
+
+- **It holds the binary everywhere.** The breathing mode's envelope
+  decays in every run, or stays at the floor: at `q² = 0.2`, `d/4`,
+  with the standard window from `9·10⁻⁶` to `10⁻⁶`, and with the wide
+  window at 3 to `7·10⁻⁷` from `t = 6` on, where a fit gives +0.03 per
+  unit from the floor's scatter alone. The standard window with the
+  predictor's `ä` alone (`q1-h2-pred`) also decays at 0.2, so the onset,
+  through which the source takes it, is safe.
+- **It is no more accurate than the predicted `ä`.** From `t = 8`
+  ("The release") the standard window gives `ΔE/∫P` 1.0283 at
+  `q² = 0.2` against the predicted `ä`'s 1.0317 and order 2's 1.0302,
+  and 0.9804 at 0.05 against 0.9815. Its `d(20)`, 0.950183 against order
+  2's 0.950128, is a crossing: the difference is `−2.2·10⁻⁴` at
+  `t = 12` and `−0.9·10⁻⁴` at 16, and order 2's own `d(20)` moves by
+  `2.8·10⁻³` from `d/2` to `d/4`. It costs 4.7 hours on a node at 0.2,
+  as the predicted `ä` does, against about 9 for the wide window.
+- **With the wide window it changes nothing.** `μ` comes out where the
+  bias's mean is: at `q² = 0.05` `μ₁ = 0.0039` and `μ₂ = −0.0019` on
+  average from `t = 4.5` on, at 0.2 0.016 and −0.009. Yet `ΔE/∫P` stays
+  at the predicted run's. So the bias does not set the energy.
+- **Its margin shrinks as `q²/τ`.** In the model, with the standard
+  window, the slowest mode at `q² = 0.2` decays at 0.54 per unit with
+  `τ = 4` and 0.25 with `τ = 2`, and grows at 0.08 with `τ = 1`; with
+  `τ = 2` it grows at 0.03 at `q² = 0.35` (`ℓ = 0.05`), where the
+  predicted `ä`'s decays at 0.99.
+- **Its mean is state outside the state vector,** in `Dynamic`'s
+  scratch and advanced by the solve; `solve_state` carries it, so a
+  checkpoint does (`bin/binary.jl`'s `--checkpoint`).
+- **At `d/2` the standard window's mean is noise.** The face crossings'
+  solved `ä` is not zero on average, the fits scatter by 0.35 to 1.2 per
+  solve, and `μ₁` wanders to 0.5 at `q² = 0.05` and 1.2 at 0.2.
+  The run stays stable, but `F_t`/dip scatters by 2 to 6 %. At `d/4`
+  the scatter is 0.12 to 0.44 and `μ` stays within about 0.04. Between `d/4`
+  and `d/2` it is not measured; an inspiral at `hₑ = 1/4` from `d = 1`
+  to 0.7 ends at `d/2.8` **(open)**.
+
+**The cure is not chosen** **(open)**; see [Open
+questions](#open-questions).
 
 ## What carried over from TreeWave, and what did not
 
@@ -7895,3 +8485,55 @@ TreeHydro's ([On a device](#on-a-device)).
   Neither reaches the orbit: writing the source with the predictor's
   `ä` changes neither `ä` nor the orbit ([The binary](#the-binary)
   under "Measured results").
+- How to cure the dynamic binary's breathing instability above
+  `q² ≈ 0.02`, which the movie's `q² = 0.2` needs ([The breathing
+  instability](#the-breathing-instability)). The loop runs through the
+  order-3 near field's `ä` term, which the solved `ä` writes into the
+  source and the predictor's `a⃛` and `a⃜` do not follow. Candidates,
+  none chosen **(proposed)**:
+  - the source with the predictor's `ä` (`source_addot = :predicted`),
+    so far an experiment. The model gives it a gain below 0.2, and at
+    `q² = 0.2` it is stable to `t = 20` at `d/2` and `d/4`. At
+    `q² = 0.005` and 0.01 it changes neither the forces nor the orbit by
+    more than `10⁻³` of the radiation reaction. At 0.2 the tangential
+    force against the dipole's is 0.3 % above the small charges' (the
+    breathing instability's "What the predictor's `ä` costs");
+  - `a⃛` and `a⃜` from the solved jets' history, which would make `σ`
+    vanish but brings back an equation of higher order in time;
+  - the near field to order 2, which is stable at `q² = 0.2`. Its
+    radial force has the wrong sign and does not converge, and its
+    inspiral at 0.2 is the standard window's (the breathing instability's
+    "Two cures side by side");
+  - a wider window, which alone slows the growth (0.24 per unit at
+    `2.5–5`) without removing it. With the predictor's `ä` it is stable
+    at `q² = 0.2`, quiets the solved jets to within 4 % of the
+    predictor's, and agrees between `d/2` and `d/4` to `10⁻⁴`, at 1.0
+    to 2.1 times the cost. Its loss rate leans on the predictor ten
+    times as much as the standard window's: the predictor's inertia
+    moved it from 2.2 % above the standard window's at 0.2 to 2.6 %
+    below, and a drag in the predictor in place of the radiation
+    reaction to 0.5 % below (the breathing instability's "The
+    predictor's drag");
+  - the source with the predictor's `ä` plus a running mean of the solved
+    `ä`'s departure from it (`source_addot = :corrected`), an
+    experiment. It holds `q² = 0.2`, is no more accurate than the
+    predictor's `ä`, has a margin that shrinks as `q²/τ`, keeps state
+    outside the state vector, and at `d/2` takes up the face crossings'
+    noise (the breathing instability's "The corrected `ä`").
+
+  The standard window with the predictor's `ä`, its inertia holding the
+  other charge's potential, is the candidate **(proposed)**: it is
+  stable at `q² = 0.2`, its loss rate is within 0.4 % of the low
+  charge's and moved by 0.4 % when the predictor changed, and `d/2` and
+  `d/4` agree on it to 0.06 % ("The predictor with the potential", "The
+  energy's velocity terms"). The eccentricity of `0.039q²` that remains
+  is M6b's, from releasing a circle without its `ḋ`. A drag in the
+  predictor changes its loss rate by less than `10⁻⁴`, so it needs none;
+  the wide window needs one to come within 0.5 % of it ("The
+  predictor's drag"). With the predicted or corrected `ä` the forces still
+  read the solved `ä` (`dynamic_residual` builds the forces' jets from
+  the unknowns, the source's from `sourced`), so the particle feels a
+  field other than `Φ_r + WΨ̂` of the source's jets, by
+  `∂F₁/∂ä₂ · (ä − ä_source)`, about `0.3 δä/ä` of the radiation
+  reaction at `d = 1`. The loop model leaves that term out; whether it
+  matters in a run is not measured **(open)**.

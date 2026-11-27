@@ -7,7 +7,8 @@
 #     julia -t N,0 --project=. bin/dynamic.jl [--hdiv=8] [--levels=5] \
 #         [--w0=4] [--order=3] [--tend=8] [--cfl=0.5] [--v=0.05] [--rc=0.5] \
 #         [--rx1=24] [--rx2=30] [--onset=2] [--n2=4] [--every=1] \
-#         [--source-tol=0.1] [--prescribed] [--backend=cpu|cuda]
+#         [--source-tol=0.1] [--prescribed] [--backend=cpu|cuda] \
+#         [--q2=0.005] [--ell=1e-3] [--oz=0.0093]
 #
 # The layout, the particle, the window and the data are
 # `bin/prescribed.jl`'s circle with `--data=retarded`, so that its runs
@@ -23,6 +24,13 @@
 # wall-clock seconds since the start. The radial direction is toward the
 # circle's centre, which is the circle's `-a/|a|`, so that a report solves
 # nothing. `--source-tol` is `Dynamic`'s.
+#
+# `--q2` and `--ell` set the particle's `Q²` and size, and `--oz` the
+# circle's plane `z = c_z + o_z` about the box's centre `c`, for the lone
+# particle beside the binary of `jobs/instability.jl` (`CODE.md`, "The
+# breathing instability" under "Measured results"); the dynamic particle's
+# rows then also have its solved `a` along the inward radius, the velocity
+# and their normal (`ar`, `at`, `an`).
 
 include(joinpath(@__DIR__, "prescribed.jl"))
 using LinearAlgebra: I, cond, opnorm
@@ -53,9 +61,10 @@ function dynamic_evolve(backend)
     forest, L = box(hdiv, levels, w0)
     wave = WaveProblem(forest, Element(Float64, P); backend=backend)
     c = SVector(L / 2, L / 2, L / 2)
-    m = ParticleModel(; Q=sqrt(0.005), ℓ=1e-3, M=1.0)
+    q2 = parse(Float64, option("q2", "0.005"))
+    m = ParticleModel(; Q=sqrt(q2), ℓ=parse(Float64, option("ell", "1e-3")), M=1.0)
     w = Window(c, 1.25, 2.5; continuity=P + 1)
-    centre = c + OFFSET
+    centre = c + SVector(OFFSET[1], OFFSET[2], parse(Float64, option("oz", string(OFFSET[3]))))
     F, circle = spring_circle(m, centre, rc, v)
     motion = prescribed ? circle : Dynamic((F,), circle; onset, n2, source_tol)
     p = InspiralProblem(wave, (m,), w, motion; order)
@@ -74,6 +83,8 @@ function dynamic_evolve(backend)
     emit(tag..., 0.0, "rr", m.Q^2 / 12π * dot(tr0.ȧ, tr0.v / norm(tr0.v)))
     emit(tag..., 0.0, "Omega", v / rc)
     emit(tag..., 0.0, "onset", onset)
+    emit(tag..., 0.0, "q2", q2)
+    emit(tag..., 0.0, "ell", m.ℓ)
     emit(tag..., 0.0, "setup_seconds", time() - start)
     function report(u, t)
         (z, vz), = particle_state(u, p)
@@ -95,6 +106,10 @@ function dynamic_evolve(backend)
             γ = 1 / sqrt(1 - dot(vz, vz))
             emit(tag..., t, "cond_aa", cond(J))
             emit(tag..., t, "dmh", opnorm(J - m.M * γ * I) / m.M)
+            a = l.trajs[1].a
+            emit(tag..., t, "ar", dot(a, ρ))
+            emit(tag..., t, "at", dot(a, τ))
+            emit(tag..., t, "an", dot(a, n))
         end
         emit(tag..., t, "seconds", time() - start)
         return nothing

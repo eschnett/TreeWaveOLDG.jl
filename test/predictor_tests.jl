@@ -5,7 +5,7 @@
 # a motion known otherwise: the spring's exact circle, and a two-body
 # orbit integrated numerically.
 
-using LinearAlgebra: dot, norm
+using LinearAlgebra: cross, dot, norm
 using StaticArrays: SVector
 
 @testset "The spring's predicted jets are its circle's" begin
@@ -32,8 +32,9 @@ end
 @testset "Newton's attraction is equal and opposite, and acts as a force from outside" begin
     # Guards the binary's binding force (M6b): Newton's third law and the
     # inverse square, and that the predictor adds it to the external force
-    # before the projection `(I - vvᵀ)`, with the physical masses; without
-    # an interaction the predictor is M6a's bit for bit.
+    # before the projection `(I - vvᵀ)`, with the physical mass and the
+    # other particle's potential as the inertia; without an interaction
+    # the predictor is M6a's bit for bit.
     f = NewtonianForce(0.08)
     @test isbits(f) && isbits(NoInteraction())
     z1, z2 = SVector(0.3, -0.2, 0.1), SVector(-0.5, 0.4, 0.2)
@@ -53,8 +54,40 @@ end
     for (k, F) in ((1, F12), (2, F21))
         v = trs[k].v
         γ = 1 / sqrt(1 - dot(v, v))
-        @test norm(a1[k] - a0[k] - (F - dot(v, F) * v) / (ms[k].M * γ)) <= 1e-15
+        b = 3 - k
+        Φ = TreeWaveOLDG.boosted_static(ms[b], trs[k].z, trs[b].z, trs[b].v)
+        @test norm(a1[k] - a0[k] -
+                   (F - dot(v, F) * v) / ((ms[k].M + ms[k].Q * Φ) * γ)) <= 1e-15
     end
+end
+
+@testset "The predictor's inertia holds the other charge's potential, as the solve's does" begin
+    # Guards the predictor's inertia (`CODE.md`, "The release"): the
+    # equation of motion's `m = M₀ + QΦ̄ₑ` holds the other particle's
+    # potential `γ∫ρΨ_b`, `q²/4πd` for a binary, and a predictor that
+    # leaves it out, or takes it with a `γ` or with the wrong sign,
+    # predicts a binary's acceleration off by that share of the mass, which
+    # makes the released orbit eccentric and biases `ä` by about `0.07q²`.
+    # In uniform motion the other particle's field is its boosted static
+    # one, so `other_force`'s potential is the predictor's to the
+    # support's size.
+    q = sqrt(0.2)
+    ms = (ParticleModel(; Q=q, ℓ=0.04, M=1.0), ParticleModel(; Q=-q, ℓ=0.04, M=1.0))
+    trs = (Trajectory(; z=SVector(0.5, 0.0, 0.0), v=SVector(0.0, 0.2, 0.0)),
+           Trajectory(; z=SVector(-0.5, 0.0, 0.0), v=SVector(0.0, -0.2, 0.0)))
+    γ = 1 / sqrt(1 - 0.2^2)
+    QΦ = q * TreeWaveOLDG.boosted_static(ms[2], trs[1].z, trs[2].z, trs[2].v)
+    _, Qb = TreeWaveOLDG.other_force(ms[1], trs[1], ms[2], trs[2],
+                                     TreeWaveOLDG.SupportRule(Float64))
+    @test QΦ ≈ Qb rtol = 1e-12
+    @test QΦ ≈ q^2 / 4π rtol = 1e-12
+    # The predictor's force over its acceleration is that inertia times `γ`.
+    a = predicted_acceleration(ms, (NoForce(), NoForce()), trs)[1]
+    ∇Φ = TreeWaveOLDG.ForwardDiff.gradient(
+        x -> TreeWaveOLDG.boosted_static(ms[2], x, trs[2].z, trs[2].v), trs[1].z)
+    Π = -dot(trs[2].v, ∇Φ)
+    F = -(q / γ) * (∇Φ + trs[1].v * Π)
+    @test norm(a - F / ((1 + QΦ) * γ)) <= 1e-15 * norm(a)
 end
 
 @testset "The two-body predictor's jets are its integrated orbit's" begin
@@ -109,6 +142,37 @@ end
             # times with `t`.
             @test 6.5 < log2(errs[1] / errs[2]) < 7.5
         end
+    end
+end
+
+@testset "A dipole drag takes the dipole's power, along the velocity" begin
+    # Guards `DipoleDrag` (`CODE.md`, "The predictor's drag"): on the
+    # binary's circle each particle must lose `κP/2` of the dipole power
+    # `P = q²d²ω⁴/12π`, against its velocity, and the predictor must take
+    # it through `(I - v vᵀ)` and the inertia `(M + QΦ)γ` as any external
+    # force. A power from the radius instead of the separation, or a
+    # force across the velocity, breaks the first two.
+    q2, κ, v = 0.2, 0.93, 0.2
+    ms = (ParticleModel(; Q=sqrt(q2), ℓ=0.04, M=1.0),
+          ParticleModel(; Q=-sqrt(q2), ℓ=0.04, M=1.0))
+    c = SVector(1.0, 2.0, 3.0)
+    f, motion = newtonian_binary(ms, 1.0, v; centre=c, phase=0.3)
+    trs = motion.path(0.0)
+    drag = DipoleDrag(c, q2, κ)
+    @test isbits(drag)
+    P = q2 * (2v)^4 / 12π
+    zs, vs = map(tr -> tr.z, trs), map(tr -> tr.v, trs)
+    for k in 1:2
+        F = drag(zs[k], vs[k])
+        @test dot(F, vs[k]) ≈ -κ * P / 2 rtol = 1e-14
+        @test norm(cross(F, vs[k])) <= 1e-16
+    end
+    a0 = predicted_acceleration(ms, (NoForce(), NoForce()), trs; interaction=f)
+    a1 = predicted_acceleration(ms, (drag, drag), trs; interaction=f)
+    γ = 1 / sqrt(1 - v^2)
+    QΦ = q2 / 4π
+    for k in 1:2
+        @test dot(a1[k] - a0[k], vs[k]) ≈ -(1 - v^2) * κ * P / 2 / ((1 + QΦ) * γ) rtol = 1e-12
     end
 end
 

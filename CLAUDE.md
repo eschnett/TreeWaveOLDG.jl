@@ -234,6 +234,16 @@ node's cores: every rank repeats the jets' solve on its own threads.
 `jobs/binary_mpi_check.toml` and `jobs/binary_restart.toml` check both
 against the serial, uninterrupted run, under an hour each.
 
+The binary's breathing instability at large charge ("The breathing
+instability"): `bin/binary.jl --q2` and `bin/dynamic.jl --q2 --ell` set
+the charge, `jobs/instability.jl` scans it on Symmetry, and
+`bin/breathing_loop.jl`, the loop without a grid, gives the growing
+modes in seconds:
+
+```bash
+julia --project=. -t 4,0 bin/breathing_loop.jl --q2=0.2 --split
+```
+
 The flux through spheres ("Diagnostics"): `bin/prescribed.jl --flux=FILE`
 writes it beside the retarded field's, and `bin/flux.jl` gives the
 retarded flux against the dipole power at several speeds (seconds), or
@@ -543,6 +553,20 @@ Each is the rule; the `CODE.md` section named after it has the reason.
   face, halving with `hₑ`; it is noise there, not an instability, and
   `jerkgap` measures it. Read `ä`'s trend away from the faces ("The
   binary" under "Measured results").
+- **A dynamic binary's charge is bounded at order 3:** above
+  `q² ≈ 0.02` (`M = 1`, `d = 1`, the window `1.25–2.5`) its separation
+  oscillates at `ω ≈ 8` and grows, from the solved `ä` in the source,
+  which the predictor's `a⃛` and `a⃜` do not follow.
+  `--source-addot=predicted` holds `q² = 0.2` with the standard window,
+  as order 2 and `--source-addot=corrected` do, and the three agree to
+  0.3 %; the window `2.5–5` holds it too, but its loss rate leans on
+  the predictor ten times as much and is 2.6 % below theirs at 0.2
+  unless the predictor takes a drag (`--predictor-drag=0.93`), which
+  the standard window does not notice. The released orbit is eccentric, `e ≈ 0.04q²`, so compare
+  loss rates fitted over the same span from `t = 8`, with the energy's
+  velocity terms, which logs before 607e557 lack. Check a new charge,
+  window or order with `bin/breathing_loop.jl` before a long run ("The
+  breathing instability", "The energy's velocity terms").
 - **The asserted rates are measurements.** If one moves, re-measure and
   update "Measured results" rather than widen a tolerance.
 

@@ -3,7 +3,7 @@
 # the solve of the particles' jets from the state. See "The equations of
 # motion" in `CODE.md`.
 
-using LinearAlgebra: dot, norm
+using LinearAlgebra: cross, dot, norm
 using StaticArrays: SVector
 using IMEXRungeKutta: solve!, step!
 using TreeWaveOLDG: self_force_addot, self_force_a2a, self_potential_a2, lorentz_factor,
@@ -112,8 +112,18 @@ end
     pred = predicted_jets((m,), (ConstantForce(F),), (zv[1],), (zv[2],))[1]
     @test trp.ä ≈ smoothstep(4, t / onset) * pred.ä atol = 1e-12
     @test dyp.scratch.last.trajs[1].ä ≈ S(2) * F / m.M rtol = 1e-4
+    @test dyp.scratch.last.addot_predicted[1] == trp.ä
     @test trp.a ≈ S(0) * F / m.M rtol = 1e-4
     @test_throws ArgumentError Dynamic((ConstantForce(F),), past; source_addot=:smoothed)
+    # With `:corrected` the bias's mean is held while the force takes
+    # over: the solved `ä` follows the blend there, not the predictor's
+    # bias, and a mean that took it would write the source with it.
+    dyc = Dynamic((ConstantForce(F),), past; onset, source_addot=:corrected)
+    pc = InspiralProblem(wave, (m,), Window(c, 1.0, 1.75; continuity=P + 1), dyc)
+    TreeWaveOLDG.trajectories(dyc, pc, u, t / 2)
+    trc = TreeWaveOLDG.trajectories(dyc, pc, u, t)[1]
+    @test all(iszero, dyc.scratch.bias[1]) && dyc.scratch.bias_t == t
+    @test trc.ä == trp.ä
     # The Jacobian found during the ramp is the blend's, and the chord
     # iteration converges with it after the take-over too, so without
     # finding it again there the solve would keep it for good, and
@@ -166,6 +176,34 @@ end
     @test m.M * lorentz_factor(tc.v) * across(tr.a - tc.a) ≈ across(Fg + Fo) rtol = 1e-2
     @test tr.ȧ ≈ tc.ȧ rtol = 1e-2
     @test tr.ä ≈ tc.ä rtol = 1e-2
+    # With `source_addot = :corrected` the source takes the predictor's
+    # `ä` plus the running mean of its bias, which starts at zero, follows
+    # the fit of each solve later in time by `1 - exp(-Δt/τ)`, and stands
+    # still at a solve at the same time; the fit spans the solved `ä`'s
+    # departure along the predictor's `ä` and `ȧ`, which on the circle
+    # holds all of it but the remainder's push out of the plane. A mean
+    # that moved within a step's stages at one time, or a source that took
+    # the mean after the solve, breaks it.
+    τc = 0.5
+    dyc = Dynamic((F,), circle; source_addot=:corrected, source_tau=τc)
+    pc = InspiralProblem(wave, (m,), w, dyc)
+    pred = predicted_jets((m,), (F,), (tc.z,), (tc.v,))[1]
+    trc = TreeWaveOLDG.trajectories(dyc, pc, u, 0.0)[1]
+    @test trc.ä == pred.ä
+    @test all(iszero, dyc.scratch.bias[1])
+    fit = dyc.scratch.last.fit[1]
+    δ = dyc.scratch.last.trajs[1].ä - pred.ä
+    b2 = norm(pred.ä) / norm(pred.ȧ) * pred.ȧ
+    nrm = cross(pred.ä, pred.ȧ) / norm(cross(pred.ä, pred.ȧ))
+    @test fit[1] * pred.ä + fit[2] * b2 ≈ δ - dot(δ, nrm) * nrm rtol = 1e-8
+    TreeWaveOLDG.trajectories(dyc, pc, u, 0.25)
+    @test dyc.scratch.bias[1] ≈ -expm1(-0.25 / τc) * dyc.scratch.last.fit[1] rtol = 1e-12
+    μ = dyc.scratch.bias[1]
+    trc = TreeWaveOLDG.trajectories(dyc, pc, u, 0.25)[1]
+    @test dyc.scratch.bias[1] == μ
+    @test trc.ä ≈ pred.ä + μ[1] * pred.ä + μ[2] * b2 rtol = 1e-12
+    @test dyc.scratch.last.addot_source[1] == trc.ä
+    @test_throws ArgumentError Dynamic((F,), circle; source_addot=:corrected, source_tau=0)
 end
 
 @testset "The binary's solved jets keep its symmetry, and its centre of mass stays" begin
@@ -210,6 +248,31 @@ end
     # It follows the circle, but for the percent of the acceleration that
     # is not the predictor's.
     @test norm(z1 - binary.path(2dt)[1].z) <= 0.1 * norm(trs[1].a) * (2dt)^2 / 2
+    # The predictor's own forces reach its `a⃛`, `a⃜` and `ä`, and the
+    # solve only through the source's `a⃛` and `a⃜`, which move `a`, `ȧ`
+    # and `ä` by `6·10⁻⁸`, `5·10⁻⁷` and `1.2·10⁻⁶` (measured)
+    # (`predictor_external`); a solve that read the drag itself would move
+    # them by its share, `6·10⁻⁴`.
+    drag = (DipoleDrag(c, 0.01, 1.0), DipoleDrag(c, 0.01, 1.0))
+    dd = Dynamic((NoForce(), NoForce()), binary; interaction=f, predictor_external=drag)
+    pd = InspiralProblem(wave, ms, Window(c, 1.0, 1.75; continuity=4), dd)
+    trd = TreeWaveOLDG.trajectories(dd, pd, u, 0.0)
+    zs, vs = map(tr -> tr.z, trs), map(tr -> tr.v, trs)
+    pj = predicted_jets(ms, drag, zs, vs; interaction=f)
+    p0 = predicted_jets(ms, (NoForce(), NoForce()), zs, vs; interaction=f)
+    for k in 1:2
+        for (s, tol) in ((:a, 1e-6), (:ȧ, 1e-5), (:ä, 1e-5))
+            @test getfield(trd[k], s) ≈ getfield(trs[k], s) rtol = tol
+        end
+        for s in (:a⃛, :a⃜)
+            @test getfield(trd[k], s) == getfield(pj[k], s)
+            @test norm(getfield(trd[k], s) - getfield(p0[k], s)) >
+                  1e-4 * norm(getfield(p0[k], s))
+        end
+        @test dd.scratch.last.addot_predicted[k] == pj[k].ä
+    end
+    @test_throws ArgumentError Dynamic((NoForce(), NoForce()), binary;
+                                       predictor_external=(NoForce(),))
 end
 
 @testset "A binary resumed from a checkpoint takes the uninterrupted run's steps" begin

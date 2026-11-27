@@ -2,7 +2,8 @@
 # derivatives"; INSPIRAL-PLAN.md, M6a): the instantaneous acceleration
 # of each particle under the external forces, the particles' Newtonian
 # attraction (M6b) and the other particles' boosted static fields in
-# point form, with the physical masses, and its
+# point form, with the physical masses plus those fields' potential in
+# the inertia, as the equation of motion has it, and its
 # time derivatives along the motion it predicts. A dynamic particle
 # solves `a`, `ȧ` and `ä` from its equation of motion; the predictor
 # gives it `a⃛` and `a⃜`, which the source reads and the equation of
@@ -28,6 +29,36 @@ function SpringForce(centre, k)
 end
 
 (f::SpringForce)(z, v) = -f.k * (z - f.centre)
+
+"""
+    DipoleDrag(centre, q2, κ)
+
+An external force that models a binary's radiation reaction in the
+predictor: `F(z, v) = -κ P/(2v²) v` with the dipole power
+`P = q² d² ω⁴/12π` of two charges `±q` on a circle about `centre`,
+`d = 2|z - centre|`, `ω = |v|/|z - centre|`. Each particle then loses
+`κP/2`. `κ` is the grid's tangential force over the dipole's, about 0.93
+at `d/4` ("The predictor's drag" under "The breathing instability" in
+`CODE.md`). It is an experiment, for `Dynamic`'s `predictor_external`;
+the solve reads the radiation reaction from the grid. It is `isbits`.
+"""
+struct DipoleDrag{T}
+    centre::SVector{3,T}
+    q2::T
+    κ::T
+end
+
+function DipoleDrag(centre, q2, κ)
+    T = float(promote_type(eltype(centre), typeof(q2), typeof(κ)))
+    return DipoleDrag{T}(SVector{3,T}(Tuple(centre)), T(q2), T(κ))
+end
+
+function (f::DipoleDrag)(z, v)
+    r = z - f.centre
+    r2, v2 = dot(r, r), dot(v, v)
+    P = f.q2 * 4 * r2 * (v2 / r2)^2 / 12π
+    return -(f.κ * P / (2 * v2)) * v
+end
 
 """
     NoForce()
@@ -107,8 +138,8 @@ separation/2, speed; phase, normal, past, ramp, n)`, and that motion, as
 `(force, motion)`: INSPIRAL.md's "Initial data", step 1, at
 `Ω = 2 speed/separation`. `G` is the one for which the predictor's
 acceleration ([`predicted_acceleration`](@ref)), from Newton's attraction
-and the other particle's boosted static field, is the circle's
-centripetal one, `v²/r`. That acceleration is affine in `G`, so two
+and the other particle's boosted static field, with that field's
+potential in the inertia, is the circle's centripetal one, `v²/r`. That acceleration is affine in `G`, so two
 evaluations give it exactly; by the orbit's symmetry under the half-turn
 about `centre` the same `G` holds both particles. The masses are equal
 and the velocities opposite, so `Σ γMv = 0` and the centre of mass is
@@ -139,13 +170,15 @@ function newtonian_binary(models::NTuple{2,ParticleModel{T}}, separation::Real,
 end
 
 # The acceleration of a particle of physical mass `M` and charge `Q` at
-# `(z, v)` under a force `F` from outside and a field whose gradient and
-# rate at the particle are `∇Φ` and `Π` (INSPIRAL.md, "Equations of
-# motion", in point form with `m = M`):
-#     Mγ a = -(Q/γ)(∇Φ + v Π) + (I - v vᵀ) F.
-@inline function point_acceleration(M, Q, v, F, ∇Φ, Π)
+# `(z, v)` under a force `F` from outside and a field whose value,
+# gradient and rate at the particle are `Φ`, `∇Φ` and `Π` (INSPIRAL.md,
+# "Equations of motion", in point form, `m = M₀ + QΦ̄ₑ` with the own
+# field's part `M - M₀` and the others' `QΦ`, which `field_force`'s
+# `γ∫ρΦ` is for a field that varies little over the support):
+#     (M + QΦ) γ a = -(Q/γ)(∇Φ + v Π) + (I - v vᵀ) F.
+@inline function point_acceleration(M, Q, v, F, Φ, ∇Φ, Π)
     γ = lorentz_factor(v)
-    return (-(Q / γ) * (∇Φ + v * Π) + F - dot(v, F) * v) / (M * γ)
+    return (-(Q / γ) * (∇Φ + v * Π) + F - dot(v, F) * v) / ((M + Q * Φ) * γ)
 end
 
 """
@@ -156,8 +189,12 @@ Each particle's acceleration at the positions and velocities of `trajs`
 `external[k](z, v)`, the `interaction` with the other particles (such as
 [`NewtonianForce`](@ref)), and the other particles' boosted static fields
 `Φ_C` at the particle, with their rate `-v_b·∇Φ_C` of uniform motion,
-through the point equation of motion with the physical mass `M`. A
-tuple of 3-vectors.
+through the point equation of motion with the inertia `M + QΦ_C`: the
+physical mass and the other fields' potential, which the equation of
+motion's `m = M₀ + QΦ̄ₑ` holds too. Without it the predicted
+acceleration of a binary is off by that potential's share of the
+mass, about `q²/4πdM`, and a circle held by it is not the solved
+motion's (`CODE.md`, "The release"). A tuple of 3-vectors.
 """
 function predicted_acceleration(models::NTuple{K,ParticleModel}, external::NTuple{K,Any},
                                 trajs::NTuple{K,Trajectory};
@@ -166,17 +203,19 @@ function predicted_acceleration(models::NTuple{K,ParticleModel}, external::NTupl
     return ntuple(Val(K)) do k
         m, tr = models[k], trajs[k]
         z, v = tr.z, tr.v
+        Φ = zero(eltype(z))
         ∇Φ = zero(z)
         Π = zero(eltype(z))
         for b in 1:K
             b == k && continue
             mb, tb = models[b], trajs[b]
+            Φ += boosted_static(mb, z, tb.z, tb.v)
             g = ForwardDiff.gradient(x -> boosted_static(mb, x, tb.z, tb.v), z)
             ∇Φ += g
             Π -= dot(tb.v, g)
         end
         F = external[k](z, v) + pair_force(interaction, models, zs, k)
-        point_acceleration(m.M, m.Q, v, F, ∇Φ, Π)
+        point_acceleration(m.M, m.Q, v, F, Φ, ∇Φ, Π)
     end
 end
 

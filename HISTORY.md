@@ -1962,6 +1962,173 @@ patches.
   ringing's. The orbit is the same to `2·10⁻⁴` in `ḋ`. The finest cube
   has to be twice as wide to hold the window's ball, so the step costs
   twice as much.
+- 2026-11-22: the movie's dynamic binary at `q² = 0.2`, `ℓ = 0.04`
+  (job 607865) went unstable: its separation oscillated at `ω = 7.7`,
+  growing 1.3 per unit time from `t ≈ 9`, until the solve failed at
+  `t ≈ 16`. The movie's session asked for the cause before any fix. Its
+  guess, a grid feedback `∝ q²/(M hₑ)`, did not hold: the grid's part
+  of `δm_h` is `10⁻⁵` at `d/4`. `jobs/instability.jl` scanned the
+  charge, `ℓ`, `hₑ`, the step, the window and the near field's order
+  (`CODE.md`, "The breathing instability" under "Measured results").
+  `ω ≈ 8` throughout, and the growth depends only on the charge: 1.4,
+  0.5 and none at `q² = 0.2`, 0.05 and 0.0125. Orders 1 and 2 are
+  stable. The window twice as wide slows the growth to 0.24 without
+  removing it. A model without a grid, `bin/breathing_loop.jl`,
+  identified the loop and gives these numbers to 10 to 20 %. The solved
+  `ä` writes into the source an oscillation the predictor's `a⃛` and
+  `a⃜` do not follow; the order-3 near field's `ä` term leaves an error
+  source over the window's ball; and its field pushes both particles
+  in phase along their separation. The run with the predictor's `ä` in
+  the source, which the model predicts stable, is stable to `t = 20` at
+  `q² = 0.2`. The cure is left to the owner.
+- 2026-11-23: the owner preferred the source with the predictor's `ä`
+  and asked what error it introduces. `Dynamic` now keeps the blended
+  predictor's `ä` in its solve record, and `bin/binary.jl` writes it per
+  row with the positions and velocities. `jobs/addot_error.jl` ran the
+  binary with the solved and the predicted `ä` side by side at
+  `q² = 0.005` and 0.01, at `d/2` and `d/4`. They agree in the
+  tangential force and the energy loss to `7·10⁻⁴` or better, with no
+  difference that persists at `d/4`. At `q² = 0.2` the predicted `ä`
+  is stable at both resolutions, and its force against the dipole's
+  is 0.3 % above the small charges'. A second way, `bin/addot_error.jl`,
+  estimates the error from one run's rows through the retarded field of
+  the source's mismatch. It failed the check below the threshold,
+  overestimating the measured effect by orders of magnitude: it
+  differences the solved jets' step-to-step jumps across rows, and the
+  continuum's retarded field counts the result in full (`CODE.md`,
+  "The breathing instability"). It stays as a starting point, with that
+  caveat.
+- 2026-11-24: the owner asked to try two cures at once: the wider window
+  with the predicted `ä`, and the near field to order 2. `jobs/cures.jl`
+  ran both at `q² = 0.2` and 0.01, at `d/2` and `d/4`. Both are stable at
+  0.2.
+  - The wide window brings the solved `ä` to within 4 % of the
+    predictor's, against 60 to 240 % with the standard window.
+  - With the wide window, `d/2` and `d/4` agree to `10⁻⁴`, and at 0.01
+    it agrees with order 3 and the standard window.
+  - At 0.2 it inspirals 1.3 % further than the standard window and
+    order 2 do, at every resolution. That is likely the error source of
+    the ringing jets, which only the wide window removes.
+  - Order 2 gets the radial force's sign wrong, and its value does not
+    converge.
+
+  `CODE.md`, "Two cures side by side" under "The breathing instability".
+  The choice is left to the owner.
+- 2026-11-25: the owner asked for the check at `q² = 0.05`. It reversed
+  the reading of 2026-11-24: there the wide window holds the binary
+  with either `ä`, and with the solved `ä` the two windows agree to
+  0.1–0.24 %. The wide window with the predicted `ä` loses its energy
+  0.45 % too fast, at both resolutions. So the 1.3 % at 0.2 was the wide
+  window's error, not the standard window's.
+
+  The cause is a bias of the predictor's `ä`, low by about `0.07q²` of
+  itself whichever `ä` the source takes, since the predictor has
+  neither the self force nor retardation. The wide window weighs a wrong
+  `ä` ten to thirty times more than the standard window. `CODE.md`,
+  "Which window is right" under "The breathing instability". A source
+  `ä` corrected by a slow running mean of the bias is proposed, not
+  tried.
+- 2026-11-25: the owner asked to try that source. `Dynamic`'s
+  `source_addot = :corrected` adds to the predictor's `ä` a running mean
+  over `τ` of a fit of the solved `ä`'s departure along the predictor's
+  `ä` and `ȧ`. The first runs (study `twoldg-2a5c44f`) let the onset's
+  fits into the mean, and the smoke run's solve went to NaN; they were
+  cancelled, and the mean now waits for the force to take over
+  (`twoldg-c9b9501`). The smoke run still fails, at `t ≈ 0.03` with the
+  mean zero throughout, so with the predictor's `ä` alone: the smoke's
+  order 3 at `q² = 0.2` with an onset of `1/16` on one level, not the
+  correction.
+
+  With `τ = 2` every run is stable. With the standard window at `d/4` it
+  agrees at `q² = 0.2` with order 2 to `5·10⁻⁵` in `d(20)`, and at 0.05
+  with the wide window's solved `ä`. With the wide window it changes
+  nothing, although its mean is the bias: so the bias was not the cause
+  of the wide window's energy loss, and the reading of the morning is
+  withdrawn. At `d/2` the standard window's mean takes up the face
+  crossings' noise. `CODE.md`, "The corrected `ä`" under "The breathing
+  instability". The wide window's runs at `d/4`, finished later that
+  day, agree with `d/2` to `5·10⁻⁴` in `ΔE/∫P`.
+- 2026-11-25: an independent review of the cure, at e9e72af, by the
+  session writing the scalar particles' paper, which the owner asked
+  for. It confirmed the loop's diagnosis and found four things, each
+  checked here against the runs' logs and the loop model:
+  - The comparisons from `t = 4.5` measured the release's transient.
+    From `t = 8` the wide window's two `ä` agree to 0.06 % at
+    `q² = 0.05`, so the morning's "outlier" and its bias explanation are
+    withdrawn. The windows still differ, by 0.2 % at 0.05 and 2 % at
+    0.2, with either `ä`.
+  - The predictor's inertia leaves out the other charge's potential,
+    which accounts for 85 to 95 % of the bias of its `ä` and for an
+    eccentricity of about `0.076q²` of the released orbit.
+  - The corrected `ä` is no more accurate than the predicted one, its
+    `d(20)` agreement with order 2 is a crossing, and its margin
+    shrinks as `q²/τ`.
+  - With the predicted or corrected `ä` the forces still read the solved
+    `ä`, which the loop model leaves out; and the model's real root at
+    `λ = 16` is the other particle's `ä` term acting directly, not
+    structure below the element width.
+
+  The review proposed the standard window with the predicted `ä`, after
+  the predictor's inertia takes in the other charge's potential. The
+  owner asked for the documents to be corrected and the inertia to be
+  fixed. `CODE.md`, "The release" and "The corrected `ä`" under "The
+  breathing instability".
+- 2026-11-25: the predictor's inertia takes the other particles'
+  potential, `(M + QΦ_C)γ`, the point form of the equation of motion's
+  `m = M₀ + QΦ̄ₑ`; `INSPIRAL.md`'s point form had `M` alone. `G` of
+  `newtonian_binary` follows, from 0.08204 to 0.08207 at M6b's
+  `q² = 0.005` and from 0.097244 to 0.098543 at 0.2, so M6b's measured
+  runs are of the predictor before. `jobs/inertia.jl` measures the bias
+  and the release with it. `CODE.md`, "The equations of motion" and
+  "The release".
+- 2026-11-26: `jobs/inertia.jl`'s five runs (study `twoldg-6cbfa89`)
+  bore the review's estimate out for the eccentricity and not for the
+  bias. The eccentricity falls from `0.080q²` to `0.039q²` at every
+  charge; the part removed is `0.076q²`, as estimated, and the rest,
+  at another phase, had been partly hidden by it. The bias of the
+  predictor's `ä` falls by 35 to 60 % in the standard window, where its
+  fits are too noisy to say more, so two wide-window runs were added
+  (`twoldg-fd16d96`). From `t = 16` `ΔE/∫P` is 0.960 to 0.963 at
+  `q² = 0.01` to 0.2, where before it fell with the charge to 0.950; the
+  higher `ΔE/∫P` at 0.2 from `t = 8` to 12 is a transient that outlasts
+  the eccentricity. So the sharp edge now says to compare energies from
+  `t ≥ 16`. `CODE.md`, "The predictor with the potential" under "The
+  breathing instability".
+- 2026-11-26: the two wide-window runs (`twoldg-fd16d96`) bore the
+  estimate out for the bias too: along the predictor's `ä` it falls
+  from about `0.074q²` to 0.004 and `0.007q²`, and the standard window's
+  smaller fall was its face crossings' noise. The part toward `ȧ`,
+  `−0.035q²`, stays. The windows' difference in `ΔE/∫P` at `q² = 0.2`
+  stays too, at 2.8 % from `t = 16`, but with the wide window now below
+  the standard one where it was 2 % above, so the eccentricity did not
+  make it.
+- 2026-11-26: a second review, of 3eab905 to 36099fa, by the session
+  writing the scalar particles' paper, which the owner asked for. It
+  found `orbit_diagnostics`' energy without the scalar interaction's
+  velocity terms, `−(Q₁Q₂/4πd)V`, whose swing on the eccentric orbit was
+  what had been read as a transient settling by `t ≈ 16`; the rule to
+  compare energies from `t ≥ 16` is withdrawn for loss rates fitted from
+  `t = 8` with those terms. It traced the predictor's departure toward
+  `ȧ` to the radiation reaction it leaves out, and the remaining
+  eccentricity to M6b's release without `ḋ`, and showed that the wide
+  window's loss rate leans on the predictor ten times as much as the
+  standard one's. The owner asked for the energy term, the documents and
+  a test of the drag: `DipoleDrag` and `Dynamic`'s `predictor_external`
+  give the predictor alone a drag, and `jobs/drag.jl` runs both windows
+  with it. `CODE.md`, "The energy's velocity terms" and "The predictor's
+  drag" under "The breathing instability".
+- 2026-11-26: `jobs/drag.jl`'s runs (`twoldg-607e557`): the drag
+  removes the predictor's departure toward `ȧ` and brings the wide
+  window's loss rate from 2.6 % below the standard window's at
+  `q² = 0.2` to 0.5 % below, while the standard window's moves by less
+  than `10⁻⁴`. So the windows' difference was mostly the predictor's
+  missing radiation reaction in `a⃛` and `a⃜`, which the standard window
+  reads too little to show.
+- 2026-11-26: for a pull request the owner chose to merge `inspiral-m6b`
+  (draft PR #24's branch, with `d/8` over MPI and the checkpoints) into
+  this branch and to open the pull request against it. `solve_state`
+  now carries the corrected source's running mean, so a checkpoint
+  holds it.
 
 ### What the plan said of its finished milestones
 

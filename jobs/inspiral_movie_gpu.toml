@@ -1,0 +1,17 @@
+# Whether `bin/inspiral_movie.jl`'s `Dynamic` binary runs on one H200
+# (`--backend=cuda`), and its cost there: the movie's layout of
+# `inspiral_movie.jl` for 16 steps with frames. The solve runs on the
+# host, on the GPU's 8 threads.
+name = "inspiral_movie_gpu"
+description = "TreeWaveOLDG: the inspiral movie's binary on one H200, a few steps"
+env = "test+cuda"
+threads = 8
+
+[site.symmetry]
+time = "2:00:00"
+resources = { gpus = 1 }
+sbatch_args = ["--mem=128G"]
+
+[[run]]
+label = "cuda-smoke"
+cmd = "bin/inspiral_movie.jl --backend=cuda --q2=0.2 --ell=0.04 --hdiv=4 --levels=3 --w0=4 --R1=50 --hshell=1 --tend=0.125 --pevery=0.0625 --every=0.0078125 --plane=frames-cuda --ref=ref-cuda --waves=waves-cuda.tsv --wradii=10,20,30,40"
