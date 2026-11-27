@@ -20,11 +20,7 @@ CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 [extensions]
 TreeWaveOLDGCUDAExt = "CUDA"
 
-# TreeAMR 0.3 (M22, closed blocks) is on a branch of the checkout beside
-# this one, not yet released: take it from there, and replace this entry
-# by the release once there is one.
 [sources]
-TreeAMR = {path = "../TreeAMR"}
 IMEXRungeKutta = {rev = "main", url = "https://github.com/eschnett/IMEXRungeKutta.jl"}
 
 [compat]
