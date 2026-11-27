@@ -2166,6 +2166,13 @@ patches.
   frames were rendered on Symmetry, at the owner's suggestion, not
   fetched to the laptop (`CODE.md`, "The movie" under "Measured
   results").
+- 2026-11-27: the owner found the tracks too dark beside the charges and
+  could not tell the data from what the run made. The tracks became light
+  grey, and the inspiral's maps gained two light fronts about the orbit's
+  centre, of `t = 0` and of the hand-over's end, each widened by the
+  charges' distance from the centre so that beyond the one the field is
+  the data's alone and inside the other the force's alone; the panels of
+  the modes and of `d` shade the same spans (`CODE.md`, "The movie").
 
 ### What the plan said of its finished milestones
 

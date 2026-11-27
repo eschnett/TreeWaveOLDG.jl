@@ -3645,7 +3645,14 @@ charge (owner, 2026-11-21):
 - **The viewer** knows the inspiral's frames by `dynamic` in `meta.tsv`:
   the tracks run from the start, the title counts the orbits by the
   phase of `z₁ − z₂` and gives `d`, and a panel shows `d` against `t`
-  with the leading order from the end of the hand-over dashed. The
+  with the leading order from the end of the hand-over dashed. Two light
+  fronts about the orbit's centre tell the data from what the run made:
+  beyond `r = t + r₀`, `r₀` the charges' distance from the centre at
+  `t = 0`, the field is still the data's, the past's retarded field
+  carried out; inside `r = t − t₀ − r₀` (dashed) every wave left the
+  charges after the hand-over ended at `t₀`; between them are the
+  hand-over's. The panels of the modes and of `d` shade the same spans
+  in time. The
   charges are `±q`, so the modes to show are `--modes=1:1,3:3`, at
   `--wradius=40`, and the grids `--wide=w48 --zoom=w3`. The frames are
   5.7 GB, so the run on Symmetry is rendered there.
