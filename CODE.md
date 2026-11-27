@@ -1930,7 +1930,8 @@ waiting in their next collective.
   twenty per residual. Gathering a solve's blocks once, and spreading
   the support's quadrature over the ranks, would cut both
   **(proposed)**. The first four-node run failed after 11.7 hours in
-  UCX's memory registration, the cause not traced **(open)**. Whether
+  UCX's memory registration, its cause not traced and not pursued (the
+  owner, 2026-11-27). Whether
   one rank computing the forces and
   broadcasting them costs less at many ranks is not measured
   **(open)**.
@@ -7923,8 +7924,9 @@ and `mpiexec` then hung until the job's time ran out, so SimLaunch's
 restart chain, which continues a job that exits for its time, did not
 start the next. The step's time shows no growth before it, about 6 s
 throughout. Whether memory grows with the residuals' many gathers of
-fresh buffers, which UCX registers and caches, is not traced
-**(open)**; the resumed job ran its 2 167 steps without it.
+fresh buffers, which UCX registers and caches, is not traced, and the
+owner dropped the question (2026-11-27); the resumed job ran its 2 167
+steps without it.
 
 The quarter ball the owner suggested (2026-11-20), the half-spaces
 `x ≥ 0` and `z ≥ 0` with a reflection and a half-turn, would cut the

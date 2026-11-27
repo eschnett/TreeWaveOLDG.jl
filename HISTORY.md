@@ -2173,6 +2173,11 @@ patches.
   charges' distance from the centre so that beyond the one the field is
   the data's alone and inside the other the force's alone; the panels of
   the modes and of `d` shade the same spans (`CODE.md`, "The movie").
+- 2026-11-27: the owner dropped the question of the first `d/8` job's
+  failure in UCX's memory registration, and of whether memory grows on
+  some ranks (Slurm's peak was 114 GB on one rank against 12 to 17 GB on
+  others): no per-rank memory trace is run. The launcher's hang after it
+  went to SimLaunch as a report, not as a change here.
 
 ### What the plan said of its finished milestones
 

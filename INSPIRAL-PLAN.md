@@ -7,7 +7,8 @@ knows it is done. Section names of `INSPIRAL.md` and `CODE.md` are used
 below without links.
 
 **Status.** M0 to M5 are done; M6a is done (2026-11-20), merged with
-pull request #21; M6b is under way (2026-11-20), its runs done; M7
+pull request #21; M6b is under way (2026-11-20), its work done and its
+pull request #24 open; M7
 is not started; of M8,
 M8a and M8b are done (2026-11-11), M8a's gate having passed, and M8c is
 done (2026-11-14), merged with pull request #15. M8d, data that are the
@@ -224,7 +225,10 @@ results".
 tests and the runs are done, `d/8` over MPI on four nodes included
 (2026-11-22), and the documents (`CODE.md`, "Initial data",
 "Diagnostics", "Running distributed", and "The flux" and "The binary"
-under "Measured results"); its pull request is not opened. `INSPIRAL.md`: "Initial data:
+under "Measured results"). Pull requests #25, the breathing instability
+at large charge and its cure, and #26, the movie of the inspiralling
+binary, are merged into the branch (2026-11-27); its own pull request,
+#24, is open. `INSPIRAL.md`: "Initial data:
 a quasi-circular orbit", "Diagnostics"; validation step 6, second half,
 as far as it can be checked with short runs.
 
