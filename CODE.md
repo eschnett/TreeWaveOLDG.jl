@@ -3591,6 +3591,68 @@ charges and their tracks. The modes `r Re Φ_ℓm` at `r = 50`, the run's
 and the retarded field's, run below with the frame's time marked. The run on an H200 and how close it is to the exact field are under
 [The movie](#the-movie-1) in "Measured results".
 
+**The inspiral.** [`bin/inspiral_movie.jl`](bin/inspiral_movie.jl) makes
+the same movie of [Initial data](#initial-data)'s binary, opposite
+charges that move under their forces, from the retarded field of the
+spun-up past, the force taking over over one orbit. At M6b's
+`q² = 0.005` the orbit shrinks by `1.7·10⁻³` in `t = 32` and would take
+`t ≈ 2500` to reach `d = 0.7`, so the movie's binary has a larger
+charge (owner, 2026-11-21):
+- **The charge:** `q² = 0.2`, forty times M6b's, and `ℓ = 0.04`, so that
+  `δm/M = 0.0525 q²/ℓ = 0.26` as in M6b and `2ℓ` is still below `hₑ`.
+  The leading order `ḋ = −Δq²K/(6πd²)` is `−3.5·10⁻³` at `d = 1`, and
+  takes the orbit from `d = 1` to about 0.7 by `t = 72`, about six orbits,
+  the period falling from 15.7 to 9.1 and the speed rising from 0.20
+  to 0.24. `G = 0.0985` and `K = 0.0826` hold the circle at `v = 0.2`
+  (`newtonian_binary`, the other charge's potential in the predictor's
+  inertia), against M6b's `0.08204` and `0.08164`.
+- **What the larger charge costs in trust:** `δm_h/M ≈ q²/4π` (measured
+  at M6b's charge, [The binary](#the-binary) under "Measured results")
+  is 1.6 %, which the chord iteration's contraction per step follows; the
+  radiation reaction is `4·10⁻³` of the binding, still adiabatic;
+  `ℓΩ ≤ 0.03`; and the hand-over from a circle to an orbit whose `ḋ` is
+  not zero leaves an eccentricity of about `|ḋ|/(Ωd)`, `0.039q²`, 0.8 %
+  ([The breathing instability](#the-breathing-instability), "The
+  predictor with the potential").
+- **The source takes the predictor's `ä`**
+  (`--source-addot=predicted`, the driver's default). With the solved
+  `ä` the binary breathes above `q² ≈ 0.02`, and the movie's first run
+  broke down at `t ≈ 17` ([The breathing
+  instability](#the-breathing-instability)).
+- **The orbit's plane lies halfway between element faces** of the finest
+  level, `z = o_z = 1/(2·hdiv)`. A support of `ℓ = 0.04` within `ℓ` of a
+  face meets the elements on both sides, and each doubles the solve's
+  projections near the particle: at [The binary](#the-binary)'s
+  `o_z = 0.0093`, chosen for `ℓ = 10⁻³`, the support straddled `z = 0`
+  all the time and a step cost 11 to 25 s on 64 threads.
+- **The layout** is [`bin/binary.jl`](bin/binary.jl)'s, `d/4`, three
+  levels at `w0 = 4`, shells of radial width 1 to `R1 = 50`. The dipole's
+  one-armed spiral has the wavelength `2π/Ω`, 9.1 at the end, so nine
+  radial elements of the shells per wavelength. The past's front leaves
+  the sphere at `t ≈ 10`, so the movie starts with the spiral formed.
+  The grids are `48:1024` and `3:512`.
+- **The reference** is the retarded field of the path the run records.
+  It writes `z`, `v` and the solved `a` of each particle every step to
+  `jets.tsv` in the frame directory, and `RecordedPath` interpolates them
+  by quintic Hermite polynomials, the past before `t = 0` (to `10⁻¹³` in
+  `v` of the circle at the run's step). The retarded field at `t` reaches
+  back along the path only to `t − R1`, so the run writes the
+  reference's frames itself (`--ref=DIR`) and its modes beside its own in
+  `--waves` (the `ref_` columns), a few tenths of a second per frame on
+  64 threads. It differs from the run by the grid's error and the
+  particles' size, and checks the field, not the orbit, which the
+  leading order and [The binary](#the-binary)'s resolution study check.
+- **The viewer** knows the inspiral's frames by `dynamic` in `meta.tsv`:
+  the tracks run from the start, the title counts the orbits by the
+  phase of `z₁ − z₂` and gives `d`, and a panel shows `d` against `t`
+  with the leading order from the end of the hand-over dashed. The
+  charges are `±q`, so the modes to show are `--modes=1:1,3:3`, at
+  `--wradius=40`, and the grids `--wide=w48 --zoom=w3`. The frames are
+  5.7 GB, so the run on Symmetry is rendered there.
+
+The inspiral's run and how close it is to its reference are under [The
+movie](#the-movie-1) in "Measured results".
+
 ### Initial data
 
 `INSPIRAL.md`'s binary of "Parameters for a first run", as far as
@@ -3938,13 +4000,19 @@ step is the field's right-hand side and the source.
   against the retarded field's, its error and order
   ([Diagnostics](#diagnostics)).
 - `bin/waves_io.jl`: `--waves` and `--flux` of `bin/prescribed.jl`,
-  `bin/binary.jl` and `bin/orbit_movie.jl`, the modes and the flux on
+  `bin/binary.jl`, `bin/orbit_movie.jl` and `bin/inspiral_movie.jl`, the
+  modes and the flux on
   spheres and the retarded field's.
 - `bin/orbit_movie.jl`, `bin/orbit_exact.jl`, `bin/plane_io.jl`,
   `bin/visualize_orbit.jl`: the movie of two charges on a circle, its
   run in the ball, its exact frames, their format, and its viewer in the
   viewers' environment ([The movie](#the-movie)); the run `movie-h4`
   of `jobs/gpu_scans.jl` runs it on an H200.
+- `bin/inspiral_movie.jl`: the movie of the binary that inspirals under
+  its forces, its frames, its recorded path and the retarded field of
+  that path ([The movie](#the-movie)); `jobs/inspiral_movie.jl` runs it
+  on a Symmetry AMD node, and `jobs/inspiral_movie_gpu.toml` tries it on
+  an H200.
 - `bin/waveforms.jl`: the waveforms of a series of `--waves` files
   against their reference or M8e's uniform start's exact solution, in
   the package environment ([Waveforms](#waveforms)).
@@ -6738,6 +6806,45 @@ an error of 0.7 %, 2.5 % and 4.8 %. The front reaches `r` at about
 solution's jumps between `r = 1` and 2.5 show in the default quantity,
 where subtracting `ΣΨ̂₀` leaves a small signal; at `hₑ = 1/4` they do
 not.
+
+**The inspiral** ([The movie](#the-movie)): `jobs/inspiral_movie.jl`'s
+`movie-q2-h4` (Symmetry, 2026-11-26, study `twoldg-809642b`, job
+614358, one AMD EPYC 7543 node, 64 threads): `q² = 0.2`, `ℓ = 0.04`, the
+predictor's `ä` in the source, `d/4`, `1.99·10⁷` nodes, 9216 steps to
+`t = 72` in 14.1 hours, 5.5 s a step with a frame every `0.25` and the
+reference's beside it. Its 289 frames and the reference's are 5.7 GB;
+the viewer made the `.mp4` there (job 615249).
+
+**It inspirals at the leading order's rate times 0.93.** `d` falls from
+1 to 0.713 in 5.6 orbits, `ω` rising from 0.400 to 0.662:
+
+| `t` | 0 | 16 | 32 | 48 | 64 | 72 |
+|---|---|---|---|---|---|---|
+| `d` | 1.000 | 0.972 | 0.910 | 0.839 | 0.766 | 0.713 |
+
+From `t = 20`, `d³` falls at 0.933 of the leading order
+`3d²ḋ = −Δq²K/2π`, as M6b's 0.931 and the loss rates of [The breathing
+instability](#the-breathing-instability). The release's eccentricity
+shows as an oscillation of `ḋ` about its trend of `1.6·10⁻³` rms,
+`2.6·10⁻³` at most, an eccentricity of about 0.6 %. Newton's solve takes
+3 or 4 iterations to a residual below `10⁻¹²`, and the remainder's force
+along the radius stays at `4·10⁻⁵`, against 0.36 when the first run
+broke down.
+
+**The waves are the retarded field's of the recorded path.** Behind the
+front, `|Φ₁₁|` falls as `1/r` from `2.1·10⁻³` at `r = 10` to
+`5.1·10⁻⁴` at 40, and rises by 8 % as the orbit tightens. Its error
+against the reference is 0.03 % to 0.4 % of it at `r = 10` and 0.4 % to
+0.8 % at 20 to 40. `|Φ₃₃|` is 25 times smaller, with errors of 0.1 % to
+0.7 %.
+
+**The first run broke down.** With the solved `ä` in the source (job
+607865, study `twoldg-7cf5e7f`), the breathing grew from `10⁻⁶` of
+`|a|` at `t = 1` to order one at `t ≈ 17`, where Newton's solve failed
+([The breathing instability](#the-breathing-instability)). On an H200
+(`jobs/inspiral_movie_gpu.toml`) the driver runs, at 55 to 58 s a step,
+the solve's projections on the host's 8 threads, ten times the AMD
+node's.
 
 ### Prescribed paths
 

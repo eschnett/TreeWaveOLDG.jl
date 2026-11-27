@@ -2129,6 +2129,43 @@ patches.
   this branch and to open the pull request against it. `solve_state`
   now carries the corrected source's running mean, so a checkpoint
   holds it.
+- 2026-11-21: Erik Schnetter asked for the movie again with M6b's binary
+  inspiralling under its forces in place of the forced circle. At M6b's
+  `q² = 0.005` the orbit would take `t ≈ 2500` to shrink to `d = 0.7`,
+  so three binaries were put to him, each with `ℓ ∝ q²` to keep
+  `δm/M = 0.26`, at `d/4` on one AMD node:
+  - `q² = 0.1` to `d ≈ 0.8` by `t = 100`, about 17 hours, closest to the
+    measured regime;
+  - `q² = 0.2` to `d ≈ 0.7` by `t = 72`, about 12 hours;
+  - `q² = 0.5` to `d ≈ 0.5` by `t = 42`, about 7 hours, with
+    `δm_h/M ≈ 4 %` and its final waves under-resolved.
+
+  He chose `q² = 0.2`. For the reference, against no reference and the
+  viewer showing `d` alone, he chose the retarded field of the path the
+  run records (`CODE.md`, "The movie"). A new driver,
+  `bin/inspiral_movie.jl`, took the place of a mode of
+  `bin/orbit_movie.jl`, whose path, data and options are a prescribed
+  circle's, and of a mode of `bin/binary.jl`, which another session was
+  changing for the run at `d/8`. Its reference frames are written by the
+  run, since the retarded field at `t` needs the path only up to `t`.
+- 2026-11-21: the movie's first run on Symmetry (job 607840) took 11 to
+  25 s a step against `bin/binary.jl`'s 3.4: at its `o_z = 0.0093` the
+  support of `ℓ = 0.04` straddled the face `z = 0` all the time, which
+  multiplies the solve's projections. It was cancelled, and the orbit's
+  plane moved halfway between element faces (`--oz`), 4.1 s a step. A
+  try on an H200 ran at 55 to 58 s a step, the solve on the host's 8
+  threads, so the movie stayed on an AMD node.
+- 2026-11-22: that run (job 607865) broke down at `t ≈ 17`: the binary
+  breathed at a period of about 0.8, growing from the start, until
+  Newton's solve failed. The owner had it investigated in a session of
+  its own, which found the loop through the solved `ä` in the source and
+  `--source-addot=predicted` to cure it ("The breathing instability").
+- 2026-11-26: the owner had the movie rerun with the predictor's `ä`, on
+  the branch with the predictor's inertia `(M + QΦ_C)γ`, and it reached
+  `t = 72` in 14.1 hours, `d` from 1 to 0.713 in 5.6 orbits. Its 5.7 GB of
+  frames were rendered on Symmetry, at the owner's suggestion, not
+  fetched to the laptop (`CODE.md`, "The movie" under "Measured
+  results").
 
 ### What the plan said of its finished milestones
 

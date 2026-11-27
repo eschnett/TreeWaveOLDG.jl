@@ -276,6 +276,19 @@ julia --project=. -t 4,0 bin/orbit_exact.jl --plane=EXACT --frames=0:40 --pevery
 julia --project=bin -t 4,0 bin/visualize_orbit.jl DIR --ref=EXACT --waves=FILE --wradius=10
 ```
 
+The movie of a binary that inspirals under its forces ("The movie"):
+`bin/inspiral_movie.jl` writes the frames, the retarded field of its
+recorded path (`--ref`) and its path (`jets.tsv`), and the same viewer
+shows its separation; `jobs/inspiral_movie.jl` runs it on an AMD node,
+about 14 hours, and its 5.7 GB of frames are best rendered there. The
+small run below takes about 17 minutes on four threads, most of it the
+binary's solve:
+
+```bash
+julia --project=. -t 4,0 bin/inspiral_movie.jl --hdiv=2 --levels=1 --w0=4 --R1=8 --rx1=10 --rx2=12 --tend=0.125 --pevery=0.03125 --every=0.03125 --grids=7:128,3:128 --plane=DIR --ref=REF --waves=FILE --wradii=5,7
+julia --project=bin -t 4,0 bin/visualize_orbit.jl DIR --ref=REF --waves=FILE --wradius=5 --modes=1:1,3:3
+```
+
 The dispersion relation of the semi-discrete scheme on a brick, and
 with `--front` how far ahead of light compact data reach ("Why the
 error outruns light"), in the package environment, seconds in 1D and
