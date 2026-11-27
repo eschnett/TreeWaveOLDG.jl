@@ -33,7 +33,16 @@
 # panel at the bottom right shows the separation `d` against `t`, with
 # the leading order's `d³ = d₀³ − (Δq²K/2π)(t − t₀)` from the end of the
 # hand-over `t₀` dashed. `--track=T` sets how far back in time the tracks
-# reach, by default a quarter orbit, or the whole run for the inspiral. The colour scales are fixed for the whole movie: symmetric, at
+# reach, by default a quarter orbit, or the whole run for the inspiral.
+# The inspiral's maps also show two light fronts about the orbit's
+# centre, which tell the initial data from what the run made: beyond the
+# solid circle `r = t + r₀`, `r₀` the charges' largest distance from the
+# centre at `t = 0`, nothing the charges did after `t = 0` has arrived, and
+# the field is the data's, the retarded field of the past, carried out;
+# inside the dashed one, `r = t − t₀ − r₀`, every wave left the charges
+# after the hand-over, under their forces alone; between them are the
+# waves of the hand-over. The panels of the waves and of `d` shade the
+# same three spans in time, at the sphere's radius for the waves. The colour scales are fixed for the whole movie: symmetric, at
 # `--clim` (`--zclim` for the zoom), by default the 99.5th percentile of
 # `|q|` over the last frame, in `--colormap` (any of Makie's, by default
 # `plasma`; `balance` is a diverging one). `--frame=N` writes one frame (from 0) as a
@@ -250,7 +259,33 @@ function main()
     tracks = [Observable(Point2f[]) for _ in 1:F.K]
     heads = Observable(Point2f[])
     for k in 1:F.K
-        lines!(axz, tracks[k]; color=(:black, 0.6), linewidth=2)
+        lines!(axz, tracks[k]; color=(:grey85, 0.8), linewidth=1.5)
+    end
+    # The light fronts of `t = 0` and of the end of the hand-over `t₀`.
+    t₀ = dynamic ? metanum(meta, "onset") : 0.0
+    r₀ = maximum(k -> hypot((F.zs[1][k] .- o)[1:2]...), 1:F.K)
+    fronts = (Observable(Point2f[]), Observable(Point2f[]))
+    circle(r) = r <= 0 ? Point2f[] : [Point2f(r * cos(θ), r * sin(θ)) for θ in range(0, 2π, 361)]
+    if dynamic
+        for ax in (axw, axz)
+            lines!(ax, fronts[1]; color=(:white, 0.9), linewidth=2,
+                   label="light front from t = 0")
+            lines!(ax, fronts[2]; color=(:white, 0.9), linewidth=2, linestyle=:dash,
+                   label="light front from the hand-over's end")
+        end
+        axislegend(axw; position=:rt, labelsize=14, labelcolor=:white,
+                   backgroundcolor=:grey30, framecolor=:grey30)
+    end
+    # The spans in time of the data, the hand-over and the force alone at
+    # radius `r`, shaded behind a panel against `t`; `pad` is how far the
+    # charges are from the centre, `r₀` for a sphere, 0 for themselves.
+    function spans!(ax, r, pad)
+        t1, t2 = first(F.t), last(F.t)
+        r - pad > t1 && vspan!(ax, t1, min(r - pad, t2); color=(:grey50, 0.3),
+                               label="initial data")
+        vspan!(ax, max(r - pad, t1), min(r + t₀ + pad, t2); color=(:grey50, 0.12),
+               label="hand-over")
+        return nothing
     end
     scatter!(axz, heads; color=:black, markersize=12)
     scatter!(axw, heads; color=:black, markersize=6)
@@ -262,6 +297,7 @@ function main()
         Rw = parse(Float64, option("wradius", "50"))
         tw, curves = waveforms(wavesfile, Rw, modes)
         axs = Axis(fig[2, 3]; xlabel="t", ylabel="r Re Φ_ℓm at r = $(Int(round(Rw)))")
+        dynamic && spans!(axs, Rw, r₀)
         for (c, color) in zip(curves, Makie.wong_colors())
             lines!(axs, tw, c.run; color, label="ℓ = $(c.l), m = $(c.m)")
             c.ref === nothing || lines!(axs, tw, c.ref; color, linestyle=:dash)
@@ -272,9 +308,9 @@ function main()
     end
     if dynamic
         axd = Axis(fig[rows, 3]; xlabel="t", ylabel="separation d")
+        spans!(axd, 0.0, 0.0)
         lines!(axd, F.t, sep; color=:black, label="run")
         # The leading order from the end of the hand-over on.
-        t₀ = metanum(meta, "onset")
         i₀ = something(findfirst(>=(t₀), F.t), 1)
         Δq = Qs[1] - Qs[end]
         C = Δq^2 * metanum(meta, "binding") / 2π
@@ -296,6 +332,8 @@ function main()
                   @sprintf("t = %.2f, %.2f orbits, d = %.3f", t, phases[i] / 2π, sep[i]) :
                   @sprintf("t = %.2f, %.2f orbits", t, t / period)
         cursor[] = t
+        fronts[1][] = circle(t + r₀)
+        fronts[2][] = circle(t - t₀ - r₀)
         pts(i) = [Point2f(F.zs[i][k][1] - o[1], F.zs[i][k][2] - o[2]) for k in 1:F.K]
         heads[] = pts(i)
         back = [j for j in 1:i if F.t[i] - F.t[j] <= track]
